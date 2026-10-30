@@ -1,0 +1,51 @@
+/* 美团风主题：主黄 + 深字 */
+:root {
+  --mt-yellow: #ffc300;
+  --mt-yellow-hover: #ffb000;
+  --mt-yellow-light: #fff6d6;
+  --mt-black: #191919;
+  --mt-gray: #666;
+  --mt-border: #f0f0f0;
+  --mt-bg: #f5f5f5;
+  --mt-orange: #ff6a00;
+  --mt-green: #00b578;
+  --mt-idle: #f5f5f5;
+  --mt-dining: #ff6a00;
+  --mt-cleaning: #2f3542;
+
+  --el-color-primary: #ffc300;
+  --el-color-primary-light-3: #ffd54f;
+  --el-color-primary-light-5: #ffe07a;
+  --el-color-primary-light-7: #ffecb0;
+  --el-color-primary-light-8: #fff3cc;
+  --el-color-primary-light-9: #fff9e6;
+  --el-color-primary-dark-2: #e6b000;
+  --el-color-success: #00b578;
+  --el-color-warning: #ff6a00;
+  --el-color-danger: #f56c6c;
+  --el-border-radius-base: 8px;
+}
+
+.el-button--primary {
+  --el-button-text-color: #191919;
+  --el-button-hover-text-color: #191919;
+  --el-button-active-text-color: #191919;
+  --el-button-disabled-text-color: #8c8c8c;
+  font-weight: 600;
+}
+
+.el-tag--dark.el-tag--primary,
+.el-tag.el-tag--dark {
+  --el-tag-text-color: #191919;
+}
+
+.el-menu-item.is-active {
+  font-weight: 600;
+}
+
+html,
+body,
+#app {
+  color: var(--mt-black);
+  background: var(--mt-bg);
+}

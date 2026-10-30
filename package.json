@@ -1,0 +1,40 @@
+{
+  "name": "restaurant-system",
+  "private": true,
+  "packageManager": "pnpm@10.6.5",
+  "scripts": {
+    "dev": "pnpm --filter @restaurant/shared build && pnpm -r --parallel --filter @restaurant/admin --filter @restaurant/h5 --filter @restaurant/server run dev",
+    "dev:admin": "pnpm --filter @restaurant/admin dev",
+    "dev:h5": "pnpm --filter @restaurant/h5 dev",
+    "dev:server": "pnpm --filter @restaurant/server dev",
+    "dev:agent": "pnpm --filter @restaurant/print-agent dev",
+    "build": "pnpm -r run build",
+    "lint": "pnpm -r run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,vue,js,json,md}\"",
+    "db:up": "docker compose -f deploy/docker-compose.dev.yml up -d",
+    "db:down": "docker compose -f deploy/docker-compose.dev.yml down",
+    "db:migrate": "pnpm --filter @restaurant/server prisma:migrate",
+    "db:seed": "pnpm --filter @restaurant/server prisma:seed",
+    "db:generate": "pnpm --filter @restaurant/server prisma:generate",
+    "test": "pnpm -r run test"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma",
+      "vue-demi"
+    ]
+  }
+}

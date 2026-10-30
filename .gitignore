@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+.turbo
+coverage
+*.log
+.env
+.env.local
+uploads/
+apps/server/uploads/
+.DS_Store
+*.tsbuildinfo
+apps/server/prisma/migrations/**/migration_lock.toml.bak
+.cursor/
+apps/server/scripts/seed-home-banners.mjs

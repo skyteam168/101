@@ -1,0 +1,36 @@
+{
+  "name": "@restaurant/print-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "test": "echo \"no print-agent tests yet\"",
+    "pkg:win": "pnpm build && pkg dist/index.js --targets node20-win-x64 --output dist-pkg/print-agent.exe --assets assets/**/*",
+    "pkg:win64": "pnpm build && pkg . --targets node20-win-x64 --output dist-pkg/print-agent.exe"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.100",
+    "@restaurant/shared": "workspace:*",
+    "socket.io-client": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "pkg": "^5.8.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "pkg": {
+    "assets": [
+      "assets/**/*",
+      "config.json"
+    ],
+    "targets": [
+      "node20-win-x64"
+    ],
+    "outputPath": "dist-pkg"
+  }
+}

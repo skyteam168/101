@@ -1,0 +1,6 @@
+{
+  "serverUrl": "http://127.0.0.1:3000",
+  "agentId": "1",
+  "agentSecret": "dev-agent-secret",
+  "localStatusPort": 17890
+}

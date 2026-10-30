@@ -1,0 +1,502 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useRoute, useRouter } from 'vue-router';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { formatVND, localeField } from '@restaurant/shared';
+import { listCategoriesApi, listDishesApi, type Category, type Dish } from '../../api/menu';
+import {
+  addOrderItemsApi,
+  cancelOrderApi,
+  checkoutOrderApi,
+  getOrderByTableApi,
+  setDiscountApi,
+  submitOrderApi,
+  voidOrderItemApi,
+  type Order,
+} from '../../api/order';
+import { listFloorApi, type FloorTable } from '../../api/table';
+import { useUserStore } from '../../stores/user';
+import { formatThousands, parseThousands } from '../../utils/vnd-input';
+
+const { t, locale } = useI18n();
+const route = useRoute();
+const router = useRouter();
+const userStore = useUserStore();
+const loc = computed(() => (locale.value === 'vi-VN' ? 'vi' : 'zh'));
+
+const tableId = computed(() => String(route.params.tableId));
+const table = ref<FloorTable | null>(null);
+const categories = ref<Category[]>([]);
+const dishes = ref<Dish[]>([]);
+const activeCat = ref('');
+const order = ref<Order | null>(null);
+const cart = ref<{ dish: Dish; qty: number }[]>([]);
+const loading = ref(false);
+const checkoutVisible = ref(false);
+const discountVisible = ref(false);
+const discountText = ref('0');
+const serviceText = ref('0');
+
+const payForm = reactive({
+  method: 'cash' as string,
+  receivedText: '',
+});
+
+function nameOf(row: { nameZh: string; nameVi: string }) {
+  return localeField(row as unknown as Record<string, unknown>, 'name', loc.value);
+}
+
+function isSellable(d: Dish) {
+  if (d.status !== 'on' || !d.isDineIn) return false;
+  if (d.stock != null && d.stock <= 0) return false;
+  if (d.dailyStock != null && d.soldToday >= d.dailyStock) return false;
+  return true;
+}
+
+const filteredDishes = computed(() =>
+  dishes.value.filter(
+    (d) => isSellable(d) && (!activeCat.value || d.categoryId === activeCat.value),
+  ),
+);
+
+const cartTotal = computed(() => cart.value.reduce((s, c) => s + c.dish.price * c.qty, 0));
+
+const cashReceived = computed(() => parseThousands(payForm.receivedText) || 0);
+const cashChange = computed(() => Math.max(0, cashReceived.value - (order.value?.total ?? 0)));
+
+async function loadMeta() {
+  const floor = await listFloorApi();
+  for (const a of floor) {
+    const found = a.tables.find((x) => x.id === tableId.value);
+    if (found) {
+      table.value = found;
+      break;
+    }
+  }
+  if (!table.value || table.value.status !== 'dining') {
+    ElMessage.warning(t('tables.notDining'));
+    router.replace('/tables');
+  }
+}
+
+async function loadMenu() {
+  categories.value = await listCategoriesApi();
+  dishes.value = await listDishesApi({ status: 'on' });
+  if (!activeCat.value && categories.value.length) {
+    activeCat.value = categories.value[0].id;
+  }
+}
+
+async function loadOrder() {
+  order.value = await getOrderByTableApi(tableId.value);
+}
+
+async function refresh() {
+  loading.value = true;
+  try {
+    await Promise.all([loadMeta(), loadMenu(), loadOrder()]);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function addToCart(dish: Dish) {
+  const line = cart.value.find((c) => c.dish.id === dish.id);
+  if (line) line.qty += 1;
+  else cart.value.push({ dish, qty: 1 });
+}
+
+function changeCartQty(dishId: string, delta: number) {
+  const idx = cart.value.findIndex((c) => c.dish.id === dishId);
+  if (idx < 0) return;
+  cart.value[idx].qty += delta;
+  if (cart.value[idx].qty <= 0) cart.value.splice(idx, 1);
+}
+
+async function submitCart() {
+  if (!cart.value.length) return;
+  const items = cart.value.map((c) => ({ dishId: c.dish.id, qty: c.qty }));
+  if (order.value) {
+    if (!userStore.hasPerm('order:add-item')) return;
+    order.value = await addOrderItemsApi(order.value.id, items);
+  } else {
+    if (!userStore.hasPerm('order:create')) return;
+    order.value = await submitOrderApi({ tableId: tableId.value, items });
+  }
+  cart.value = [];
+  ElMessage.success(t('order.submitted'));
+  await loadMeta();
+}
+
+async function voidItem(itemId: string) {
+  const { value } = await ElMessageBox.prompt(t('order.voidReason'), t('order.void'), {
+    inputPattern: /.+/,
+    inputErrorMessage: t('order.reasonRequired'),
+  });
+  order.value = await voidOrderItemApi(itemId, value);
+  ElMessage.success(t('order.voided'));
+}
+
+async function cancelOrder() {
+  if (!order.value) return;
+  const { value } = await ElMessageBox.prompt(t('order.cancelReason'), t('order.cancel'), {
+    inputPattern: /.+/,
+    type: 'warning',
+  });
+  await cancelOrderApi(order.value.id, value);
+  ElMessage.success(t('order.cancelled'));
+  router.replace('/tables');
+}
+
+function openDiscount() {
+  discountText.value = formatThousands(order.value?.discount ?? 0);
+  serviceText.value = formatThousands(order.value?.serviceCharge ?? 0);
+  discountVisible.value = true;
+}
+
+async function saveDiscount() {
+  if (!order.value) return;
+  order.value = await setDiscountApi(order.value.id, {
+    discount: parseThousands(discountText.value) || 0,
+    serviceCharge: parseThousands(serviceText.value) || 0,
+  });
+  discountVisible.value = false;
+  ElMessage.success(t('common.saved'));
+}
+
+function openCheckout() {
+  if (!order.value || order.value.total <= 0) {
+    ElMessage.warning(t('order.emptyCheckout'));
+    return;
+  }
+  payForm.method = 'cash';
+  payForm.receivedText = formatThousands(order.value.total);
+  checkoutVisible.value = true;
+}
+
+async function confirmCheckout() {
+  if (!order.value) return;
+  const amount = order.value.total;
+  const payments =
+    payForm.method === 'cash'
+      ? [{ method: 'cash', amount, received: cashReceived.value }]
+      : [{ method: payForm.method, amount }];
+  await checkoutOrderApi(order.value.id, payments);
+  checkoutVisible.value = false;
+  ElMessage.success(t('order.paid'));
+  router.replace('/tables');
+}
+
+watch(tableId, () => refresh());
+onMounted(refresh);
+</script>
+
+<template>
+  <div class="pos" v-loading="loading">
+    <div class="pos-head">
+      <el-button text @click="router.push('/tables')">← {{ t('order.backFloor') }}</el-button>
+      <div class="title">
+        <strong>{{ table?.code }}</strong>
+        <span v-if="table?.session">
+          · {{ t('tables.guests', { n: table.session.guestCount }) }}
+          · PIN {{ table.session.pin }}
+        </span>
+      </div>
+      <div class="head-actions">
+        <el-button v-if="order && userStore.hasPerm('order:discount')" @click="openDiscount">
+          {{ t('order.discount') }}
+        </el-button>
+        <el-button v-if="order && userStore.hasPerm('order:cancel')" type="danger" plain @click="cancelOrder">
+          {{ t('order.cancel') }}
+        </el-button>
+        <el-button
+          v-if="order && userStore.hasPerm('order:checkout')"
+          type="primary"
+          @click="openCheckout"
+        >
+          {{ t('order.checkout') }}
+        </el-button>
+      </div>
+    </div>
+
+    <div class="pos-body">
+      <aside class="cats">
+        <button
+          v-for="c in categories"
+          :key="c.id"
+          type="button"
+          :class="{ active: activeCat === c.id }"
+          @click="activeCat = c.id"
+        >
+          {{ nameOf(c) }}
+        </button>
+      </aside>
+
+      <section class="dishes">
+        <button
+          v-for="d in filteredDishes"
+          :key="d.id"
+          type="button"
+          class="dish"
+          @click="addToCart(d)"
+        >
+          <div class="d-name">{{ nameOf(d) }}</div>
+          <div class="d-price">{{ formatVND(d.price) }}</div>
+        </button>
+      </section>
+
+      <aside class="ticket">
+        <div class="ticket-title">{{ t('order.ordered') }}</div>
+        <div v-if="!order?.batches?.length" class="empty">{{ t('order.noItems') }}</div>
+        <div v-for="batch in order?.batches || []" :key="batch.id" class="round">
+          <div class="round-h">{{ t('order.round', { n: batch.roundNo }) }}</div>
+          <div v-for="it in batch.items" :key="it.id" class="line" :class="{ voided: it.status === 'voided' }">
+            <div class="ln">
+              <span>{{ nameOf(it) }} ×{{ it.qty }}</span>
+              <span>{{ formatVND(it.amount) }}</span>
+            </div>
+            <el-button
+              v-if="it.status !== 'voided' && userStore.hasPerm('order:void-item')"
+              link
+              type="danger"
+              size="small"
+              @click="voidItem(it.id)"
+            >
+              {{ t('order.void') }}
+            </el-button>
+          </div>
+        </div>
+
+        <div class="ticket-title cart-h">{{ t('order.cart') }}</div>
+        <div v-if="!cart.length" class="empty">{{ t('order.cartEmpty') }}</div>
+        <div v-for="c in cart" :key="c.dish.id" class="line">
+          <div class="ln">
+            <span>{{ nameOf(c.dish) }}</span>
+            <span>{{ formatVND(c.dish.price * c.qty) }}</span>
+          </div>
+          <div class="qty">
+            <el-button size="small" @click="changeCartQty(c.dish.id, -1)">-</el-button>
+            <span>{{ c.qty }}</span>
+            <el-button size="small" @click="changeCartQty(c.dish.id, 1)">+</el-button>
+          </div>
+        </div>
+
+        <div class="totals">
+          <div><span>{{ t('order.cartTotal') }}</span><strong>{{ formatVND(cartTotal) }}</strong></div>
+          <div v-if="order"><span>{{ t('order.billTotal') }}</span><strong>{{ formatVND(order.total) }}</strong></div>
+        </div>
+        <el-button
+          v-if="userStore.hasPerm(order ? 'order:add-item' : 'order:create')"
+          type="primary"
+          class="submit"
+          :disabled="!cart.length"
+          @click="submitCart"
+        >
+          {{ order ? t('order.addItems') : t('order.submit') }}
+        </el-button>
+      </aside>
+    </div>
+
+    <el-dialog v-model="discountVisible" :title="t('order.discount')" width="400px">
+      <el-form label-width="100px">
+        <el-form-item :label="t('order.discountAmount')">
+          <el-input v-model="discountText" />
+        </el-form-item>
+        <el-form-item :label="t('order.serviceCharge')">
+          <el-input v-model="serviceText" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="discountVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="saveDiscount">{{ t('common.save') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="checkoutVisible" :title="t('order.checkout')" width="440px">
+      <div class="pay-total">{{ formatVND(order?.total ?? 0) }}</div>
+      <el-form label-width="100px">
+        <el-form-item :label="t('order.payMethod')">
+          <el-select v-model="payForm.method" style="width: 100%">
+            <el-option value="cash" :label="t('order.cash')" />
+            <el-option value="card" :label="t('order.card')" />
+            <el-option value="bank_transfer" :label="t('order.bank')" />
+            <el-option value="momo" label="MoMo" />
+            <el-option value="vnpay" label="VNPay" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="payForm.method === 'cash'" :label="t('order.received')">
+          <el-input v-model="payForm.receivedText" />
+        </el-form-item>
+        <el-form-item v-if="payForm.method === 'cash'" :label="t('order.change')">
+          <span>{{ formatVND(cashChange) }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="checkoutVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="confirmCheckout">{{ t('order.confirmPay') }}</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<style scoped>
+.pos {
+  height: calc(100vh - 100px);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 12px;
+}
+.pos-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.title {
+  flex: 1;
+  font-size: 16px;
+}
+.head-actions {
+  display: flex;
+  gap: 8px;
+}
+.pos-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 120px 1fr 300px;
+  gap: 10px;
+}
+.cats {
+  overflow: auto;
+  background: #f7f8fa;
+  border-radius: 8px;
+  padding: 6px;
+}
+.cats button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 10px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+.cats button.active {
+  background: #fff;
+  color: #409eff;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.dishes {
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  align-content: start;
+}
+.dish {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+  min-height: 84px;
+}
+.dish:hover {
+  border-color: #409eff;
+}
+.d-name {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.d-price {
+  color: #c45656;
+}
+.ticket {
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+.ticket-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.cart-h {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #ddd;
+}
+.empty {
+  color: #999;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.round-h {
+  font-size: 12px;
+  color: #888;
+  margin: 6px 0;
+}
+.line {
+  margin-bottom: 6px;
+}
+.line.voided {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.ln {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.qty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.totals {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+.totals div {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.submit {
+  margin-top: 10px;
+  width: 100%;
+}
+.pay-total {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: #c45656;
+  margin-bottom: 16px;
+}
+@media (max-width: 960px) {
+  .pos-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .cats {
+    display: flex;
+    overflow-x: auto;
+  }
+  .cats button {
+    white-space: nowrap;
+    width: auto;
+  }
+}
+</style>

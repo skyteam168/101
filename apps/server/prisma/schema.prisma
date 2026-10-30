@@ -1,0 +1,1332 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ========== 枚举 ==========
+
+enum UserLang {
+  zh
+  vi
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+enum PermissionType {
+  menu
+  button
+  api
+}
+
+enum DishStatus {
+  on
+  off
+}
+
+enum TableStatus {
+  idle
+  dining
+  cleaning
+}
+
+enum SessionStatus {
+  open
+  closed
+}
+
+enum OrderType {
+  dine_in
+  takeaway
+  delivery
+}
+
+enum OrderSource {
+  waiter
+  qr
+  h5
+  pos
+}
+
+enum OrderStatus {
+  open
+  paid
+  cancelled
+  pending
+  accepted
+  cooking
+  delivering
+  completed
+  rejected
+}
+
+enum PaymentStatus {
+  unpaid
+  partial
+  paid
+  refunded
+}
+
+enum OrderItemStatus {
+  pending
+  cooking
+  served
+  voided
+}
+
+enum PaymentMethod {
+  cash
+  card
+  bank_transfer
+  momo
+  vnpay
+}
+
+enum PrinterRole {
+  front
+  kitchen
+}
+
+enum PrintJobKind {
+  order_front
+  order_kitchen
+  add
+  void
+  receipt
+  cancel
+  delivery
+  shift
+}
+
+enum PrintJobStatus {
+  queued
+  sent
+  done
+  failed
+}
+
+enum PrintAgentStatus {
+  online
+  offline
+}
+
+enum BatchPrintStatus {
+  pending
+  printed
+  failed
+  need_confirm
+}
+
+enum AssetEventType {
+  in
+  assign
+  transfer
+  repair
+  repair_done
+  scrap
+  sell
+  check
+}
+
+enum IngredientKind {
+  vegetable
+  seasoning
+  other
+}
+
+enum ComboStatus {
+  on
+  off
+}
+
+enum ReservationStatus {
+  pending
+  confirmed
+  seated
+  cancelled
+  no_show
+}
+
+enum StocktakeStatus {
+  draft
+  confirmed
+}
+
+enum CustomerStatus {
+  active
+  banned
+  deleted
+}
+
+enum CouponDiscountType {
+  amount
+  percent
+}
+
+enum CouponStatus {
+  unused
+  used
+  expired
+}
+
+enum PromoScope {
+  order
+  dish
+}
+
+enum PromoChannel {
+  delivery
+  dine_in
+  all
+}
+
+enum LedgerDirection {
+  in
+  out
+  adjust
+}
+
+// ========== 权限 ==========
+
+model User {
+  id           BigInt     @id @default(autoincrement())
+  storeId      BigInt?    @map("store_id")
+  username     String     @unique @db.VarChar(64)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  displayName  String     @map("display_name") @db.VarChar(128)
+  phone        String?    @db.VarChar(32)
+  lang         UserLang   @default(zh)
+  status       UserStatus @default(active)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  store          Store?          @relation(fields: [storeId], references: [id])
+  userRoles      UserRole[]
+  waitSessions   TableSession[]  @relation("SessionWaiter")
+  createdOrders  Order[]         @relation("OrderCreator")
+  courierOrders  Order[]         @relation("OrderCourier")
+  payments       Payment[]
+  assetEvents    AssetEvent[]
+  auditLogs      AuditLog[]
+  cashierShifts     CashierShift[]
+  purchases         Purchase[]
+  stocktakes        Stocktake[]
+  pointsLedgers     PointsLedger[]
+  balanceLedgers    BalanceLedger[]
+  issuedCoupons     Coupon[]         @relation("CouponIssuer")
+  createdReservations Reservation[]  @relation("ReservationCreator")
+
+  @@index([storeId])
+  @@map("users")
+}
+
+model Role {
+  id        BigInt   @id @default(autoincrement())
+  code      String   @unique @db.VarChar(64)
+  nameZh    String   @map("name_zh") @db.VarChar(128)
+  nameVi    String   @map("name_vi") @db.VarChar(128)
+  isSystem  Boolean  @default(false) @map("is_system")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id        BigInt         @id @default(autoincrement())
+  code      String         @unique @db.VarChar(128)
+  nameZh    String         @map("name_zh") @db.VarChar(128)
+  nameVi    String         @map("name_vi") @db.VarChar(128)
+  type      PermissionType
+  parentId  BigInt?        @map("parent_id")
+  path      String?        @db.VarChar(255)
+  sort      Int            @default(0)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  parent          Permission?      @relation("PermTree", fields: [parentId], references: [id])
+  children        Permission[]     @relation("PermTree")
+  rolePermissions RolePermission[]
+
+  @@index([parentId])
+  @@map("permissions")
+}
+
+model UserRole {
+  userId BigInt @map("user_id")
+  roleId BigInt @map("role_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       BigInt @map("role_id")
+  permissionId BigInt @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ========== 门店 ==========
+
+model Store {
+  id                  BigInt   @id @default(autoincrement())
+  nameZh              String   @map("name_zh") @db.VarChar(128)
+  nameVi              String   @map("name_vi") @db.VarChar(128)
+  address             String?  @db.VarChar(255)
+  phone               String?  @db.VarChar(32)
+  serviceChargeRate   Decimal  @default(0) @map("service_charge_rate") @db.Decimal(5, 4)
+  taxRate             Decimal  @default(0) @map("tax_rate") @db.Decimal(5, 4)
+  deliveryRadiusKm    Decimal  @default(5) @map("delivery_radius_km") @db.Decimal(8, 2)
+  deliveryFeeRules    Json?    @map("delivery_fee_rules")
+  /** 起送价（越南盾整数） */
+  minOrderAmount      BigInt   @default(0) @map("min_order_amount")
+  /** 营业时间 JSON：{ open:"09:00", close:"22:00", days:[1,2,3,4,5,6,0] } */
+  businessHours       Json?    @map("business_hours")
+  /** 门店坐标（配送距离） */
+  lat                 Decimal? @db.Decimal(10, 7)
+  lng                 Decimal? @db.Decimal(10, 7)
+  /** 银行转账收款码图片 URL */
+  bankTransferQr      String?  @map("bank_transfer_qr") @db.VarChar(512)
+  qrOrderNeedConfirm  Boolean  @default(false) @map("qr_order_need_confirm")
+  qrAutoOpen          Boolean  @default(true) @map("qr_auto_open")
+  qrRequirePin        Boolean  @default(true) @map("qr_require_pin")
+  businessDayCutHour  Int      @default(4) @map("business_day_cut_hour")
+  announceLang        UserLang @default(zh) @map("announce_lang")
+  /** 各类语音播报开关 */
+  announceSettings    Json?    @map("announce_settings")
+  /**
+   * 邮件 SMTP 配置 JSON：
+   * { enabled, host, port, secure, user, pass, from }
+   */
+  mailSettings        Json?    @map("mail_settings")
+  /**
+   * H5 首页轮播 Banner JSON：
+   * [{ image, link?, titleZh?, titleVi? }]
+   */
+  homeBanners         Json?    @map("home_banners")
+  /** 厨房单一菜一切 */
+  printSplitItem      Boolean  @default(false) @map("print_split_item")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  users            User[]
+  areas            Area[]
+  tables           Table[]
+  kitchenStations  KitchenStation[]
+  categories       Category[]
+  dishes           Dish[]
+  orders           Order[]
+  printAgents      PrintAgent[]
+  printers         Printer[]
+  assetCategories  AssetCategory[]
+  assets           Asset[]
+  dailySummaries   DailySummary[]
+  cashierShifts    CashierShift[]
+  ingredients      Ingredient[]
+  suppliers        Supplier[]
+  purchases        Purchase[]
+  stocktakes       Stocktake[]
+  memberLevels     MemberLevel[]
+  couponTemplates  CouponTemplate[]
+  promoRules       PromoRule[]
+  combos           Combo[]
+  reservations         Reservation[]
+  notices              StoreNotice[]
+  groupMealInquiries   GroupMealInquiry[]
+
+  @@map("stores")
+}
+
+/** 门店公告（H5 首页展示） */
+model StoreNotice {
+  id        BigInt   @id @default(autoincrement())
+  storeId   BigInt   @map("store_id")
+  titleZh   String   @map("title_zh") @db.VarChar(128)
+  titleVi   String   @map("title_vi") @db.VarChar(128)
+  contentZh String   @map("content_zh") @db.Text
+  contentVi String   @map("content_vi") @db.Text
+  /** 展示类型：info / warn / important */
+  level     String   @default("info") @db.VarChar(16)
+  isActive  Boolean  @default(true) @map("is_active")
+  sort      Int      @default(0)
+  /** 可选过期时间，过期后前台不展示 */
+  expiresAt DateTime? @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, isActive, sort])
+  @@map("store_notices")
+}
+
+// ========== 菜品 ==========
+
+model KitchenStation {
+  id        BigInt   @id @default(autoincrement())
+  storeId   BigInt   @map("store_id")
+  nameZh    String   @map("name_zh") @db.VarChar(64)
+  nameVi    String   @map("name_vi") @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  store      Store       @relation(fields: [storeId], references: [id])
+  categories Category[]
+  printers   Printer[]
+
+  @@index([storeId])
+  @@map("kitchen_stations")
+}
+
+model Category {
+  id               BigInt   @id @default(autoincrement())
+  storeId          BigInt   @map("store_id")
+  kitchenStationId BigInt?  @map("kitchen_station_id")
+  nameZh           String   @map("name_zh") @db.VarChar(128)
+  nameVi           String   @map("name_vi") @db.VarChar(128)
+  sort             Int      @default(0)
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  store          Store           @relation(fields: [storeId], references: [id])
+  kitchenStation KitchenStation? @relation(fields: [kitchenStationId], references: [id])
+  dishes         Dish[]
+
+  @@index([storeId])
+  @@index([kitchenStationId])
+  @@map("categories")
+}
+
+model Dish {
+  id            BigInt     @id @default(autoincrement())
+  storeId       BigInt     @map("store_id")
+  categoryId    BigInt     @map("category_id")
+  nameZh        String     @map("name_zh") @db.VarChar(128)
+  nameVi        String     @map("name_vi") @db.VarChar(128)
+  descZh        String?    @map("desc_zh") @db.Text
+  descVi        String?    @map("desc_vi") @db.Text
+  image         String?    @db.VarChar(512)
+  price         BigInt
+  takeawayPrice BigInt     @map("takeaway_price")
+  unit          String     @default("份") @db.VarChar(32)
+  status        DishStatus @default(on)
+  stock         Int?
+  dailyStock    Int?       @map("daily_stock")
+  soldToday     Int        @default(0) @map("sold_today")
+  sort          Int        @default(0)
+  isDineIn      Boolean    @default(true) @map("is_dine_in")
+  isDelivery    Boolean    @default(true) @map("is_delivery")
+  /** 首页新品推荐 */
+  isNew         Boolean    @default(false) @map("is_new")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  store          Store            @relation(fields: [storeId], references: [id])
+  category       Category         @relation(fields: [categoryId], references: [id])
+  options        DishOption[]
+  items          OrderItem[]
+  comboGroupItems ComboGroupItem[]
+
+  @@index([storeId, status])
+  @@index([categoryId])
+  @@index([storeId, isNew])
+  @@map("dishes")
+}
+
+model DishOption {
+  id           BigInt   @id @default(autoincrement())
+  dishId       BigInt   @map("dish_id")
+  groupNameZh  String   @map("group_name_zh") @db.VarChar(64)
+  groupNameVi  String   @map("group_name_vi") @db.VarChar(64)
+  optionNameZh String   @map("option_name_zh") @db.VarChar(64)
+  optionNameVi String   @map("option_name_vi") @db.VarChar(64)
+  extraPrice   BigInt   @default(0) @map("extra_price")
+  required     Boolean  @default(false)
+  multi        Boolean  @default(false)
+  sort         Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  dish Dish @relation(fields: [dishId], references: [id], onDelete: Cascade)
+
+  @@index([dishId])
+  @@map("dish_options")
+}
+
+// ========== 桌台 ==========
+
+model Area {
+  id        BigInt   @id @default(autoincrement())
+  storeId   BigInt   @map("store_id")
+  nameZh    String   @map("name_zh") @db.VarChar(64)
+  nameVi    String   @map("name_vi") @db.VarChar(64)
+  sort      Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  store        Store         @relation(fields: [storeId], references: [id])
+  tables       Table[]
+  reservations Reservation[]
+
+  @@index([storeId])
+  @@map("areas")
+}
+
+model Table {
+  id               BigInt      @id @default(autoincrement())
+  storeId          BigInt      @map("store_id")
+  areaId           BigInt      @map("area_id")
+  code             String      @db.VarChar(32)
+  seats            Int         @default(4)
+  status           TableStatus @default(idle)
+  qrToken          String      @unique @map("qr_token") @db.VarChar(64)
+  currentSessionId BigInt?     @unique @map("current_session_id")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  store          Store          @relation(fields: [storeId], references: [id])
+  area           Area           @relation(fields: [areaId], references: [id])
+  currentSession TableSession?  @relation("CurrentSession", fields: [currentSessionId], references: [id])
+  sessions       TableSession[] @relation("TableSessions")
+  reservations   Reservation[]
+
+  @@unique([storeId, code])
+  @@index([areaId])
+  @@index([status])
+  @@map("tables")
+}
+
+model TableSession {
+  id           BigInt        @id @default(autoincrement())
+  tableId      BigInt        @map("table_id")
+  openAt       DateTime      @default(now()) @map("open_at")
+  closeAt      DateTime?     @map("close_at")
+  guestCount   Int           @default(1) @map("guest_count")
+  pin          String        @db.VarChar(4)
+  sessionToken String        @unique @map("session_token") @db.VarChar(64)
+  waiterId     BigInt?       @map("waiter_id")
+  status       SessionStatus @default(open)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  table        Table         @relation("TableSessions", fields: [tableId], references: [id])
+  waiter       User?         @relation("SessionWaiter", fields: [waiterId], references: [id])
+  currentOf    Table?        @relation("CurrentSession")
+  orders       Order[]
+  reservations Reservation[]
+
+  @@index([tableId, status])
+  @@map("table_sessions")
+}
+
+// ========== 订单 ==========
+
+model Order {
+  id              BigInt        @id @default(autoincrement())
+  storeId         BigInt        @map("store_id")
+  orderNo         String        @unique @map("order_no") @db.VarChar(32)
+  type            OrderType
+  source          OrderSource
+  tableSessionId  BigInt?       @map("table_session_id")
+  customerId      BigInt?       @map("customer_id")
+  addressSnapshot Json?         @map("address_snapshot")
+  status          OrderStatus
+  subtotal        BigInt        @default(0)
+  discount        BigInt        @default(0)
+  roundOff        BigInt        @default(0) @map("round_off")
+  serviceCharge   BigInt        @default(0) @map("service_charge")
+  deliveryFee     BigInt        @default(0) @map("delivery_fee")
+  total           BigInt        @default(0)
+  paidAmount      BigInt        @default(0) @map("paid_amount")
+  paymentStatus   PaymentStatus @default(unpaid) @map("payment_status")
+  couponId        BigInt?       @map("coupon_id")
+  /** 命中规则/券快照 */
+  promoSnapshot   Json?         @map("promo_snapshot")
+  remark          String?       @db.VarChar(512)
+  cancelReason    String?       @map("cancel_reason") @db.VarChar(512)
+  /** 顾客选择的支付方式（货到付款=cash，银行转账=bank_transfer；预留 momo/vnpay） */
+  payMethod       PaymentMethod? @map("pay_method")
+  courierId       BigInt?       @map("courier_id")
+  /** [{ status, at, by?, reason? }] */
+  statusTimeline  Json?         @map("status_timeline")
+  createdBy       BigInt?       @map("created_by")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  store        Store         @relation(fields: [storeId], references: [id])
+  tableSession TableSession? @relation(fields: [tableSessionId], references: [id])
+  customer     Customer?     @relation(fields: [customerId], references: [id])
+  coupon       Coupon?       @relation(fields: [couponId], references: [id])
+  creator      User?         @relation("OrderCreator", fields: [createdBy], references: [id])
+  courier      User?         @relation("OrderCourier", fields: [courierId], references: [id])
+  batches      OrderBatch[]
+  items        OrderItem[]
+  payments     Payment[]
+  printJobs    PrintJob[]
+
+  @@index([storeId, status, createdAt])
+  @@index([tableSessionId])
+  @@index([customerId])
+  @@index([couponId])
+  @@index([type, status])
+  @@index([courierId])
+  @@map("orders")
+}
+
+model OrderBatch {
+  id            BigInt           @id @default(autoincrement())
+  orderId       BigInt           @map("order_id")
+  roundNo       Int              @map("round_no")
+  source        OrderSource
+  createdBy     BigInt?          @map("created_by")
+  guestNickname String?          @map("guest_nickname") @db.VarChar(64)
+  printStatus   BatchPrintStatus @default(pending) @map("print_status")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items     OrderItem[]
+  printJobs PrintJob[]
+
+  @@unique([orderId, roundNo])
+  @@index([orderId])
+  @@map("order_batches")
+}
+
+model OrderItem {
+  id              BigInt          @id @default(autoincrement())
+  orderId         BigInt          @map("order_id")
+  batchId         BigInt          @map("batch_id")
+  /** 临时菜可为空 */
+  dishId          BigInt?         @map("dish_id")
+  nameZh          String          @map("name_zh") @db.VarChar(128)
+  nameVi          String          @map("name_vi") @db.VarChar(128)
+  originUnitPrice BigInt          @default(0) @map("origin_unit_price")
+  unitPrice       BigInt          @map("unit_price")
+  qty             Int
+  lineDiscount    BigInt          @default(0) @map("line_discount")
+  isGift          Boolean         @default(false) @map("is_gift")
+  optionsSnapshot Json?           @map("options_snapshot")
+  amount          BigInt
+  status          OrderItemStatus @default(pending)
+  voidReason      String?         @map("void_reason") @db.VarChar(255)
+  guestNickname   String?         @map("guest_nickname") @db.VarChar(64)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  /** 套餐 ID（点套餐时填写，与 dishId 互斥） */
+  comboId         BigInt?         @map("combo_id")
+
+  order Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  batch OrderBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  dish  Dish?      @relation(fields: [dishId], references: [id])
+  combo Combo?     @relation(fields: [comboId], references: [id])
+
+  @@index([orderId])
+  @@index([batchId])
+  @@index([dishId])
+  @@index([comboId])
+  @@index([status])
+  @@map("order_items")
+}
+
+model Payment {
+  id         BigInt        @id @default(autoincrement())
+  orderId    BigInt        @map("order_id")
+  method     PaymentMethod
+  amount     BigInt
+  received   BigInt        @default(0)
+  change     BigInt        @default(0)
+  operatorId BigInt?       @map("operator_id")
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  order    Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  operator User? @relation(fields: [operatorId], references: [id])
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+// ========== 会员 / 外卖顾客 ==========
+
+model MemberLevel {
+  id                   BigInt   @id @default(autoincrement())
+  storeId              BigInt   @map("store_id")
+  nameZh               String   @map("name_zh") @db.VarChar(64)
+  nameVi               String   @map("name_vi") @db.VarChar(64)
+  minPoints            Int      @default(0) @map("min_points")
+  discountPercent      Int      @default(0) @map("discount_percent")
+  birthdayBonusPoints  Int      @default(0) @map("birthday_bonus_points")
+  sort                 Int      @default(0)
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  store     Store      @relation(fields: [storeId], references: [id])
+  customers Customer[]
+
+  @@index([storeId, isActive])
+  @@map("member_levels")
+}
+
+model Customer {
+  id              BigInt         @id @default(autoincrement())
+  email           String         @unique @db.VarChar(128)
+  passwordHash    String         @map("password_hash") @db.VarChar(255)
+  name            String?        @db.VarChar(128)
+  phone           String?        @db.VarChar(32)
+  lang            UserLang       @default(vi)
+  emailVerifiedAt DateTime?      @map("email_verified_at")
+  status          CustomerStatus @default(active)
+  deletedAt       DateTime?      @map("deleted_at")
+  birthday        DateTime?      @db.Date
+  memberLevelId   BigInt?        @map("member_level_id")
+  points          Int            @default(0)
+  balance         BigInt         @default(0)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  memberLevel    MemberLevel?    @relation(fields: [memberLevelId], references: [id])
+  addresses            CustomerAddress[]
+  orders               Order[]
+  coupons              Coupon[]
+  pointsLedgers        PointsLedger[]
+  balanceLedgers       BalanceLedger[]
+  reservations         Reservation[]
+  groupMealInquiries   GroupMealInquiry[]
+
+  @@index([status])
+  @@index([memberLevelId])
+  @@index([phone])
+  @@map("customers")
+}
+
+model PointsLedger {
+  id         BigInt          @id @default(autoincrement())
+  customerId BigInt          @map("customer_id")
+  direction  LedgerDirection
+  amount     Int
+  balanceAfter Int           @map("balance_after")
+  remark     String?         @db.VarChar(255)
+  operatorId BigInt?         @map("operator_id")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  operator User?    @relation(fields: [operatorId], references: [id])
+
+  @@index([customerId, createdAt])
+  @@map("points_ledgers")
+}
+
+model BalanceLedger {
+  id           BigInt          @id @default(autoincrement())
+  customerId   BigInt          @map("customer_id")
+  direction    LedgerDirection
+  amount       BigInt
+  balanceAfter BigInt          @map("balance_after")
+  remark       String?         @db.VarChar(255)
+  operatorId   BigInt?          @map("operator_id")
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  operator User?    @relation(fields: [operatorId], references: [id])
+
+  @@index([customerId, createdAt])
+  @@map("balance_ledgers")
+}
+
+// ========== 营销 ==========
+
+model CouponTemplate {
+  id         BigInt              @id @default(autoincrement())
+  storeId    BigInt              @map("store_id")
+  nameZh     String              @map("name_zh") @db.VarChar(128)
+  nameVi     String              @map("name_vi") @db.VarChar(128)
+  type       CouponDiscountType
+  value      BigInt
+  minSpend   BigInt              @default(0) @map("min_spend")
+  validDays  Int                 @default(30) @map("valid_days")
+  stackable  Boolean             @default(false)
+  scope      PromoScope          @default(order)
+  dishIds    Json?               @map("dish_ids")
+  channel    PromoChannel        @default(all)
+  isActive   Boolean             @default(true) @map("is_active")
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+
+  store   Store    @relation(fields: [storeId], references: [id])
+  coupons Coupon[]
+
+  @@index([storeId, isActive])
+  @@map("coupon_templates")
+}
+
+model Coupon {
+  id          BigInt       @id @default(autoincrement())
+  templateId  BigInt       @map("template_id")
+  customerId  BigInt       @map("customer_id")
+  code        String       @unique @db.VarChar(32)
+  status      CouponStatus @default(unused)
+  expiresAt   DateTime     @map("expires_at")
+  usedOrderId BigInt?      @map("used_order_id")
+  issuedBy    BigInt?      @map("issued_by")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  template CouponTemplate @relation(fields: [templateId], references: [id])
+  customer Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  issuer   User?          @relation("CouponIssuer", fields: [issuedBy], references: [id])
+  orders   Order[]
+
+  @@index([customerId, status])
+  @@index([templateId])
+  @@map("coupons")
+}
+
+model PromoRule {
+  id        BigInt              @id @default(autoincrement())
+  storeId   BigInt              @map("store_id")
+  nameZh    String              @map("name_zh") @db.VarChar(128)
+  nameVi    String              @map("name_vi") @db.VarChar(128)
+  type      CouponDiscountType
+  value     BigInt
+  minSpend  BigInt              @default(0) @map("min_spend")
+  scope     PromoScope          @default(order)
+  dishIds   Json?               @map("dish_ids")
+  channel   PromoChannel        @default(all)
+  isActive  Boolean             @default(true) @map("is_active")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, isActive])
+  @@map("promo_rules")
+}
+
+model CustomerAddress {
+  id          BigInt   @id @default(autoincrement())
+  customerId  BigInt   @map("customer_id")
+  contactName String   @map("contact_name") @db.VarChar(128)
+  phone       String   @db.VarChar(32)
+  addressText String   @map("address_text") @db.VarChar(512)
+  detail      String?  @db.VarChar(255)
+  lat         Decimal? @db.Decimal(10, 7)
+  lng         Decimal? @db.Decimal(10, 7)
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+// ========== 打印 ==========
+
+model PrintAgent {
+  id         BigInt           @id @default(autoincrement())
+  storeId    BigInt           @map("store_id")
+  name       String           @db.VarChar(128)
+  secretHash String           @map("secret_hash") @db.VarChar(255)
+  lastSeenAt DateTime?        @map("last_seen_at")
+  status     PrintAgentStatus @default(offline)
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
+
+  store    Store     @relation(fields: [storeId], references: [id])
+  printers Printer[]
+
+  @@index([storeId])
+  @@map("print_agents")
+}
+
+model Printer {
+  id          BigInt      @id @default(autoincrement())
+  storeId     BigInt       @map("store_id")
+  name        String      @db.VarChar(128)
+  ip          String      @db.VarChar(64)
+  port        Int         @default(9100)
+  paperWidth  Int         @default(80) @map("paper_width")
+  role        PrinterRole
+  stationId   BigInt?     @map("station_id")
+  agentId     BigInt?     @map("agent_id")
+  isActive    Boolean     @default(true) @map("is_active")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  store   Store           @relation(fields: [storeId], references: [id])
+  station KitchenStation? @relation(fields: [stationId], references: [id])
+  agent   PrintAgent?     @relation(fields: [agentId], references: [id])
+  jobs    PrintJob[]
+
+  @@index([storeId])
+  @@index([agentId])
+  @@index([stationId])
+  @@map("printers")
+}
+
+model PrintJob {
+  id        BigInt         @id @default(autoincrement())
+  printerId BigInt         @map("printer_id")
+  orderId   BigInt?         @map("order_id")
+  batchId   BigInt?        @map("batch_id")
+  kind      PrintJobKind
+  payload   Json
+  status    PrintJobStatus @default(queued)
+  retries   Int            @default(0)
+  error     String?        @db.VarChar(512)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  printer Printer     @relation(fields: [printerId], references: [id])
+  order   Order?      @relation(fields: [orderId], references: [id])
+  batch   OrderBatch? @relation(fields: [batchId], references: [id])
+
+  @@index([printerId, status])
+  @@index([orderId])
+  @@index([status, createdAt])
+  @@map("print_jobs")
+}
+
+// ========== 资产 ==========
+
+model AssetCategory {
+  id                 BigInt   @id @default(autoincrement())
+  storeId            BigInt   @map("store_id")
+  nameZh             String   @map("name_zh") @db.VarChar(128)
+  nameVi             String   @map("name_vi") @db.VarChar(128)
+  depreciationMonths Int      @default(36) @map("depreciation_months")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  store  Store   @relation(fields: [storeId], references: [id])
+  assets Asset[]
+
+  @@index([storeId])
+  @@map("asset_categories")
+}
+
+model Asset {
+  id            BigInt    @id @default(autoincrement())
+  storeId       BigInt     @map("store_id")
+  assetNo       String    @unique @map("asset_no") @db.VarChar(64)
+  categoryId    BigInt    @map("category_id")
+  nameZh        String    @map("name_zh") @db.VarChar(128)
+  nameVi        String    @map("name_vi") @db.VarChar(128)
+  spec          String?   @db.VarChar(255)
+  unit          String    @default("个") @db.VarChar(32)
+  location      String?   @db.VarChar(128)
+  supplier      String?   @db.VarChar(128)
+  purchaseDate  DateTime? @map("purchase_date") @db.Date
+  unitPrice     BigInt    @default(0) @map("unit_price")
+  qtyTotal      Int       @default(0) @map("qty_total")
+  qtyInUse      Int       @default(0) @map("qty_in_use")
+  qtyIdle       Int       @default(0) @map("qty_idle")
+  qtyRepair     Int       @default(0) @map("qty_repair")
+  qtyDisposed   Int       @default(0) @map("qty_disposed")
+  warrantyUntil DateTime? @map("warranty_until") @db.Date
+  photo         String?   @db.VarChar(512)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  store    Store         @relation(fields: [storeId], references: [id])
+  category AssetCategory @relation(fields: [categoryId], references: [id])
+  events   AssetEvent[]
+
+  @@index([storeId])
+  @@index([categoryId])
+  @@map("assets")
+}
+
+model AssetEvent {
+  id           BigInt         @id @default(autoincrement())
+  assetId      BigInt         @map("asset_id")
+  type         AssetEventType
+  qty          Int            @default(0)
+  amount       BigInt         @default(0)
+  fromLocation String?        @map("from_location") @db.VarChar(128)
+  toLocation   String?        @map("to_location") @db.VarChar(128)
+  reason       String?        @db.VarChar(512)
+  operatorId   BigInt?        @map("operator_id")
+  happenedAt   DateTime       @default(now()) @map("happened_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  asset    Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  operator User? @relation(fields: [operatorId], references: [id])
+
+  @@index([assetId, happenedAt])
+  @@map("asset_events")
+}
+
+// ========== 采购 / 原料库存 ==========
+
+model Supplier {
+  id          BigInt   @id @default(autoincrement())
+  storeId     BigInt   @map("store_id")
+  nameZh      String   @map("name_zh") @db.VarChar(128)
+  nameVi      String   @map("name_vi") @db.VarChar(128)
+  contactName String?  @map("contact_name") @db.VarChar(64)
+  phone       String?  @db.VarChar(32)
+  address     String?  @db.VarChar(256)
+  note        String?  @db.VarChar(512)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  store     Store      @relation(fields: [storeId], references: [id])
+  purchases Purchase[]
+
+  @@index([storeId, isActive])
+  @@map("suppliers")
+}
+
+model Ingredient {
+  id        BigInt         @id @default(autoincrement())
+  storeId   BigInt         @map("store_id")
+  nameZh    String         @map("name_zh") @db.VarChar(128)
+  nameVi    String         @map("name_vi") @db.VarChar(128)
+  kind      IngredientKind @default(vegetable)
+  unit      String         @default("kg") @db.VarChar(32)
+  /** 当前库存数量（支持小数，如 1.5kg） */
+  stockQty  Decimal        @default(0) @map("stock_qty") @db.Decimal(14, 3)
+  /** 最近进货单价（越南盾整数 / 单位） */
+  lastCost  BigInt         @default(0) @map("last_cost")
+  isActive  Boolean        @default(true) @map("is_active")
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  store           Store            @relation(fields: [storeId], references: [id])
+  purchaseItems   PurchaseItem[]
+  stocktakeItems  StocktakeItem[]
+
+  @@index([storeId, kind])
+  @@map("ingredients")
+}
+
+model Purchase {
+  id           BigInt   @id @default(autoincrement())
+  storeId      BigInt   @map("store_id")
+  /** 归属营业日 */
+  businessDate DateTime @map("business_date") @db.Date
+  supplierId   BigInt?  @map("supplier_id")
+  /** 下单时供应商名称快照（供应商改名/停用后仍可展示） */
+  supplier     String?  @db.VarChar(128)
+  note         String?  @db.VarChar(512)
+  totalAmount  BigInt   @default(0) @map("total_amount")
+  operatorId   BigInt?  @map("operator_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  store    Store          @relation(fields: [storeId], references: [id])
+  supplierRel Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  operator User?          @relation(fields: [operatorId], references: [id])
+  items    PurchaseItem[]
+
+  @@index([storeId, businessDate])
+  @@index([supplierId])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id           BigInt  @id @default(autoincrement())
+  purchaseId   BigInt  @map("purchase_id")
+  ingredientId BigInt  @map("ingredient_id")
+  qty          Decimal @db.Decimal(14, 3)
+  unitPrice    BigInt  @map("unit_price")
+  amount       BigInt
+
+  purchase   Purchase   @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@index([purchaseId])
+  @@index([ingredientId])
+  @@map("purchase_items")
+}
+
+model Stocktake {
+  id           BigInt          @id @default(autoincrement())
+  storeId      BigInt          @map("store_id")
+  businessDate DateTime        @map("business_date") @db.Date
+  status       StocktakeStatus @default(draft)
+  note         String?         @db.VarChar(512)
+  operatorId   BigInt?         @map("operator_id")
+  confirmedAt  DateTime?       @map("confirmed_at")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  store    Store           @relation(fields: [storeId], references: [id])
+  operator User?           @relation(fields: [operatorId], references: [id])
+  items    StocktakeItem[]
+
+  @@unique([storeId, businessDate])
+  @@index([storeId, businessDate])
+  @@map("stocktakes")
+}
+
+model StocktakeItem {
+  id            BigInt  @id @default(autoincrement())
+  stocktakeId   BigInt  @map("stocktake_id")
+  ingredientId  BigInt  @map("ingredient_id")
+  openingQty    Decimal @map("opening_qty") @db.Decimal(14, 3)
+  purchasedQty  Decimal @map("purchased_qty") @db.Decimal(14, 3)
+  countedQty    Decimal @map("counted_qty") @db.Decimal(14, 3)
+  consumptionQty Decimal @map("consumption_qty") @db.Decimal(14, 3)
+  unitCost      BigInt  @default(0) @map("unit_cost")
+  /** 消耗金额 ≈ consumption * unitCost */
+  consumptionAmount BigInt @default(0) @map("consumption_amount")
+
+  stocktake  Stocktake  @relation(fields: [stocktakeId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([stocktakeId, ingredientId])
+  @@index([ingredientId])
+  @@map("stocktake_items")
+}
+
+// ========== 营业统计 ==========
+
+model DailySummary {
+  id               BigInt   @id @default(autoincrement())
+  storeId          BigInt   @map("store_id")
+  /** 营业日（按切日时间归属，时区 Asia/Ho_Chi_Minh） */
+  businessDate     DateTime @map("business_date") @db.Date
+  revenue          BigInt   @default(0)
+  orderCount       Int      @default(0) @map("order_count")
+  guestCount       Int      @default(0) @map("guest_count")
+  dineInRevenue    BigInt   @default(0) @map("dine_in_revenue")
+  takeawayRevenue  BigInt   @default(0) @map("takeaway_revenue")
+  deliveryRevenue  BigInt   @default(0) @map("delivery_revenue")
+  discountTotal    BigInt   @default(0) @map("discount_total")
+  voidAmount       BigInt   @default(0) @map("void_amount")
+  cancelCount      Int      @default(0) @map("cancel_count")
+  tableCount       Int      @default(0) @map("table_count")
+  sessionCount     Int      @default(0) @map("session_count")
+  avgDineMinutes   Int      @default(0) @map("avg_dine_minutes")
+  channelJson      Json?    @map("channel_json")
+  payMethodJson    Json?    @map("pay_method_json")
+  hourlyJson       Json?    @map("hourly_json")
+  topDishesJson    Json?    @map("top_dishes_json")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, businessDate])
+  @@index([storeId, businessDate])
+  @@map("daily_summaries")
+}
+
+model CashierShift {
+  id          BigInt    @id @default(autoincrement())
+  storeId     BigInt    @map("store_id")
+  cashierId   BigInt    @map("cashier_id")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+  openingCash BigInt    @default(0) @map("opening_cash")
+  closingCash BigInt?   @map("closing_cash")
+  note        String?   @db.VarChar(512)
+  /** 交班快照：revenue/orderCount/paymentsByMethod 等 */
+  summaryJson Json?     @map("summary_json")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  store   Store @relation(fields: [storeId], references: [id])
+  cashier User  @relation(fields: [cashierId], references: [id])
+
+  @@index([storeId, startedAt])
+  @@index([cashierId, endedAt])
+  @@map("cashier_shifts")
+}
+
+// ========== 套餐 ==========
+
+model Combo {
+  id            BigInt      @id @default(autoincrement())
+  storeId       BigInt      @map("store_id")
+  nameZh        String      @map("name_zh") @db.VarChar(128)
+  nameVi        String      @map("name_vi") @db.VarChar(128)
+  descZh        String?     @map("desc_zh") @db.Text
+  descVi        String?     @map("desc_vi") @db.Text
+  image         String?     @db.VarChar(512)
+  /** 堂食套餐价（越南盾整数） */
+  price         BigInt
+  /** 外带套餐价（越南盾整数） */
+  takeawayPrice BigInt      @map("takeaway_price")
+  status        ComboStatus @default(on)
+  sort          Int         @default(0)
+  /** 是否适用于堂食 */
+  isDineIn      Boolean     @default(true) @map("is_dine_in")
+  /** 是否适用于外卖/外带 */
+  isDelivery    Boolean     @default(true) @map("is_delivery")
+  /** 是否在 H5 团餐入口展示 */
+  isGroupMeal   Boolean     @default(false) @map("is_group_meal")
+  /** 建议用餐人数 */
+  servingSize   Int?        @map("serving_size")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  store      Store        @relation(fields: [storeId], references: [id])
+  groups     ComboGroup[]
+  orderItems OrderItem[]
+  groupMealInquiries GroupMealInquiry[]
+
+  @@index([storeId, status])
+  @@index([storeId, isGroupMeal, status])
+  @@map("combos")
+}
+
+enum GroupMealInquiryStatus {
+  pending
+  confirmed
+  rejected
+  cancelled
+}
+
+/** H5 团餐询单（门店确认） */
+model GroupMealInquiry {
+  id           BigInt                  @id @default(autoincrement())
+  storeId      BigInt                  @map("store_id")
+  contactName  String                  @map("contact_name") @db.VarChar(128)
+  phone        String                  @db.VarChar(32)
+  company      String?                 @db.VarChar(128)
+  guestCount   Int                     @map("guest_count")
+  preferAt     DateTime                @map("prefer_at")
+  address      String?                 @db.VarChar(512)
+  comboId      BigInt?                 @map("combo_id")
+  budget       BigInt?
+  remark       String?                 @db.VarChar(512)
+  customerId   BigInt?                 @map("customer_id")
+  status       GroupMealInquiryStatus  @default(pending)
+  adminRemark  String?                 @map("admin_remark") @db.VarChar(512)
+  createdAt    DateTime                @default(now()) @map("created_at")
+  updatedAt    DateTime                @updatedAt @map("updated_at")
+
+  store    Store     @relation(fields: [storeId], references: [id])
+  combo    Combo?    @relation(fields: [comboId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([storeId, status, createdAt])
+  @@map("group_meal_inquiries")
+}
+
+model ComboGroup {
+  id        BigInt   @id @default(autoincrement())
+  comboId   BigInt   @map("combo_id")
+  nameZh    String   @map("name_zh") @db.VarChar(64)
+  nameVi    String   @map("name_vi") @db.VarChar(64)
+  /** 最少选几项 */
+  minSelect Int      @default(1) @map("min_select")
+  /** 最多选几项 */
+  maxSelect Int      @default(1) @map("max_select")
+  sort      Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  combo Combo          @relation(fields: [comboId], references: [id], onDelete: Cascade)
+  items ComboGroupItem[]
+
+  @@index([comboId])
+  @@map("combo_groups")
+}
+
+model ComboGroupItem {
+  id         BigInt  @id @default(autoincrement())
+  groupId    BigInt  @map("group_id")
+  dishId     BigInt  @map("dish_id")
+  /** 该选项相对套餐基础价的加价（默认 0） */
+  extraPrice BigInt  @default(0) @map("extra_price")
+  /** 是否为默认选中项 */
+  isDefault  Boolean @default(false) @map("is_default")
+  sort       Int     @default(0)
+
+  group ComboGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  dish  Dish       @relation(fields: [dishId], references: [id])
+
+  @@index([groupId])
+  @@index([dishId])
+  @@map("combo_group_items")
+}
+
+// ========== 预定 ==========
+
+model Reservation {
+  id             BigInt            @id @default(autoincrement())
+  storeId        BigInt            @map("store_id")
+  customerName   String            @map("customer_name") @db.VarChar(128)
+  phone          String            @db.VarChar(32)
+  guestCount     Int               @default(1) @map("guest_count")
+  /** 预定时间 */
+  reserveAt      DateTime          @map("reserve_at")
+  /** 预定桌台（可选） */
+  tableId        BigInt?           @map("table_id")
+  /** 预定区域（可选） */
+  areaId         BigInt?           @map("area_id")
+  /** 关联会员（可选） */
+  customerId     BigInt?           @map("customer_id")
+  status         ReservationStatus @default(pending)
+  /** 定金（越南盾整数） */
+  deposit        BigInt            @default(0)
+  remark         String?           @db.VarChar(512)
+  /** 创建人 ID */
+  createdBy      BigInt?           @map("created_by")
+  /** 入座后对应的桌台会话 ID */
+  seatedSessionId BigInt?          @map("seated_session_id")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  store          Store        @relation(fields: [storeId], references: [id])
+  table          Table?       @relation(fields: [tableId], references: [id])
+  area           Area?        @relation(fields: [areaId], references: [id])
+  customer       Customer?    @relation(fields: [customerId], references: [id])
+  creator        User?        @relation("ReservationCreator", fields: [createdBy], references: [id])
+  seatedSession  TableSession? @relation(fields: [seatedSessionId], references: [id])
+
+  @@index([storeId, reserveAt])
+  @@index([storeId, status])
+  @@index([tableId])
+  @@index([customerId])
+  @@map("reservations")
+}
+
+// ========== 审计 ==========
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  userId     BigInt?  @map("user_id")
+  action     String   @db.VarChar(64)
+  targetType String   @map("target_type") @db.VarChar(64)
+  targetId   String   @map("target_id") @db.VarChar(64)
+  before     Json?
+  after      Json?
+  ip         String?  @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}
