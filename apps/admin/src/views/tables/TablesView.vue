@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
-import { ElMessage, ElMessageBox, ElNotification } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { Brush, Plus, User } from '@element-plus/icons-vue';
 import { Events, formatVND, localeField } from '@restaurant/shared';
 import { io, type Socket } from 'socket.io-client';
@@ -24,6 +24,8 @@ import {
   type AreaFloor,
   type FloorTable,
 } from '../../api/table';
+import { getStoreSettingsApi } from '../../api/store';
+import TableStickerCard from '../../components/tables/TableStickerCard.vue';
 import { getAccessToken } from '../../utils/auth-storage';
 import { useUserStore } from '../../stores/user';
 
@@ -44,9 +46,19 @@ const transferDialog = ref(false);
 const transferForm = reactive({ fromId: '', toId: '' });
 const mergeDialog = ref(false);
 const mergeForm = reactive({ targetId: '', sourceId: '' });
+const stickerDialog = ref(false);
+const stickerLoading = ref(false);
+const stickerStore = reactive({
+  nameZh: '',
+  nameVi: '',
+  wifiSsid: '',
+  wifiPassword: '',
+});
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let socket: Socket | null = null;
+
+const allTables = computed(() => areas.value.flatMap((a) => a.tables));
 
 function nameOf(row: { nameZh: string; nameVi: string }) {
   return localeField(row as unknown as Record<string, unknown>, 'name', loc.value);
@@ -177,6 +189,21 @@ async function doExport() {
   ElMessage.success(t('tables.exported'));
 }
 
+async function openStickerPreview() {
+  stickerDialog.value = true;
+  stickerLoading.value = true;
+  try {
+    if (!areas.value.length) await load();
+    const s = await getStoreSettingsApi();
+    stickerStore.nameZh = s.nameZh;
+    stickerStore.nameVi = s.nameVi;
+    stickerStore.wifiSsid = s.guestWifi?.ssid || '';
+    stickerStore.wifiPassword = s.guestWifi?.password || '';
+  } finally {
+    stickerLoading.value = false;
+  }
+}
+
 async function confirmTransfer() {
   await transferTableApi(transferForm.fromId, transferForm.toId);
   transferDialog.value = false;
@@ -212,16 +239,8 @@ function connectSocket() {
   });
   const refresh = () => load();
   socket.on(Events.TABLE_STATUS_CHANGED, refresh);
-  socket.on(Events.ORDER_BATCH_ADDED, (p: { needConfirm?: boolean; batch?: { roundNo?: number } }) => {
-    refresh();
-    if (p?.needConfirm) {
-      ElNotification({
-        title: t('tables.needConfirmTitle'),
-        message: t('tables.needConfirmMsg', { n: p.batch?.roundNo ?? '' }),
-        type: 'warning',
-      });
-    }
-  });
+  // 待确认通知 / 语音由全局 useVoiceAlert 统一处理（任意页可见）
+  socket.on(Events.ORDER_BATCH_ADDED, refresh);
   socket.on(Events.ORDER_CREATED, refresh);
   socket.on(Events.ORDER_PAID, refresh);
   // 呼叫/结账通知与语音由全局 useVoiceAlert 统一处理
@@ -253,6 +272,7 @@ onUnmounted(() => {
       <div class="actions">
         <el-button v-perm="'table:open'" @click="transferDialog = true">{{ t('tables.transfer') }}</el-button>
         <el-button v-perm="'table:open'" @click="mergeDialog = true">{{ t('tables.merge') }}</el-button>
+        <el-button @click="openStickerPreview">{{ t('tables.previewStickers') }}</el-button>
         <el-button @click="doExport">{{ t('tables.exportStickers') }}</el-button>
         <el-button type="primary" @click="openManage">{{ t('tables.manage') }}</el-button>
       </div>
@@ -384,6 +404,32 @@ onUnmounted(() => {
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="stickerDialog"
+      :title="t('tables.stickerPreviewTitle')"
+      width="920px"
+      top="4vh"
+      destroy-on-close
+    >
+      <p class="sticker-hint">{{ t('tables.stickerHint') }}</p>
+      <div v-loading="stickerLoading" class="sticker-grid">
+        <TableStickerCard
+          v-for="tb in allTables"
+          :key="tb.id"
+          :store-name-zh="stickerStore.nameZh"
+          :store-name-vi="stickerStore.nameVi"
+          :table-code="tb.code"
+          :qr-url="tb.qrUrl"
+          :wifi-ssid="stickerStore.wifiSsid"
+          :wifi-password="stickerStore.wifiPassword"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="stickerDialog = false">{{ t('common.close') }}</el-button>
+        <el-button type="primary" @click="doExport">{{ t('tables.stickerExport') }}</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="manageDialog" :title="t('tables.manage')" width="720px">
       <el-tabs>
         <el-tab-pane :label="t('tables.areas')">
@@ -455,6 +501,22 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.sticker-hint {
+  margin: 0 0 12px;
+  color: #888;
+  font-size: 13px;
+}
+.sticker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 4px 2px 12px;
+  background: #f2f2f2;
+  border-radius: 8px;
+  justify-content: center;
+}
 .floor {
   padding: 12px 16px 24px;
 }

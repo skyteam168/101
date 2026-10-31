@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { AssetEventType } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
@@ -59,22 +61,26 @@ export class AssetQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   categoryId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   location?: string;
 
   /** in_use | idle | repair | disposed */
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(64)
   status?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(64)
   keyword?: string;
 }
 
@@ -246,6 +252,7 @@ export class AssetEventQtyDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(255)
   fromPool?: 'in_use' | 'idle' | 'repair';
 
   @ApiPropertyOptional({ description: '变卖收入 / 维修费（越南盾）' })
@@ -325,39 +332,47 @@ export class CheckAssetDto {
 export class ImportAssetRowDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(255)
   categoryNameZh!: string;
 
   @ApiProperty()
   @IsString()
+  @MaxLength(255)
   nameZh!: string;
 
   @ApiProperty()
   @IsString()
+  @MaxLength(512)
   nameVi!: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   spec?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   unit?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   location?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   supplier?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   purchaseDate?: string;
 
   @ApiProperty()

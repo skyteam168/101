@@ -194,7 +194,10 @@ function eventTypeLabel(type: string) {
       >
         <div class="evt">
           <strong>{{ eventTypeLabel(e.type) }}</strong>
-          <span>×{{ e.qty }}</span>
+          <span v-if="e.type === 'check'">
+            {{ e.qty > 0 ? t('assets.checkDelta', { n: e.qty }) : t('assets.checkNoDiff') }}
+          </span>
+          <span v-else-if="e.qty">×{{ e.qty }}</span>
           <span v-if="e.amount">{{ formatVND(e.amount) }}</span>
           <span v-if="e.fromLocation || e.toLocation">
             {{ e.fromLocation || '-' }} → {{ e.toLocation || '-' }}

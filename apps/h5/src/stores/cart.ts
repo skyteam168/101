@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 export interface CartItem {
   dishId: string;
@@ -7,12 +7,61 @@ export interface CartItem {
   nameVi: string;
   price: number;
   qty: number;
-  optionIds?: number[];
+  optionIds?: string[];
   optionLabel?: string;
+  optionsSnapshot?: unknown[];
+}
+
+const STORAGE_KEY = 'h5_delivery_cart_v1';
+
+function loadCart(): CartItem[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (i): i is CartItem =>
+          !!i &&
+          typeof i === 'object' &&
+          typeof (i as CartItem).dishId === 'string' &&
+          typeof (i as CartItem).price === 'number' &&
+          typeof (i as CartItem).qty === 'number',
+      )
+      .map((i) => ({
+        dishId: String(i.dishId),
+        nameZh: String(i.nameZh ?? ''),
+        nameVi: String(i.nameVi ?? ''),
+        price: Number(i.price) || 0,
+        qty: Math.max(1, Math.floor(Number(i.qty) || 1)),
+        optionIds: Array.isArray(i.optionIds) ? i.optionIds.map(String) : undefined,
+        optionLabel: i.optionLabel != null ? String(i.optionLabel) : undefined,
+        optionsSnapshot: i.optionsSnapshot,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function saveCart(items: CartItem[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // quota / private mode — ignore
+  }
 }
 
 export const useCartStore = defineStore('deliveryCart', () => {
-  const items = ref<CartItem[]>([]);
+  const items = ref<CartItem[]>(loadCart());
+
+  watch(
+    items,
+    (v) => {
+      saveCart(v);
+    },
+    { deep: true },
+  );
 
   function add(item: Omit<CartItem, 'qty'> & { qty?: number }) {
     const dishId = String(item.dishId);
@@ -28,7 +77,12 @@ export const useCartStore = defineStore('deliveryCart', () => {
 
   function remove(dishId: string | number, optionLabel?: string) {
     const id = String(dishId);
-    const idx = items.value.findIndex((i) => i.dishId === id && i.optionLabel === optionLabel);
+    // 未传 optionLabel 时，优先减掉最后一条同菜明细（含规格）
+    const idx =
+      optionLabel === undefined
+        ? [...items.value].map((i, n) => ({ i, n })).reverse().find((x) => x.i.dishId === id)?.n ??
+          -1
+        : items.value.findIndex((i) => i.dishId === id && i.optionLabel === optionLabel);
     if (idx === -1) return;
     if (items.value[idx].qty > 1) {
       items.value[idx].qty -= 1;
@@ -39,7 +93,11 @@ export const useCartStore = defineStore('deliveryCart', () => {
 
   function removeAll(dishId: string | number, optionLabel?: string) {
     const id = String(dishId);
-    items.value = items.value.filter((i) => !(i.dishId === id && i.optionLabel === optionLabel));
+    items.value = items.value.filter((i) => {
+      if (i.dishId !== id) return true;
+      if (optionLabel === undefined) return false;
+      return i.optionLabel !== optionLabel;
+    });
   }
 
   function clear() {
@@ -49,7 +107,11 @@ export const useCartStore = defineStore('deliveryCart', () => {
   function getQty(dishId: string | number, optionLabel?: string): number {
     const id = String(dishId);
     return items.value
-      .filter((i) => i.dishId === id && i.optionLabel === optionLabel)
+      .filter((i) => {
+        if (i.dishId !== id) return false;
+        if (optionLabel === undefined) return true;
+        return i.optionLabel === optionLabel;
+      })
       .reduce((sum, i) => sum + i.qty, 0);
   }
 

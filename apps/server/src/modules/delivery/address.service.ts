@@ -14,6 +14,7 @@ export class AddressService {
     phone: string;
     addressText: string;
     detail: string | null;
+    landmarkPhoto?: string | null;
     lat: { toString(): string } | null;
     lng: { toString(): string } | null;
     isDefault: boolean;
@@ -24,6 +25,7 @@ export class AddressService {
       phone: a.phone,
       addressText: a.addressText,
       detail: a.detail,
+      landmarkPhoto: a.landmarkPhoto ?? null,
       lat: a.lat != null ? Number(a.lat) : null,
       lng: a.lng != null ? Number(a.lng) : null,
       isDefault: a.isDefault,
@@ -55,6 +57,7 @@ export class AddressService {
         phone: dto.phone,
         addressText: dto.addressText,
         detail: dto.detail,
+        landmarkPhoto: dto.landmarkPhoto ?? null,
         lat: dto.lat,
         lng: dto.lng,
         isDefault: dto.isDefault ?? false,
@@ -82,6 +85,7 @@ export class AddressService {
         phone: dto.phone,
         addressText: dto.addressText,
         detail: dto.detail,
+        landmarkPhoto: dto.landmarkPhoto === undefined ? undefined : dto.landmarkPhoto,
         lat: dto.lat,
         lng: dto.lng,
         isDefault: dto.isDefault,

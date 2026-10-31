@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { StorageModule } from '../../storage/storage.module';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { MenuModule } from '../menu/menu.module';
 import { NoticeController } from './notice.controller';
@@ -8,7 +9,7 @@ import { StoreController } from './store.controller';
 import { StoreService } from './store.service';
 
 @Module({
-  imports: [DeliveryModule, MenuModule],
+  imports: [DeliveryModule, MenuModule, StorageModule],
   controllers: [StoreController, NoticeController, PublicHomeController],
   providers: [StoreService, NoticeService],
   exports: [StoreService, NoticeService],

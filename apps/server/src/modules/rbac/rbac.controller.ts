@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePerm } from '../../common/decorators/require-perm.decorator';
+import { AuthUser } from '../auth/auth.types';
 import {
   CreateRoleDto,
   SetRolePermissionsDto,
@@ -60,8 +62,12 @@ export class RbacController {
 
   @Put('roles/:id/permissions')
   @RequirePerm('system:role')
-  setRolePermissions(@Param('id') id: string, @Body() dto: SetRolePermissionsDto) {
-    return this.rbacService.setRolePermissions(id, dto.permissionIds);
+  setRolePermissions(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: SetRolePermissionsDto,
+  ) {
+    return this.rbacService.setRolePermissions(id, dto.permissionIds, user.id);
   }
 
   @Put('users/:userId/roles')

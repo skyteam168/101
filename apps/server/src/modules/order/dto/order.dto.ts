@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentMethod } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
@@ -20,6 +22,7 @@ import {
 export class OrderItemInputDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   dishId!: string;
 
   @ApiProperty({ example: 1 })
@@ -42,6 +45,7 @@ export class OrderItemInputDto {
 export class SubmitOrderDto {
   @ApiProperty({ description: '桌台 ID（堂食）' })
   @IsString()
+  @MaxLength(32)
   tableId!: string;
 
   @ApiProperty({ type: [OrderItemInputDto] })
@@ -158,11 +162,13 @@ export class BindCustomerDto {
   @ApiPropertyOptional({ description: '传 null/空解绑' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   customerId?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   couponId?: string | null;
 }
 
@@ -198,21 +204,25 @@ export class OrderQueryDto {
   @ApiPropertyOptional({ description: 'YYYY-MM-DD' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   date?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   type?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   status?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(255)
   tableCode?: string;
 
   @ApiPropertyOptional()

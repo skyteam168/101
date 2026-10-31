@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -69,11 +71,13 @@ export class CreatePrinterDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   stationId?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   agentId?: string | null;
 
   @ApiPropertyOptional()
@@ -117,11 +121,13 @@ export class UpdatePrinterDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   stationId?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   agentId?: string | null;
 
   @ApiPropertyOptional()
@@ -150,6 +156,7 @@ export class ReprintDto {
   @ApiPropertyOptional({ description: '改打到其他打印机' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   printerId?: string;
 }
 
@@ -157,11 +164,13 @@ export class JobQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   status?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   kind?: string;
 
   @ApiPropertyOptional()
@@ -184,15 +193,18 @@ export class ShiftPrintDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(128)
   cashierName?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   from?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   to?: string;
 }

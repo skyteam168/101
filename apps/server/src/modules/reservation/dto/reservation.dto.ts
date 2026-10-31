@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { ReservationStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
@@ -41,16 +43,19 @@ export class CreateReservationDto {
   @ApiPropertyOptional({ description: '预定桌台 ID' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   tableId?: string;
 
   @ApiPropertyOptional({ description: '预定区域 ID' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   areaId?: string;
 
   @ApiPropertyOptional({ description: '关联会员 ID' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   customerId?: string;
 
   @ApiPropertyOptional({ description: '定金（越南盾整数）', default: 0 })
@@ -96,16 +101,19 @@ export class UpdateReservationDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   tableId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   areaId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   customerId?: string;
 
   @ApiPropertyOptional()
@@ -127,6 +135,7 @@ export class ReservationQueryDto {
   @ApiPropertyOptional({ description: '按日期筛选（YYYY-MM-DD）' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   date?: string;
 
   @ApiPropertyOptional({ enum: ReservationStatus })
@@ -137,6 +146,7 @@ export class ReservationQueryDto {
   @ApiPropertyOptional({ description: '关键词（姓名/电话）' })
   @IsOptional()
   @IsString()
+  @MaxLength(64)
   keyword?: string;
 
   @ApiPropertyOptional({ default: 1 })
@@ -160,6 +170,7 @@ export class SeatReservationDto {
   @ApiPropertyOptional({ description: '入座桌台 ID（可覆盖预定桌台）' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   tableId?: string;
 
   @ApiPropertyOptional({ description: '实际用餐人数' })

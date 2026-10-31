@@ -47,6 +47,7 @@ export type Order = {
   tableSessionId: string | null;
   tableCode: string | null;
   tableId: string | null;
+  guestCount?: number | null;
   remark: string | null;
   cancelReason: string | null;
   customerId?: string | null;
@@ -135,3 +136,7 @@ export const reverseCheckoutApi = (orderId: string) =>
 
 export const confirmBatchApi = (batchId: string) =>
   apiPost<Order>(`/orders/batches/${batchId}/confirm`);
+
+/** 扫码待确认轮次数量（菜单角标） */
+export const getPendingConfirmCountApi = () =>
+  apiGet<{ count: number }>('/orders/pending-confirm-count');

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, StocktakeStatus } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { todayBusinessDate } from '../report/business-day.util';
 import {
   CreateIngredientDto,
@@ -14,7 +15,10 @@ import {
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   private async cutHour(storeId: string) {
     const store = await this.prisma.store.findUnique({
@@ -222,7 +226,7 @@ export class InventoryService {
     });
     if (ings.length !== ingredientIds.length) throw new BusinessError('INGREDIENT_NOT_FOUND');
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       let total = 0n;
       const lineData: {
         ingredientId: bigint;
@@ -283,6 +287,22 @@ export class InventoryService {
         note: purchase.note,
       };
     });
+
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'inventory',
+      action: 'purchase.create',
+      targetType: 'purchase',
+      targetId: result.id,
+      after: {
+        businessDate: result.businessDate,
+        totalAmount: result.totalAmount,
+        supplierId: result.supplierId,
+        itemCount: dto.items.length,
+      },
+    });
+    return result;
   }
 
   /** 盘点草稿预填：期初=当前库存-当日进货，进货=当日合计 */
@@ -347,7 +367,7 @@ export class InventoryService {
     const preview = await this.previewStocktake(storeId, businessDate);
     const countMap = new Map(dto.items.map((i) => [i.ingredientId, i.countedQty]));
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       if (existing) {
         await tx.stocktakeItem.deleteMany({ where: { stocktakeId: existing.id } });
         await tx.stocktake.delete({ where: { id: existing.id } });
@@ -395,6 +415,21 @@ export class InventoryService {
 
       return this.mapStocktake(row, businessDate);
     });
+
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'inventory',
+      action: 'stocktake.confirm',
+      targetType: 'stocktake',
+      targetId: result.id,
+      after: {
+        businessDate: result.businessDate,
+        totalConsumptionAmount: result.totalConsumptionAmount,
+        itemCount: result.items.length,
+      },
+    });
+    return result;
   }
 
   private mapStocktake(

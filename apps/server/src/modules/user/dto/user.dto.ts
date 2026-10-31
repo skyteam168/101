@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayUnique,
   IsArray,
@@ -8,7 +10,6 @@ import {
   IsString,
   Matches,
   MaxLength,
-  MinLength,
 } from 'class-validator';
 
 export class CreateUserDto {
@@ -18,9 +19,11 @@ export class CreateUserDto {
   @Matches(/^[a-zA-Z0-9_]{3,64}$/)
   username!: string;
 
-  @ApiProperty({ example: 'Cashier@123' })
+  @ApiProperty({ example: 'Cashier@123', description: '8–64 位，须含字母和数字' })
   @IsString()
-  @MinLength(6)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d)[\x21-\x7E]{8,64}$/, {
+    message: 'PASSWORD_TOO_WEAK',
+  })
   password!: string;
 
   @ApiProperty()
@@ -31,6 +34,7 @@ export class CreateUserDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   phone?: string;
 
   @ApiPropertyOptional({ enum: ['zh', 'vi'] })
@@ -43,6 +47,7 @@ export class CreateUserDto {
   @IsArray()
   @ArrayUnique()
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   roleIds?: string[];
 }
 
@@ -56,6 +61,7 @@ export class UpdateUserDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   phone?: string;
 
   @ApiPropertyOptional({ enum: ['zh', 'vi'] })
@@ -77,8 +83,10 @@ export class UpdateUserDto {
 }
 
 export class ResetPasswordDto {
-  @ApiProperty()
+  @ApiProperty({ description: '8–64 位，须含字母和数字' })
   @IsString()
-  @MinLength(6)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d)[\x21-\x7E]{8,64}$/, {
+    message: 'PASSWORD_TOO_WEAK',
+  })
   password!: string;
 }

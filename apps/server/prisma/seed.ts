@@ -135,6 +135,14 @@ const PERMISSION_TREE: PermDef[] = [
         sort: 70,
       },
       {
+        code: 'menu:chat',
+        nameZh: '顾客消息',
+        nameVi: 'Tin nhắn khách',
+        type: PermissionType.menu,
+        path: '/chat',
+        sort: 55,
+      },
+      {
         code: 'menu:system',
         nameZh: '系统',
         nameVi: 'Hệ thống',
@@ -165,6 +173,14 @@ const PERMISSION_TREE: PermDef[] = [
             type: PermissionType.menu,
             path: '/system/settings',
             sort: 3,
+          },
+          {
+            code: 'menu:system:audit',
+            nameZh: '审计日志',
+            nameVi: 'Nhật ký kiểm toán',
+            type: PermissionType.menu,
+            path: '/system/audit',
+            sort: 4,
           },
         ],
       },
@@ -331,6 +347,20 @@ const PERMISSION_TREE: PermDef[] = [
         type: PermissionType.button,
         sort: 22,
       },
+      {
+        code: 'chat:reply',
+        nameZh: '回复顾客消息',
+        nameVi: 'Trả lời tin nhắn',
+        type: PermissionType.button,
+        sort: 23,
+      },
+      {
+        code: 'audit:view',
+        nameZh: '查看审计日志',
+        nameVi: 'Xem nhật ký kiểm toán',
+        type: PermissionType.button,
+        sort: 24,
+      },
     ],
   },
 ];
@@ -348,6 +378,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:member',
     'menu:marketing',
     'menu:delivery',
+    'menu:chat',
     'menu:print',
     'menu:asset',
     'menu:inventory',
@@ -356,6 +387,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:system:user',
     'menu:system:settings',
     'menu:dish:edit',
+    'chat:reply',
     'table:open',
     'order:create',
     'order:add-item',
@@ -536,8 +568,8 @@ async function main() {
       ],
       minOrderAmount: 80000,
       businessHours: { open: '09:00', close: '22:00', days: [0, 1, 2, 3, 4, 5, 6] },
-      lat: 10.754,
-      lng: 106.666,
+      lat: 10.9742806,
+      lng: 106.6272538,
       homeBanners: [
         {
           image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800',
@@ -546,6 +578,32 @@ async function main() {
           link: '/shop',
         },
       ],
+      storefrontImage:
+        'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800',
+      envGallery: [
+        {
+          image: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800',
+          captionZh: '门头外观',
+          captionVi: 'Mặt tiền',
+        },
+        {
+          image: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800',
+          captionZh: '用餐环境',
+          captionVi: 'Không gian nhà hàng',
+        },
+        {
+          image: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800',
+          captionZh: '菜品展示',
+          captionVi: 'Không gian ẩm thực',
+        },
+      ],
+      aiSettings: {
+        enabled: false,
+        provider: 'openai',
+        apiBase: 'https://api.openai.com/v1',
+        apiKey: '',
+        model: 'gpt-4o-mini',
+      },
     },
     create: {
       id: 1,
@@ -562,8 +620,8 @@ async function main() {
       ],
       minOrderAmount: 80000,
       businessHours: { open: '09:00', close: '22:00', days: [0, 1, 2, 3, 4, 5, 6] },
-      lat: 10.754,
-      lng: 106.666,
+      lat: 10.9742806,
+      lng: 106.6272538,
       qrOrderNeedConfirm: true,
       qrAutoOpen: true,
       qrRequirePin: true,
@@ -575,6 +633,32 @@ async function main() {
           link: '/shop',
         },
       ],
+      storefrontImage:
+        'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800',
+      envGallery: [
+        {
+          image: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800',
+          captionZh: '门头外观',
+          captionVi: 'Mặt tiền',
+        },
+        {
+          image: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800',
+          captionZh: '用餐环境',
+          captionVi: 'Không gian nhà hàng',
+        },
+        {
+          image: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800',
+          captionZh: '菜品展示',
+          captionVi: 'Không gian ẩm thực',
+        },
+      ],
+      aiSettings: {
+        enabled: false,
+        provider: 'openai',
+        apiBase: 'https://api.openai.com/v1',
+        apiKey: '',
+        model: 'gpt-4o-mini',
+      },
     },
   });
 
@@ -710,6 +794,52 @@ async function main() {
         isNew: i < 3,
       },
     });
+  }
+
+  // 示例规格：前 3 个菜品加「份量 / 辣度」
+  for (let dishId = 1; dishId <= 3; dishId++) {
+    await prisma.dishOption.deleteMany({ where: { dishId: BigInt(dishId) } });
+    const sizeOpts = [
+      { zh: '小份', vi: 'Nhỏ', extra: 0 },
+      { zh: '中份', vi: 'Vừa', extra: 10000 },
+      { zh: '大份', vi: 'Lớn', extra: 20000 },
+    ];
+    const spiceOpts = [
+      { zh: '微辣', vi: 'Ít cay', extra: 0 },
+      { zh: '中辣', vi: 'Vừa cay', extra: 0 },
+      { zh: '爆辣', vi: 'Cực cay', extra: 0 },
+    ];
+    let sort = 0;
+    for (const o of sizeOpts) {
+      await prisma.dishOption.create({
+        data: {
+          dishId: BigInt(dishId),
+          groupNameZh: '份量',
+          groupNameVi: 'Khẩu phần',
+          optionNameZh: o.zh,
+          optionNameVi: o.vi,
+          extraPrice: BigInt(o.extra),
+          required: true,
+          multi: false,
+          sort: sort++,
+        },
+      });
+    }
+    for (const o of spiceOpts) {
+      await prisma.dishOption.create({
+        data: {
+          dishId: BigInt(dishId),
+          groupNameZh: '辣度',
+          groupNameVi: 'Độ cay',
+          optionNameZh: o.zh,
+          optionNameVi: o.vi,
+          extraPrice: BigInt(o.extra),
+          required: true,
+          multi: false,
+          sort: sort++,
+        },
+      });
+    }
   }
 
   await prisma.storeNotice.upsert({
@@ -894,8 +1024,13 @@ async function main() {
       nameZh: '普通会员',
       nameVi: 'Thành viên thường',
       minPoints: 0,
+      minSpend: 0,
       discountPercent: 0,
       birthdayBonusPoints: 50,
+      deliveryFeeOff: 5000,
+      priorityReserve: true,
+      priorityDelivery: false,
+      birthdayGift: true,
       sort: 1,
       isActive: true,
     },
@@ -905,8 +1040,13 @@ async function main() {
       nameZh: '普通会员',
       nameVi: 'Thành viên thường',
       minPoints: 0,
+      minSpend: 0,
       discountPercent: 0,
       birthdayBonusPoints: 50,
+      deliveryFeeOff: 5000,
+      priorityReserve: true,
+      priorityDelivery: false,
+      birthdayGift: true,
       sort: 1,
       isActive: true,
     },
@@ -918,8 +1058,13 @@ async function main() {
       nameZh: '银卡',
       nameVi: 'Thẻ bạc',
       minPoints: 500,
+      minSpend: 2000000,
       discountPercent: 5,
       birthdayBonusPoints: 100,
+      deliveryFeeOff: 15000,
+      priorityReserve: true,
+      priorityDelivery: true,
+      birthdayGift: true,
       sort: 2,
       isActive: true,
     },
@@ -929,8 +1074,13 @@ async function main() {
       nameZh: '银卡',
       nameVi: 'Thẻ bạc',
       minPoints: 500,
+      minSpend: 2000000,
       discountPercent: 5,
       birthdayBonusPoints: 100,
+      deliveryFeeOff: 15000,
+      priorityReserve: true,
+      priorityDelivery: true,
+      birthdayGift: true,
       sort: 2,
       isActive: true,
     },

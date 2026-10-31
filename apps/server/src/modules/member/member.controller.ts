@@ -73,8 +73,12 @@ export class MemberController {
 
   @Put(':id/status')
   @RequirePerm('member:edit')
-  setStatus(@Param('id') id: string, @Body('status') status: 'active' | 'banned') {
-    return this.members.setStatus(id, status);
+  setStatus(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body('status') status: 'active' | 'banned',
+  ) {
+    return this.members.setStatus(id, status, user.id);
   }
 
   @Post(':id/soft-delete')
@@ -99,5 +103,12 @@ export class MemberController {
   @RequirePerm('member:edit')
   birthday(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.members.grantBirthdayBonus(id, user.id);
+  }
+
+  /** 生日到店赠菜已由门店安排 */
+  @Post(':id/birthday-gift')
+  @RequirePerm('member:edit')
+  redeemGift(@Param('id') id: string) {
+    return this.members.redeemBirthdayGift(id);
   }
 }

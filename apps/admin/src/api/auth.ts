@@ -25,12 +25,12 @@ export type MeResult = {
   menus: MenuNode[];
 };
 
-export function loginApi(username: string, password: string) {
+export function loginApi(username: string, password: string, cfTurnstileToken?: string) {
   return apiPost<{
     accessToken: string;
     refreshToken: string;
     user: { id: string; username: string; displayName: string; lang: string };
-  }>('/auth/login', { username, password });
+  }>('/auth/login', { username, password, cfTurnstileToken });
 }
 
 export function logoutApi(refreshToken?: string) {

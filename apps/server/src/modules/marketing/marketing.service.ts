@@ -1,8 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CouponStatus, CustomerStatus, Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { CUSTOMER_INBOX_MESSAGE } from '../chat/customer-inbox.event';
+import { couponGiftMessage } from './coupon-message';
 import {
   CreateCouponTemplateDto,
   CreatePromoRuleDto,
@@ -14,7 +18,11 @@ import { DiscountSpec } from './pricing.util';
 
 @Injectable()
 export class MarketingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
+    private readonly audit: AuditService,
+  ) {}
 
   private dishIds(v: unknown): string[] | null {
     if (!v) return null;
@@ -219,7 +227,34 @@ export class MarketingService {
         customerName: row.customer.name,
         template: this.mapTemplate(row.template),
       });
+      this.events.emit(CUSTOMER_INBOX_MESSAGE, {
+        storeId,
+        customerId: c.id.toString(),
+        content: couponGiftMessage({
+          lang: c.lang,
+          nameZh: tpl.nameZh,
+          nameVi: tpl.nameVi,
+          type: tpl.type,
+          value: Number(tpl.value),
+          minSpend: Number(tpl.minSpend),
+          channel: tpl.channel,
+          expiresAt: expiresAt.toISOString(),
+        }),
+      });
     }
+    await this.audit.log({
+      userId: issuerId,
+      storeId,
+      module: 'marketing',
+      action: 'coupon.issue',
+      targetType: 'coupon_template',
+      targetId: dto.templateId,
+      after: {
+        count: created.length,
+        customerIds: dto.customerIds,
+        codes: created.map((c) => c.code),
+      },
+    });
     return { count: created.length, list: created };
   }
 

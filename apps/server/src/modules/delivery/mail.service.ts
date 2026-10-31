@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export type MailSettings = {
@@ -33,6 +34,9 @@ export class MailService {
         host,
         port: Number(this.config.get('SMTP_PORT') || 587),
         secure: this.config.get('SMTP_SECURE') === 'true',
+        connectionTimeout: 12_000,
+        greetingTimeout: 12_000,
+        socketTimeout: 20_000,
         auth: {
           user: this.config.get<string>('SMTP_USER'),
           pass: this.config.get<string>('SMTP_PASS'),
@@ -54,6 +58,9 @@ export class MailService {
           host: s.host,
           port: Number(s.port || 587),
           secure: !!s.secure,
+          connectionTimeout: 12_000,
+          greetingTimeout: 12_000,
+          socketTimeout: 20_000,
           auth: { user: s.user, pass: s.pass || '' },
         });
         this.fromAddr = s.from || s.user;
@@ -71,14 +78,20 @@ export class MailService {
       this.logger.warn(`[DEV] email to ${to}: ${subject} | ${text}`);
       return { dev: true };
     }
-    await this.transporter.sendMail({
-      from: this.fromAddr,
-      to,
-      subject,
-      text,
-      html: html || `<p>${text}</p>`,
-    });
-    return { ok: true };
+    try {
+      await this.transporter.sendMail({
+        from: this.fromAddr,
+        to,
+        subject,
+        text,
+        html: html || `<p>${text}</p>`,
+      });
+      return { ok: true };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`sendMail failed to=${to}: ${msg}`);
+      throw new BusinessError('EMAIL_SEND_FAILED');
+    }
   }
 
   async sendVerifyCode(email: string, code: string, lang: 'zh' | 'vi') {

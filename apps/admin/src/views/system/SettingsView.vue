@@ -10,7 +10,12 @@ import {
   pushMessageApi,
   updateNoticeApi,
   updateStoreSettingsApi,
+  uploadStoreImageApi,
+  type AiSettings,
+  type AnnounceClips,
   type AnnounceSettings,
+  type DeliveryFeeRule,
+  type EnvGalleryItem,
   type HomeBanner,
   type MailSettings,
   type StoreNotice,
@@ -18,10 +23,13 @@ import {
 } from '../../api/store';
 import { searchMembersApi, type Member } from '../../api/member';
 import { useVoiceAlert } from '../../composables/useVoiceAlert';
+import { useBrandStore } from '../../stores/brand';
+import DeliveryZoneMap from '../../components/delivery/DeliveryZoneMap.vue';
 import { ElMessageBox } from 'element-plus';
 
 const { t } = useI18n();
 const { reloadSettings } = useVoiceAlert();
+const brandStore = useBrandStore();
 const loading = ref(false);
 const activeTab = ref('store');
 const saving = ref(false);
@@ -45,8 +53,24 @@ const form = reactive({
   businessDayCutHour: 4,
   businessOpen: '09:00',
   businessClose: '22:00',
-  feeRulesText: '[{"maxKm":2,"fee":15000},{"maxKm":5,"fee":25000}]',
-  homeBannersText: '[]',
+  businessPaused: false,
+  feeRules: [
+    { maxKm: 2, fee: 15000 },
+    { maxKm: 5, fee: 25000 },
+  ] as DeliveryFeeRule[],
+  homeBanners: [] as HomeBanner[],
+  storefrontImage: '',
+  adminLogo: '',
+  envGallery: [] as EnvGalleryItem[],
+  aiSettings: {
+    enabled: false,
+    provider: 'openai',
+    apiBase: 'https://api.openai.com/v1',
+    apiKey: '',
+    model: 'gpt-4o-mini',
+  } as AiSettings,
+  wifiSsid: '',
+  wifiPassword: '',
   announceSettings: {
     dineInNew: true,
     addItem: true,
@@ -56,7 +80,11 @@ const form = reactive({
     orderCancel: true,
     printFailed: true,
     reservationNew: true,
+    qrNeedConfirm: true,
+    checkout: true,
+    chatMessage: true,
   } as AnnounceSettings,
+  announceClips: {} as AnnounceClips,
   mailSettings: {
     enabled: false,
     host: '',
@@ -94,13 +122,36 @@ const noticeForm = reactive({
 const keys: (keyof AnnounceSettings)[] = [
   'dineInNew',
   'addItem',
+  'qrNeedConfirm',
   'deliveryNew',
+  'checkout',
   'reservationNew',
+  'chatMessage',
   'callWaiter',
   'requestBill',
   'orderCancel',
   'printFailed',
 ];
+
+function clipUrl(kind: keyof AnnounceSettings, lang: 'zh' | 'vi') {
+  return form.announceClips[kind]?.[lang] || '';
+}
+
+async function uploadClip(kind: keyof AnnounceSettings, lang: 'zh' | 'vi', file: File) {
+  const res = await uploadStoreImageApi(file);
+  if (!form.announceClips[kind]) form.announceClips[kind] = {};
+  form.announceClips[kind]![lang] = res.url;
+  ElMessage.success(t('settings.clipUploaded'));
+  return false;
+}
+
+function clearClip(kind: keyof AnnounceSettings, lang: 'zh' | 'vi') {
+  if (!form.announceClips[kind]) return;
+  delete form.announceClips[kind]![lang];
+  if (!form.announceClips[kind]!.zh && !form.announceClips[kind]!.vi) {
+    delete form.announceClips[kind];
+  }
+}
 
 async function loadNotices() {
   notices.value = await listNoticesApi();
@@ -175,6 +226,7 @@ async function load() {
     form.address = s.address || '';
     form.phone = s.phone || '';
     form.announceLang = s.announceLang;
+    form.announceClips = { ...(s.announceClips || {}) };
     form.qrOrderNeedConfirm = s.qrOrderNeedConfirm;
     form.qrAutoOpen = s.qrAutoOpen;
     form.qrRequirePin = s.qrRequirePin;
@@ -187,32 +239,143 @@ async function load() {
     form.businessDayCutHour = s.businessDayCutHour ?? 4;
     form.businessOpen = s.businessHours?.open || '09:00';
     form.businessClose = s.businessHours?.close || '22:00';
-    form.feeRulesText = JSON.stringify(s.deliveryFeeRules || [], null, 0);
-    form.homeBannersText = JSON.stringify(s.homeBanners || [], null, 2);
-    Object.assign(form.announceSettings, s.announceSettings);
+    form.businessPaused = !!s.businessHours?.paused;
+    form.feeRules = (s.deliveryFeeRules || []).map((r) => ({
+      maxKm: Number(r.maxKm) || 0,
+      fee: Number(r.fee) || 0,
+    }));
+    form.homeBanners = (s.homeBanners || []).map((b) => ({
+      image: b.image,
+      link: b.link || '',
+      titleZh: b.titleZh || '',
+      titleVi: b.titleVi || '',
+    }));
+    form.storefrontImage = s.storefrontImage || '';
+    form.adminLogo = s.adminLogo || '';
+    form.envGallery = (s.envGallery || []).map((g) => ({
+      image: g.image,
+      captionZh: g.captionZh || '',
+      captionVi: g.captionVi || '',
+    }));
+    Object.assign(form.aiSettings, s.aiSettings || {});
+    Object.assign(form.announceSettings, {
+      qrNeedConfirm: true,
+      checkout: true,
+      chatMessage: true,
+      ...s.announceSettings,
+    });
     Object.assign(form.mailSettings, s.mailSettings || {});
+    form.wifiSsid = s.guestWifi?.ssid || '';
+    form.wifiPassword = s.guestWifi?.password || '';
     await loadNotices();
   } finally {
     loading.value = false;
   }
 }
 
+async function onUploadStorefront(file: File) {
+  try {
+    const { url } = await uploadStoreImageApi(file);
+    form.storefrontImage = url;
+    ElMessage.success(t('common.saved'));
+  } catch {
+    /* http 已提示 */
+  }
+  return false;
+}
+
+async function onUploadAdminLogo(file: File) {
+  try {
+    const { url } = await uploadStoreImageApi(file);
+    form.adminLogo = url;
+    ElMessage.success(t('common.saved'));
+  } catch {
+    /* http 已提示 */
+  }
+  return false;
+}
+
+const PAGE_LINKS = ['', '/shop', '/reserve', '/group-meal', '/shop/coupons'];
+
+function bannerLinkSelect(link?: string) {
+  if (!link) return '';
+  return PAGE_LINKS.includes(link) ? link : 'custom';
+}
+
+function setBannerLink(banner: HomeBanner, value: string) {
+  if (value === 'custom') {
+    if (bannerLinkSelect(banner.link) !== 'custom') banner.link = 'https://';
+    return;
+  }
+  banner.link = value;
+}
+
+function moveItem<T>(list: T[], index: number, dir: -1 | 1) {
+  const next = index + dir;
+  if (next < 0 || next >= list.length) return;
+  const [item] = list.splice(index, 1);
+  list.splice(next, 0, item!);
+}
+
+async function onUploadEnv(file: File) {
+  try {
+    const { url } = await uploadStoreImageApi(file);
+    form.envGallery.push({ image: url, captionZh: '', captionVi: '' });
+    ElMessage.success(t('settings.uploadedHint'));
+  } catch {
+    /* http 已提示 */
+  }
+  return false;
+}
+
+async function onUploadBanner(file: File) {
+  try {
+    const { url } = await uploadStoreImageApi(file);
+    form.homeBanners.push({ image: url, link: '/shop', titleZh: '', titleVi: '' });
+    ElMessage.success(t('settings.uploadedHint'));
+  } catch {
+    /* http 已提示 */
+  }
+  return false;
+}
+
+async function replaceImage(file: File, assign: (url: string) => void) {
+  try {
+    const { url } = await uploadStoreImageApi(file);
+    assign(url);
+    ElMessage.success(t('settings.uploadedHint'));
+  } catch {
+    /* http 已提示 */
+  }
+  return false;
+}
+
+async function onUploadBankQr(file: File) {
+  return replaceImage(file, (url) => {
+    form.bankTransferQr = url;
+  });
+}
+
 async function save() {
-  let deliveryFeeRules;
-  let homeBanners: HomeBanner[];
-  try {
-    deliveryFeeRules = JSON.parse(form.feeRulesText);
-  } catch {
-    ElMessage.error(t('settings.feeRulesInvalid'));
-    return;
-  }
-  try {
-    homeBanners = JSON.parse(form.homeBannersText);
-    if (!Array.isArray(homeBanners)) throw new Error('invalid');
-  } catch {
-    ElMessage.error(t('settings.homeBannersInvalid'));
-    return;
-  }
+  const deliveryFeeRules = form.feeRules
+    .filter((r) => Number(r.maxKm) > 0)
+    .map((r) => ({ maxKm: Number(r.maxKm), fee: Math.max(0, Math.round(Number(r.fee) || 0)) }))
+    .sort((a, b) => a.maxKm - b.maxKm);
+  const homeBanners = form.homeBanners
+    .filter((b) => b.image)
+    .map((b) => ({
+      image: b.image,
+      link: b.link || undefined,
+      titleZh: b.titleZh || undefined,
+      titleVi: b.titleVi || undefined,
+    }));
+  const envGallery = form.envGallery
+    .filter((g) => g.image)
+    .map((g) => ({
+      image: g.image,
+      captionZh: g.captionZh || undefined,
+      captionVi: g.captionVi || undefined,
+    }));
   saving.value = true;
   try {
     await updateStoreSettingsApi({
@@ -226,6 +389,7 @@ async function save() {
       qrRequirePin: form.qrRequirePin,
       printSplitItem: form.printSplitItem,
       announceSettings: { ...form.announceSettings },
+      announceClips: { ...form.announceClips },
       deliveryRadiusKm: form.deliveryRadiusKm,
       minOrderAmount: form.minOrderAmount,
       lat: form.lat,
@@ -236,12 +400,19 @@ async function save() {
         open: form.businessOpen,
         close: form.businessClose,
         days: [0, 1, 2, 3, 4, 5, 6],
+        paused: form.businessPaused,
       },
       deliveryFeeRules,
       mailSettings: { ...form.mailSettings },
       homeBanners,
+      storefrontImage: form.storefrontImage || null,
+      adminLogo: form.adminLogo || null,
+      envGallery,
+      aiSettings: { ...form.aiSettings },
+      guestWifi: { ssid: form.wifiSsid, password: form.wifiPassword },
     });
     await reloadSettings();
+    await brandStore.fetchBrand();
     ElMessage.success(t('common.saved'));
   } finally {
     saving.value = false;
@@ -297,23 +468,155 @@ onMounted(load);
       <el-tab-pane :label="t('settings.tabNotice')" name="notice" />
       <el-tab-pane :label="t('settings.tabMail')" name="mail" />
       <el-tab-pane :label="t('settings.tabPush')" name="push" />
+      <el-tab-pane :label="t('settings.tabAi')" name="ai" />
     </el-tabs>
 
     <div v-show="activeTab === 'store'" class="panel">
       <h4>{{ t('settings.basic') }}</h4>
       <p class="hint">{{ t('settings.basicHint') }}</p>
-      <el-form label-width="140px" style="max-width: 640px">
-        <el-form-item :label="t('settings.nameZh')"><el-input v-model="form.nameZh" /></el-form-item>
-        <el-form-item :label="t('settings.nameVi')"><el-input v-model="form.nameVi" /></el-form-item>
+      <el-form label-width="140px" style="max-width: 860px">
+        <el-form-item :label="t('settings.nameZh')">
+          <el-input v-model="form.nameZh" :placeholder="t('settings.nameBrandPh')" />
+        </el-form-item>
+        <el-form-item :label="t('settings.nameVi')">
+          <el-input v-model="form.nameVi" :placeholder="t('settings.nameBrandPh')" />
+        </el-form-item>
+        <el-form-item :label="t('settings.adminLogo')">
+          <div class="upload-row">
+            <el-input v-model="form.adminLogo" :placeholder="t('settings.adminLogoPh')" />
+            <el-upload :show-file-list="false" accept="image/*" :before-upload="onUploadAdminLogo">
+              <el-button>{{ t('settings.upload') }}</el-button>
+            </el-upload>
+          </div>
+          <img v-if="form.adminLogo" :src="form.adminLogo" class="preview preview-logo" alt="" />
+          <p class="hint">{{ t('settings.adminLogoHint') }}</p>
+        </el-form-item>
         <el-form-item :label="t('settings.address')"><el-input v-model="form.address" /></el-form-item>
         <el-form-item :label="t('settings.phone')"><el-input v-model="form.phone" /></el-form-item>
+        <el-form-item :label="t('settings.wifiSsid')">
+          <el-input v-model="form.wifiSsid" :placeholder="t('settings.wifiSsidPh')" />
+        </el-form-item>
+        <el-form-item :label="t('settings.wifiPassword')">
+          <el-input v-model="form.wifiPassword" :placeholder="t('settings.wifiPasswordPh')" show-password />
+        </el-form-item>
+        <p class="hint wifi-hint">{{ t('settings.wifiHint') }}</p>
+        <el-form-item :label="t('settings.storefrontImage')">
+          <div class="upload-row">
+            <el-input v-model="form.storefrontImage" :placeholder="t('settings.storefrontImagePh')" />
+            <el-upload :show-file-list="false" accept="image/*" :before-upload="onUploadStorefront">
+              <el-button>{{ t('settings.upload') }}</el-button>
+            </el-upload>
+          </div>
+          <img v-if="form.storefrontImage" :src="form.storefrontImage" class="preview" alt="" />
+        </el-form-item>
+        <el-form-item :label="t('settings.envGallery')">
+          <p class="hint">{{ t('settings.envGalleryHint') }}</p>
+          <div v-for="(item, i) in form.envGallery" :key="item.image + i" class="media-card">
+            <img :src="item.image" alt="" />
+            <div class="media-fields">
+              <el-input v-model="item.captionZh" :placeholder="t('settings.captionZh')" />
+              <el-input v-model="item.captionVi" :placeholder="t('settings.captionVi')" />
+              <div class="media-actions">
+                <el-button size="small" :disabled="i === 0" @click="moveItem(form.envGallery, i, -1)">
+                  {{ t('settings.moveUp') }}
+                </el-button>
+                <el-button
+                  size="small"
+                  :disabled="i === form.envGallery.length - 1"
+                  @click="moveItem(form.envGallery, i, 1)"
+                >
+                  {{ t('settings.moveDown') }}
+                </el-button>
+                <el-button size="small" type="danger" plain @click="form.envGallery.splice(i, 1)">
+                  {{ t('common.delete') }}
+                </el-button>
+              </div>
+            </div>
+          </div>
+          <el-upload :show-file-list="false" accept="image/*" :before-upload="onUploadEnv">
+            <el-button>{{ t('settings.addPhoto') }}</el-button>
+          </el-upload>
+        </el-form-item>
         <el-form-item :label="t('settings.homeBanners')">
+          <p class="hint">{{ t('settings.homeBannersHint') }}</p>
+          <div v-for="(item, i) in form.homeBanners" :key="item.image + i" class="media-card">
+            <img :src="item.image" alt="" />
+            <div class="media-fields">
+              <el-input v-model="item.titleZh" :placeholder="t('settings.bannerTitleZh')" />
+              <el-input v-model="item.titleVi" :placeholder="t('settings.bannerTitleVi')" />
+              <el-select
+                :model-value="bannerLinkSelect(item.link)"
+                @change="(v: string) => setBannerLink(item, v)"
+              >
+                <el-option value="" :label="t('settings.linkNone')" />
+                <el-option value="/shop" :label="t('settings.linkMenu')" />
+                <el-option value="/reserve" :label="t('settings.linkReserve')" />
+                <el-option value="/group-meal" :label="t('settings.linkGroup')" />
+                <el-option value="/shop/coupons" :label="t('settings.linkCoupons')" />
+                <el-option value="custom" :label="t('settings.linkCustom')" />
+              </el-select>
+              <el-input
+                v-if="bannerLinkSelect(item.link) === 'custom'"
+                v-model="item.link"
+                :placeholder="t('settings.linkCustomPh')"
+              />
+              <div class="media-actions">
+                <el-upload
+                  :show-file-list="false"
+                  accept="image/*"
+                  :before-upload="(f: File) => replaceImage(f, (url) => (item.image = url))"
+                >
+                  <el-button size="small">{{ t('settings.replaceImage') }}</el-button>
+                </el-upload>
+                <el-button size="small" :disabled="i === 0" @click="moveItem(form.homeBanners, i, -1)">
+                  {{ t('settings.moveUp') }}
+                </el-button>
+                <el-button
+                  size="small"
+                  :disabled="i === form.homeBanners.length - 1"
+                  @click="moveItem(form.homeBanners, i, 1)"
+                >
+                  {{ t('settings.moveDown') }}
+                </el-button>
+                <el-button size="small" type="danger" plain @click="form.homeBanners.splice(i, 1)">
+                  {{ t('common.delete') }}
+                </el-button>
+              </div>
+            </div>
+          </div>
+          <el-upload :show-file-list="false" accept="image/*" :before-upload="onUploadBanner">
+            <el-button>{{ t('settings.addBanner') }}</el-button>
+          </el-upload>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="saving" @click="save">{{ t('common.save') }}</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
+    <div v-show="activeTab === 'ai'" class="panel">
+      <h4>{{ t('settings.tabAi') }}</h4>
+      <p class="hint">{{ t('settings.aiHint') }}</p>
+      <el-form label-width="140px" style="max-width: 640px">
+        <el-form-item :label="t('settings.aiEnabled')">
+          <el-switch v-model="form.aiSettings.enabled" />
+        </el-form-item>
+        <el-form-item :label="t('settings.aiProvider')">
+          <el-input v-model="form.aiSettings.provider" placeholder="openai / custom" />
+        </el-form-item>
+        <el-form-item :label="t('settings.aiApiBase')">
+          <el-input v-model="form.aiSettings.apiBase" placeholder="https://api.openai.com/v1" />
+        </el-form-item>
+        <el-form-item :label="t('settings.aiApiKey')">
           <el-input
-            v-model="form.homeBannersText"
-            type="textarea"
-            :rows="5"
-            :placeholder="t('settings.homeBannersPh')"
+            v-model="form.aiSettings.apiKey"
+            type="password"
+            show-password
+            :placeholder="t('settings.aiApiKeyPh')"
           />
+        </el-form-item>
+        <el-form-item :label="t('settings.aiModel')">
+          <el-input v-model="form.aiSettings.model" placeholder="gpt-4o-mini" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="saving" @click="save">{{ t('common.save') }}</el-button>
@@ -340,17 +643,30 @@ onMounted(load);
 
     <div v-show="activeTab === 'delivery'" class="panel">
       <h4>{{ t('settings.delivery') }}</h4>
-      <el-form label-width="140px" style="max-width: 640px">
+      <el-form label-width="168px" style="max-width: 860px">
         <el-form-item :label="t('settings.businessOpen')">
           <el-input v-model="form.businessOpen" style="width: 120px" placeholder="09:00" />
           <span style="margin: 0 8px">-</span>
           <el-input v-model="form.businessClose" style="width: 120px" placeholder="22:00" />
         </el-form-item>
+        <el-form-item :label="t('settings.businessPaused')">
+          <el-switch v-model="form.businessPaused" />
+          <span class="form-hint">{{ t('settings.businessPausedHint') }}</span>
+        </el-form-item>
         <el-form-item :label="t('settings.minOrderAmount')">
           <el-input-number v-model="form.minOrderAmount" :min="0" :step="1000" />
         </el-form-item>
         <el-form-item :label="t('settings.deliveryRadiusKm')">
-          <el-input-number v-model="form.deliveryRadiusKm" :min="0" :step="0.5" />
+          <el-input-number v-model="form.deliveryRadiusKm" :min="0.5" :max="50" :step="0.5" />
+        </el-form-item>
+        <el-form-item :label="t('settings.deliveryZone')">
+          <!-- v-if：仅在外卖 Tab 可见时挂载，避免 Leaflet 在 display:none 下半屏瓦片 -->
+          <DeliveryZoneMap
+            v-if="activeTab === 'delivery'"
+            v-model:lat="form.lat"
+            v-model:lng="form.lng"
+            :radius-km="form.deliveryRadiusKm"
+          />
         </el-form-item>
         <el-form-item :label="t('settings.storeLat')">
           <el-input-number v-model="form.lat" :step="0.0001" :controls="false" />
@@ -359,10 +675,29 @@ onMounted(load);
           <el-input-number v-model="form.lng" :step="0.0001" :controls="false" />
         </el-form-item>
         <el-form-item :label="t('settings.feeRules')">
-          <el-input v-model="form.feeRulesText" type="textarea" :rows="3" />
+          <p class="hint">{{ t('settings.feeRulesHint') }}</p>
+          <div v-for="(rule, i) in form.feeRules" :key="i" class="fee-row">
+            <span>{{ t('settings.feeWithin') }}</span>
+            <el-input-number v-model="rule.maxKm" :min="0.1" :step="0.5" :precision="1" />
+            <span>km</span>
+            <span>{{ t('settings.feeAmount') }}</span>
+            <el-input-number v-model="rule.fee" :min="0" :step="1000" />
+            <el-button size="small" type="danger" plain @click="form.feeRules.splice(i, 1)">
+              {{ t('common.delete') }}
+            </el-button>
+          </div>
+          <el-button @click="form.feeRules.push({ maxKm: 3, fee: 20000 })">
+            {{ t('settings.addFeeRule') }}
+          </el-button>
         </el-form-item>
         <el-form-item :label="t('settings.bankTransferQr')">
-          <el-input v-model="form.bankTransferQr" placeholder="https://..." />
+          <div class="upload-row">
+            <el-input v-model="form.bankTransferQr" :placeholder="t('settings.bankTransferQrPh')" />
+            <el-upload :show-file-list="false" accept="image/*" :before-upload="onUploadBankQr">
+              <el-button>{{ t('settings.upload') }}</el-button>
+            </el-upload>
+          </div>
+          <img v-if="form.bankTransferQr" :src="form.bankTransferQr" class="preview" alt="" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="saving" @click="save">{{ t('common.save') }}</el-button>
@@ -372,7 +707,8 @@ onMounted(load);
 
     <div v-show="activeTab === 'voice'" class="panel">
       <h4>{{ t('settings.voice') }}</h4>
-      <el-form label-width="140px" style="max-width: 640px">
+      <p class="hint">{{ t('settings.voiceHint') }}</p>
+      <el-form label-width="150px" style="max-width: 860px">
         <el-form-item :label="t('settings.announceLang')">
           <el-radio-group v-model="form.announceLang">
             <el-radio label="zh">中文</el-radio>
@@ -380,7 +716,51 @@ onMounted(load);
           </el-radio-group>
         </el-form-item>
         <el-form-item v-for="k in keys" :key="k" :label="t(`settings.announce.${k}`)">
-          <el-switch v-model="form.announceSettings[k]" />
+          <div class="voice-row">
+            <el-switch v-model="form.announceSettings[k]" />
+            <div class="clip-pair">
+              <div class="clip-line">
+                <span class="clip-lang">ZH</span>
+                <audio v-if="clipUrl(k, 'zh')" :src="clipUrl(k, 'zh')" controls preload="none" />
+                <el-upload
+                  :show-file-list="false"
+                  accept="audio/*,.mp3,.wav,.m4a,.ogg"
+                  :before-upload="(f: File) => uploadClip(k, 'zh', f)"
+                >
+                  <el-button size="small">{{ t('settings.clipUpload') }}</el-button>
+                </el-upload>
+                <el-button
+                  v-if="clipUrl(k, 'zh')"
+                  size="small"
+                  text
+                  type="danger"
+                  @click="clearClip(k, 'zh')"
+                >
+                  {{ t('settings.clipClear') }}
+                </el-button>
+              </div>
+              <div class="clip-line">
+                <span class="clip-lang">VI</span>
+                <audio v-if="clipUrl(k, 'vi')" :src="clipUrl(k, 'vi')" controls preload="none" />
+                <el-upload
+                  :show-file-list="false"
+                  accept="audio/*,.mp3,.wav,.m4a,.ogg"
+                  :before-upload="(f: File) => uploadClip(k, 'vi', f)"
+                >
+                  <el-button size="small">{{ t('settings.clipUpload') }}</el-button>
+                </el-upload>
+                <el-button
+                  v-if="clipUrl(k, 'vi')"
+                  size="small"
+                  text
+                  type="danger"
+                  @click="clearClip(k, 'vi')"
+                >
+                  {{ t('settings.clipClear') }}
+                </el-button>
+              </div>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="saving" @click="save">{{ t('common.save') }}</el-button>
@@ -556,6 +936,8 @@ onMounted(load);
 }
 .panel h4 { margin: 0 0 4px; }
 .hint { margin: 0 0 16px; color: #888; font-size: 13px; }
+.wifi-hint { margin: -8px 0 16px 140px; }
+.form-hint { margin-left: 12px; color: #909399; font-size: 12px; }
 .notice-head {
   display: flex;
   align-items: flex-start;
@@ -564,4 +946,83 @@ onMounted(load);
   margin-bottom: 8px;
 }
 .notice-head .hint { margin-bottom: 0; }
+.upload-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  align-items: center;
+}
+.preview {
+  margin-top: 8px;
+  max-width: 220px;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+.preview-logo {
+  max-width: 64px;
+  max-height: 64px;
+  border-radius: 12px;
+}
+.media-card {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  background: #fafafa;
+}
+.media-card img {
+  width: 120px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: #eee;
+}
+.media-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.media-actions,
+.fee-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.fee-row { margin-bottom: 8px; }
+.voice-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.clip-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.clip-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.clip-lang {
+  width: 28px;
+  font-size: 12px;
+  color: #909399;
+  font-weight: 600;
+}
+.clip-line audio {
+  height: 32px;
+  max-width: 220px;
+}
 </style>

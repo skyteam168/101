@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -52,6 +54,7 @@ export class CreateGroupMealInquiryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   comboId?: string;
 
   @ApiPropertyOptional({ description: '预算越南盾整数' })
@@ -70,6 +73,7 @@ export class CreateGroupMealInquiryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   storeId?: string;
 }
 
@@ -110,18 +114,21 @@ export class UpdateGroupMealInquiryDto {
 export class GroupComboSelectionDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   groupId!: string;
 
   @ApiProperty({ type: [String] })
   @IsArray()
   @ArrayMinSize(0)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   dishIds!: string[];
 }
 
 export class PlaceGroupMealOrderDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   comboId!: string;
 
   @ApiProperty({ type: [GroupComboSelectionDto] })
@@ -145,6 +152,7 @@ export class PlaceGroupMealOrderDto {
 
   @ApiProperty()
   @IsString()
+  @MaxLength(512)
   addressId!: string;
 
   @ApiProperty({ enum: ['cash', 'bank_transfer'] })

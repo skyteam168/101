@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { NextFunction, Request, Response } from 'express';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { AppModule } from './app.module';
@@ -18,6 +19,9 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService);
 
+  // 经 Cloudflare / Nginx 反代时信任 X-Forwarded-*，才能拿到真实客户端 IP
+  app.set('trust proxy', config.get<string>('TRUST_PROXY') ?? '1');
+
   const uploadDir = config.get<string>('UPLOAD_DIR') || join(process.cwd(), 'uploads');
   if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
   app.useStaticAssets(uploadDir, { prefix: '/uploads' });
@@ -28,6 +32,15 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // 基础安全响应头；API 禁止被嵌入，前端页面 CSP 见 admin/h5 index.html
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-XSS-Protection', '0');
+    res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+    next();
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({

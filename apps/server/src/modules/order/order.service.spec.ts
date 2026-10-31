@@ -313,7 +313,20 @@ describe('OrderService.submit / addItems / voidItem', () => {
     );
   });
 
-  it('checkout rejects mismatched payment total', async () => {
+  it('checkout rejects mismatched non-cash payment total', async () => {
+    const prisma = basePrisma();
+    const service = new OrderService(prisma as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    await expect(
+      service.checkout(
+        '1',
+        '100',
+        { payments: [{ method: PaymentMethod.card, amount: 1 }] },
+        '9',
+      ),
+    ).rejects.toMatchObject({ errorCode: 'PAYMENT_AMOUNT_MISMATCH' });
+  });
+
+  it('checkout cash rejects when received less than due', async () => {
     const prisma = basePrisma();
     const service = new OrderService(prisma as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
     await expect(
@@ -323,6 +336,6 @@ describe('OrderService.submit / addItems / voidItem', () => {
         { payments: [{ method: PaymentMethod.cash, amount: 1, received: 1 }] },
         '9',
       ),
-    ).rejects.toMatchObject({ errorCode: 'PAYMENT_AMOUNT_MISMATCH' });
+    ).rejects.toMatchObject({ errorCode: 'CASH_RECEIVED_INSUFFICIENT' });
   });
 });

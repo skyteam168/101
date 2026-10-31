@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { formatVND, localeField } from '@restaurant/shared';
+import { formatVND, localeField, type PrintTicketPayload } from '@restaurant/shared';
 import { listCategoriesApi, listDishesApi, type Category, type Dish } from '../../api/menu';
 import {
   addOrderItemsApi,
@@ -15,8 +15,11 @@ import {
   voidOrderItemApi,
   type Order,
 } from '../../api/order';
+import { getStoreSettingsApi } from '../../api/store';
 import { listFloorApi, type FloorTable } from '../../api/table';
+import TicketPreview from '../../components/print/TicketPreview.vue';
 import { useUserStore } from '../../stores/user';
+import { buildReceiptPayload } from '../../utils/build-receipt-payload';
 import { formatThousands, parseThousands } from '../../utils/vnd-input';
 
 const { t, locale } = useI18n();
@@ -34,6 +37,8 @@ const order = ref<Order | null>(null);
 const cart = ref<{ dish: Dish; qty: number }[]>([]);
 const loading = ref(false);
 const checkoutVisible = ref(false);
+const receiptVisible = ref(false);
+const receiptPayload = ref<PrintTicketPayload | null>(null);
 const discountVisible = ref(false);
 const discountText = ref('0');
 const serviceText = ref('0');
@@ -165,6 +170,9 @@ async function saveDiscount() {
   ElMessage.success(t('common.saved'));
 }
 
+/** 现金快捷面额（点击填入实收并立即结账） */
+const CASH_QUICK_AMOUNTS = [50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000, 3_000_000];
+
 function openCheckout() {
   if (!order.value || order.value.total <= 0) {
     ElMessage.warning(t('order.emptyCheckout'));
@@ -175,16 +183,63 @@ function openCheckout() {
   checkoutVisible.value = true;
 }
 
+async function quickCashPay(n: number) {
+  if (!order.value) return;
+  payForm.method = 'cash';
+  payForm.receivedText = formatThousands(n);
+  if (n < order.value.total) {
+    ElMessage.warning(t('cashier.cashInsufficient'));
+    return;
+  }
+  await confirmCheckout();
+}
+
 async function confirmCheckout() {
   if (!order.value) return;
-  const amount = order.value.total;
+  // amount = 应付；received = 实收（现金找零 = received - amount）
+  const due = Number(order.value.total) || 0;
+  const received = cashReceived.value;
+  if (payForm.method === 'cash' && received < due) {
+    ElMessage.warning(t('cashier.cashInsufficient'));
+    return;
+  }
   const payments =
     payForm.method === 'cash'
-      ? [{ method: 'cash', amount, received: cashReceived.value }]
-      : [{ method: payForm.method, amount }];
+      ? [{ method: 'cash', amount: due, received }]
+      : [{ method: payForm.method, amount: due }];
   await checkoutOrderApi(order.value.id, payments);
   checkoutVisible.value = false;
   ElMessage.success(t('order.paid'));
+  const snapOrder: Order = {
+    ...order.value,
+    paidAmount: order.value.total,
+    payments: payments.map((p, i) => {
+      const recv = 'received' in p ? (p.received as number) : p.amount;
+      return {
+        id: String(i),
+        method: p.method,
+        amount: p.amount,
+        received: recv,
+        change: Math.max(0, recv - p.amount),
+        createdAt: new Date().toISOString(),
+      };
+    }),
+  };
+  try {
+    const store = await getStoreSettingsApi();
+    receiptPayload.value = buildReceiptPayload(snapOrder, store);
+    receiptVisible.value = true;
+  } catch {
+    router.replace('/tables');
+  }
+}
+
+function closeReceipt() {
+  receiptVisible.value = false;
+}
+
+function onReceiptClosed() {
+  receiptPayload.value = null;
   router.replace('/tables');
 }
 
@@ -313,7 +368,7 @@ onMounted(refresh);
       </template>
     </el-dialog>
 
-    <el-dialog v-model="checkoutVisible" :title="t('order.checkout')" width="440px">
+    <el-dialog v-model="checkoutVisible" :title="t('order.checkout')" width="480px">
       <div class="pay-total">{{ formatVND(order?.total ?? 0) }}</div>
       <el-form label-width="100px">
         <el-form-item :label="t('order.payMethod')">
@@ -326,7 +381,23 @@ onMounted(refresh);
           </el-select>
         </el-form-item>
         <el-form-item v-if="payForm.method === 'cash'" :label="t('order.received')">
-          <el-input v-model="payForm.receivedText" />
+          <el-input
+            :model-value="payForm.receivedText"
+            @update:model-value="(v: string) => (payForm.receivedText = formatThousands(parseThousands(v)))"
+          />
+          <div class="cash-quick">
+            <el-button
+              v-for="n in CASH_QUICK_AMOUNTS"
+              :key="n"
+              size="small"
+              :type="n >= (order?.total ?? 0) ? 'primary' : 'default'"
+              plain
+              @click="quickCashPay(n)"
+            >
+              {{ formatThousands(n) }}
+            </el-button>
+          </div>
+          <div class="cash-quick-hint">{{ t('cashier.cashQuickHint') }}</div>
         </el-form-item>
         <el-form-item v-if="payForm.method === 'cash'" :label="t('order.change')">
           <span>{{ formatVND(cashChange) }}</span>
@@ -337,10 +408,36 @@ onMounted(refresh);
         <el-button type="primary" @click="confirmCheckout">{{ t('order.confirmPay') }}</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="receiptVisible"
+      :title="t('print.receiptDialogTitle')"
+      width="400px"
+      destroy-on-close
+      :close-on-click-modal="false"
+      @closed="onReceiptClosed"
+    >
+      <TicketPreview v-if="receiptPayload" :payload="receiptPayload" />
+      <template #footer>
+        <el-button type="primary" @click="closeReceipt">{{ t('common.close') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
+.cash-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cash-quick-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.3;
+}
 .pos {
   height: calc(100vh - 100px);
   display: flex;

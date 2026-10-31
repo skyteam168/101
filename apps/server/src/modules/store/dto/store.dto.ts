@@ -1,4 +1,5 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -55,6 +56,103 @@ export class AnnounceSettingsDto {
   @IsOptional()
   @IsBoolean()
   reservationNew?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  qrNeedConfirm?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  checkout?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  chatMessage?: boolean;
+}
+
+export class AnnounceClipPairDto {
+  @ApiPropertyOptional({ description: '中文语音文件 URL' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  zh?: string;
+
+  @ApiPropertyOptional({ description: '越文语音文件 URL' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  vi?: string;
+}
+
+export class AnnounceClipsDto {
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  dineInNew?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  addItem?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  deliveryNew?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  callWaiter?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  requestBill?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  orderCancel?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  printFailed?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  reservationNew?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  qrNeedConfirm?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  checkout?: AnnounceClipPairDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipPairDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AnnounceClipPairDto)
+  chatMessage?: AnnounceClipPairDto;
 }
 
 export class UpdateStoreSettingsDto {
@@ -69,6 +167,13 @@ export class UpdateStoreSettingsDto {
   @ValidateNested()
   @Type(() => AnnounceSettingsDto)
   announceSettings?: AnnounceSettingsDto;
+
+  @ApiPropertyOptional({ type: AnnounceClipsDto })
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => AnnounceClipsDto)
+  announceClips?: AnnounceClipsDto;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -136,7 +241,7 @@ export class UpdateStoreSettingsDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()
-  businessHours?: { open: string; close: string; days: number[] };
+  businessHours?: { open: string; close: string; days: number[]; paused?: boolean };
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -187,6 +292,50 @@ export class UpdateStoreSettingsDto {
     titleZh?: string;
     titleVi?: string;
   }[];
+
+  @ApiPropertyOptional({ description: '门头照片 URL' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  storefrontImage?: string | null;
+
+  @ApiPropertyOptional({ description: '管理后台侧栏 Logo URL' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  adminLogo?: string | null;
+
+  @ApiPropertyOptional({
+    description: '环境相册：[{ image, captionZh?, captionVi? }]',
+  })
+  @IsOptional()
+  @IsArray()
+  envGallery?: {
+    image: string;
+    captionZh?: string;
+    captionVi?: string;
+  }[];
+
+  @ApiPropertyOptional({
+    description: '翻译/大模型配置：{ enabled, provider, apiBase, apiKey, model }',
+  })
+  @IsOptional()
+  @IsObject()
+  aiSettings?: {
+    enabled?: boolean;
+    provider?: string;
+    apiBase?: string;
+    apiKey?: string;
+    model?: string;
+  };
+
+  @ApiPropertyOptional({ description: '桌贴 WiFi：{ ssid, password }' })
+  @IsOptional()
+  @IsObject()
+  guestWifi?: {
+    ssid?: string;
+    password?: string;
+  };
 }
 
 export class PushMessageDto {
@@ -194,6 +343,7 @@ export class PushMessageDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @MaxLength(128, { each: true })
   emails?: string[];
 
   @ApiPropertyOptional({ description: '会员 ID 列表' })

@@ -24,6 +24,14 @@ export class GroupMealController {
     return this.service.list(this.storeId(user), query);
   }
 
+  /** 待处理询单数量（菜单角标） */
+  @Get('pending-count')
+  @RequirePerm('group_meal:view')
+  async pendingCount(@CurrentUser() user: AuthUser) {
+    const count = await this.service.countPending(this.storeId(user));
+    return { count };
+  }
+
   @Patch(':id')
   @RequirePerm('group_meal:edit')
   update(

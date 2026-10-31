@@ -4,6 +4,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SessionStatus, TableStatus } from '@prisma/client';
 import { Events } from '@restaurant/shared';
 import { randomBytes, randomInt } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import PDFDocument from 'pdfkit';
 import * as QRCode from 'qrcode';
 import { BusinessError } from '../../common/errors/business.error';
@@ -82,6 +84,11 @@ export class TableService {
         roundNo: b.roundNo,
         guestNickname: b.guestNickname,
       })) ?? [];
+    // 纠正不一致：status=idle 但仍挂着 session → 有未结账订单视为用餐中，否则视为待清台
+    let status = t.status;
+    if (t.status === TableStatus.idle && t.currentSessionId) {
+      status = openOrder ? TableStatus.dining : TableStatus.cleaning;
+    }
     return {
       id: t.id.toString(),
       areaId: t.areaId.toString(),
@@ -90,7 +97,7 @@ export class TableService {
         : undefined,
       code: t.code,
       seats: t.seats,
-      status: t.status,
+      status,
       qrToken: t.qrToken,
       qrUrl: `${this.h5Base()}/t/${t.qrToken}`,
       currentSessionId: t.currentSessionId?.toString() ?? null,
@@ -305,13 +312,36 @@ export class TableService {
   async openTable(storeId: string, tableId: string, dto: OpenTableDto, waiterId?: string) {
     const table = await this.prisma.table.findFirst({
       where: { id: BigInt(tableId), storeId: BigInt(storeId) },
+      include: {
+        currentSession: {
+          include: { orders: { where: { status: 'open' }, select: { id: true } } },
+        },
+      },
     });
     if (!table) throw new BusinessError('TABLE_NOT_FOUND');
-    if (table.status !== TableStatus.idle || table.currentSessionId) {
+
+    // 脏数据自愈：idle 但仍挂着无未结账订单的 session → 先关掉再开台
+    const orphanSession =
+      table.status === TableStatus.idle &&
+      table.currentSessionId &&
+      !(table.currentSession?.orders?.length);
+
+    if (table.status !== TableStatus.idle || (table.currentSessionId && !orphanSession)) {
       throw new BusinessError('TABLE_NOT_IDLE');
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
+      if (orphanSession && table.currentSessionId) {
+        await tx.tableSession.update({
+          where: { id: table.currentSessionId },
+          data: { status: SessionStatus.closed, closeAt: new Date() },
+        });
+        await tx.table.update({
+          where: { id: table.id },
+          data: { currentSessionId: null },
+        });
+      }
+
       const session = await tx.tableSession.create({
         data: {
           tableId: table.id,
@@ -346,11 +376,12 @@ export class TableService {
       include: { currentSession: { include: { orders: true } } },
     });
     if (!table) throw new BusinessError('TABLE_NOT_FOUND');
-    if (table.status !== TableStatus.cleaning) {
-      throw new BusinessError('TABLE_NOT_CLEANING');
-    }
     const openOrder = table.currentSession?.orders.find((o) => o.status === 'open');
     if (openOrder) throw new BusinessError('TABLE_HAS_OPEN_ORDER');
+    // 已是干净空闲桌 → 不可清；其余无未结账订单的桌（含 idle 残留会话、展示为待清台的脏数据）均可清
+    if (table.status === TableStatus.idle && !table.currentSessionId) {
+      throw new BusinessError('TABLE_NOT_CLEANING');
+    }
 
     const result = await this.prisma.$transaction(async (tx) => {
       if (table.currentSessionId) {
@@ -492,6 +523,46 @@ export class TableService {
     return this.listFloor(storeId);
   }
 
+  /**
+   * 桌贴 PDF 字体（需支持中文 + 越南文声调）。
+   * 注意：PDFKit 不支持 .ttc（如 msyh.ttc），注册会失败并回退 Helvetica → 中文乱码。
+   */
+  private resolvePdfFontCandidates(): string[] {
+    const list = [
+      // 仓库内嵌字体（优先）
+      path.resolve(process.cwd(), 'assets/fonts/NotoSansSC-Regular.otf'),
+      path.resolve(process.cwd(), '../print-agent/assets/fonts/NotoSansSC-Regular.otf'),
+      path.resolve(__dirname, '../../../assets/fonts/NotoSansSC-Regular.otf'),
+      path.resolve(__dirname, '../../../../print-agent/assets/fonts/NotoSansSC-Regular.otf'),
+      // Windows 系统单文件字体（勿用 .ttc）
+      'C:\\Windows\\Fonts\\Noto Sans SC (TrueType).otf',
+      'C:\\Windows\\Fonts\\NotoSansSC-Regular.otf',
+      'C:\\Windows\\Fonts\\simhei.ttf',
+      'C:\\Windows\\Fonts\\simkai.ttf',
+      'C:\\Windows\\Fonts\\arialuni.ttf',
+      // Linux
+      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+    ];
+    return list.filter((f, i, arr) => arr.indexOf(f) === i && fs.existsSync(f));
+  }
+
+  private registerStickerFont(doc: InstanceType<typeof PDFDocument>): boolean {
+    for (const fontFile of this.resolvePdfFontCandidates()) {
+      try {
+        // .ttc 在多数 pdfkit 版本会抛 createSubset is not a function
+        if (/\.ttc$/i.test(fontFile)) continue;
+        doc.registerFont('StickerFont', fontFile);
+        doc.font('StickerFont');
+        return true;
+      } catch {
+        /* 试下一个 */
+      }
+    }
+    return false;
+  }
+
   async exportStickers(storeId: string, dto: ExportStickersDto): Promise<Buffer> {
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!store) throw new BusinessError('STORE_REQUIRED');
@@ -504,24 +575,159 @@ export class TableService {
     });
     if (!tables.length) throw new BusinessError('TABLE_NOT_FOUND');
 
-    const doc = new PDFDocument({ size: [298, 420], margin: 24 }); // A6-ish
+    const wifiRaw = store.guestWifi;
+    const wifi =
+      wifiRaw && typeof wifiRaw === 'object'
+        ? (wifiRaw as { ssid?: string; password?: string })
+        : {};
+    const wifiSsid = (wifi.ssid || '').trim();
+    const wifiPass = (wifi.password || '').trim();
+
+    // 横版桌贴：约 10cm x 7cm，放大便于印刷
+    const W = 420;
+    const H = 300;
+    const doc = new PDFDocument({ size: [W, H], margin: 0 });
     const chunks: Buffer[] = [];
     doc.on('data', (c) => chunks.push(c as Buffer));
+
+    const hasCjkFont = this.registerStickerFont(doc);
+    const useFont = () => {
+      if (hasCjkFont) doc.font('StickerFont');
+    };
+
+    const midX = W / 2;
+    const pad = 18;
+    const chars = ['扫', '码', '点', '单'];
+
+    const drawWifiIcon = (x: number, y: number) => {
+      doc.save();
+      doc.lineWidth(1.1).strokeColor('#111');
+      doc
+        .moveTo(x + 1, y + 7)
+        .bezierCurveTo(x + 4, y + 2, x + 10, y + 2, x + 13, y + 7)
+        .stroke();
+      doc
+        .moveTo(x + 3, y + 9.5)
+        .bezierCurveTo(x + 5.5, y + 6, x + 8.5, y + 6, x + 11, y + 9.5)
+        .stroke();
+      doc.circle(x + 7, y + 12.5, 1.3).fill('#111');
+      doc.restore();
+    };
+    const drawLockIcon = (x: number, y: number) => {
+      doc.save();
+      doc.lineWidth(1.1).strokeColor('#111').fillColor('#111');
+      doc
+        .moveTo(x + 4, y + 6)
+        .lineTo(x + 4, y + 4.5)
+        .bezierCurveTo(x + 4, y + 1.5, x + 10, y + 1.5, x + 10, y + 4.5)
+        .lineTo(x + 10, y + 6)
+        .stroke();
+      doc.roundedRect(x + 2.5, y + 6, 9, 7.5, 1).stroke();
+      doc.circle(x + 7, y + 9.5, 1).fill('#111');
+      doc.restore();
+    };
 
     for (let i = 0; i < tables.length; i++) {
       if (i > 0) doc.addPage();
       const t = tables[i];
       const url = `${this.h5Base()}/t/${t.qrToken}`;
-      const qr = await QRCode.toBuffer(url, { type: 'png', width: 220, margin: 1 });
-      doc.fontSize(14).text(store.nameZh, { align: 'center' });
-      doc.fontSize(11).fillColor('#666').text(store.nameVi, { align: 'center' });
-      doc.moveDown(0.5);
-      doc.fillColor('#000').fontSize(28).text(t.code, { align: 'center' });
-      doc.moveDown(0.5);
-      doc.image(qr, (doc.page.width - 180) / 2, doc.y, { width: 180 });
-      doc.moveDown(12);
-      doc.fontSize(12).text('扫码点餐', { align: 'center' });
-      doc.fontSize(11).text('Quét mã để gọi món', { align: 'center' });
+      const qr = await QRCode.toBuffer(url, { type: 'png', width: 320, margin: 1, errorCorrectionLevel: 'M' });
+
+      // 外框
+      doc.roundedRect(8, 8, W - 16, H - 16, 10).lineWidth(1.2).stroke('#111');
+      // 中缝竖线
+      doc
+        .moveTo(midX, 22)
+        .lineTo(midX, H - 22)
+        .lineWidth(1)
+        .stroke('#222');
+
+      // —— 左：二维码 + 扫码点单（中/越/英）——
+      const qrSize = 138;
+      const qrX = (midX - qrSize) / 2;
+      const qrY = 22;
+      doc.image(qr, qrX, qrY, { width: qrSize, height: qrSize });
+
+      const circleY = qrY + qrSize + 20;
+      const circleR = 10;
+      const gap = 26;
+      const totalW = chars.length * gap;
+      const startX = (midX - totalW) / 2 + gap / 2;
+      chars.forEach((ch, idx) => {
+        const cx = startX + idx * gap;
+        doc.circle(cx, circleY, circleR).fill('#111');
+        useFont();
+        doc.fillColor('#fff').fontSize(10).text(ch, cx - 8, circleY - 5.5, { width: 16, align: 'center' });
+      });
+      useFont();
+      doc
+        .fillColor('#111')
+        .fontSize(11)
+        .text('Quét mã gọi món', 12, circleY + 16, {
+          width: midX - 24,
+          align: 'center',
+        });
+      useFont();
+      doc
+        .fillColor('#666')
+        .fontSize(9)
+        .text('SCAN TO ORDER', 12, circleY + 32, {
+          width: midX - 24,
+          align: 'center',
+        });
+      doc.fillColor('#000');
+
+      // —— 右：店名 / 桌号 / WIFI ——
+      const rightX = midX + pad;
+      const rightW = midX - pad * 2;
+      useFont();
+      doc.fontSize(16).fillColor('#111').text(store.nameZh || store.nameVi, rightX, 36, {
+        width: rightW,
+        align: 'center',
+      });
+      if (store.nameVi && store.nameVi !== store.nameZh) {
+        const vi =
+          store.nameVi.length > 28 ? `${store.nameVi.slice(0, 26)}…` : store.nameVi;
+        useFont();
+        doc.fontSize(10).fillColor('#888').text(vi, rightX, 58, {
+          width: rightW,
+          align: 'center',
+          lineBreak: false,
+        });
+      }
+
+      useFont();
+      doc.fontSize(42).fillColor('#e11d2e').text(t.code, rightX, 100, {
+        width: rightW,
+        align: 'center',
+      });
+
+      // WIFI 区：标题 + 图标行
+      const wifiTop = 210;
+      useFont();
+      doc.fillColor('#111').fontSize(14).text('WIFI', rightX, wifiTop + 4, { width: 42 });
+      const infoX = rightX + 48;
+      const infoW = rightW - 48;
+      if (wifiSsid || wifiPass) {
+        let wy = wifiTop;
+        if (wifiSsid) {
+          drawWifiIcon(infoX, wy);
+          useFont();
+          doc.fontSize(11).fillColor('#222').text(wifiSsid, infoX + 18, wy + 1, { width: infoW - 18 });
+          wy += 20;
+        }
+        if (wifiPass) {
+          drawLockIcon(infoX, wy);
+          useFont();
+          doc.fontSize(11).fillColor('#222').text(wifiPass, infoX + 18, wy + 1, { width: infoW - 18 });
+        }
+      } else {
+        useFont();
+        doc.fontSize(9).fillColor('#999').text('（后台可配置 WiFi）', infoX, wifiTop + 6, {
+          width: infoW,
+        });
+      }
+      doc.fillColor('#000');
     }
 
     doc.end();

@@ -2,6 +2,8 @@
 import { onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
+import type { PrintTicketPayload } from '@restaurant/shared';
+import TicketPreview from '../../components/print/TicketPreview.vue';
 import {
   createAgentApi,
   createPrinterApi,
@@ -28,6 +30,8 @@ import {
 const { t } = useI18n();
 const tab = ref('jobs');
 const loading = ref(false);
+const previewVisible = ref(false);
+const previewPayload = ref<PrintTicketPayload | null>(null);
 
 const stations = ref<Station[]>([]);
 const printers = ref<Printer[]>([]);
@@ -174,6 +178,15 @@ async function removeAgent(row: PrintAgent) {
   await loadAll();
 }
 
+function openPreview(row: PrintJob) {
+  if (!row.payload) {
+    ElMessage.warning(t('print.noPayload'));
+    return;
+  }
+  previewPayload.value = row.payload;
+  previewVisible.value = true;
+}
+
 async function reprint(row: PrintJob) {
   let printerId: string | undefined;
   try {
@@ -218,8 +231,11 @@ onMounted(loadAll);
           <el-table-column prop="retries" :label="t('print.retries')" width="80" />
           <el-table-column prop="error" :label="t('print.error')" min-width="160" show-overflow-tooltip />
           <el-table-column prop="createdAt" :label="t('print.createdAt')" width="170" />
-          <el-table-column :label="t('common.actions')" width="100" fixed="right">
+          <el-table-column :label="t('common.actions')" width="140" fixed="right">
             <template #default="{ row }">
+              <el-button link type="primary" @click="openPreview(row)">
+                {{ t('print.preview') }}
+              </el-button>
               <el-button link type="primary" v-perm="'print:reprint'" @click="reprint(row)">
                 {{ t('print.reprint') }}
               </el-button>
@@ -338,6 +354,18 @@ onMounted(loadAll);
       <template #footer>
         <el-button @click="agentDialog = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" @click="saveAgent">{{ t('common.save') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="previewVisible"
+      :title="t('print.previewTitle')"
+      width="400px"
+      destroy-on-close
+    >
+      <TicketPreview v-if="previewPayload" :payload="previewPayload" />
+      <template #footer>
+        <el-button type="primary" @click="previewVisible = false">{{ t('common.close') }}</el-button>
       </template>
     </el-dialog>
   </div>

@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Events, formatVND, localeField } from '@restaurant/shared';
+import { Events, formatVND, isSafeMediaUrl, localeField } from '@restaurant/shared';
 import { io, type Socket } from 'socket.io-client';
 import { listUsersApi, type UserRow } from '../../api/user';
 import {
@@ -154,6 +154,7 @@ onUnmounted(() => {
             <div v-for="o in byStatus[col.status]" :key="o.id" class="card">
               <div class="card-hd">
                 <strong>{{ o.orderNo }}</strong>
+                <el-tag v-if="o.memberPriority" size="small" type="warning">{{ t('member.priority') }}</el-tag>
                 <span>{{ formatVND(o.total) }}</span>
               </div>
               <div class="muted">{{ o.customer?.name || o.customer?.email }} · {{ o.customer?.phone }}</div>
@@ -161,6 +162,19 @@ onUnmounted(() => {
                 {{ o.addressSnapshot?.addressText }}
                 <span v-if="o.addressSnapshot?.distanceKm"> ({{ o.addressSnapshot.distanceKm }}km)</span>
               </div>
+              <a
+                v-if="
+                  o.addressSnapshot?.landmarkPhoto &&
+                  isSafeMediaUrl(String(o.addressSnapshot.landmarkPhoto))
+                "
+                :href="String(o.addressSnapshot.landmarkPhoto)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="landmark-link"
+              >
+                <img :src="String(o.addressSnapshot.landmarkPhoto)" class="landmark-thumb" alt="" />
+                <span>{{ t('delivery.landmarkPhoto') }}</span>
+              </a>
               <ul class="items">
                 <li v-for="it in o.items" :key="it.id">{{ nameOf(it) }} ×{{ it.qty }}</li>
               </ul>
@@ -262,6 +276,22 @@ h3 {
   color: #909399;
   font-size: 12px;
   margin: 2px 0;
+}
+.landmark-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 2px;
+  font-size: 12px;
+  color: #e6a23c;
+  text-decoration: none;
+}
+.landmark-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid #eee;
 }
 .items {
   margin: 6px 0;

@@ -180,44 +180,126 @@ export class PublicTableService {
     }
   }
 
-  private async saveCart(sessionId: string, storeId: string, items: CartLine[]) {
+  private async saveCart(
+    sessionId: string,
+    storeId: string,
+    items: CartLine[],
+    actor?: {
+      guestId: string;
+      nickname: string;
+      /** add=加菜；change=改他人/自己数量；remove=删除一行 */
+      action: 'add' | 'change' | 'remove';
+      dishNameZh: string;
+      dishNameVi: string;
+      qtyBefore?: number;
+      qtyAfter?: number;
+      /** 被改动那一行的归属客人（改别人菜时用于提示对方） */
+      ownerGuestId?: string;
+      ownerNickname?: string;
+    },
+  ) {
     await this.redis.set(this.cartKey(sessionId), JSON.stringify(items), 24 * 3600);
-    const payload = { sessionId, storeId, items, total: items.reduce((s, i) => s + i.amount, 0) };
+    const payload = {
+      sessionId,
+      storeId,
+      items,
+      total: items.reduce((s, i) => s + i.amount, 0),
+      actor: actor ?? null,
+    };
     this.events.emit(Events.CART_UPDATED, payload);
     this.realtime.emitCartUpdated(sessionId, payload);
     return items;
   }
 
+  /** 规格快照稳定序列化，用于同人同菜合并判断 */
+  private optionsKey(snapshot: unknown): string {
+    if (snapshot == null) return '';
+    if (!Array.isArray(snapshot)) {
+      try {
+        return JSON.stringify(snapshot);
+      } catch {
+        return '';
+      }
+    }
+    const norm = snapshot.map((o) => {
+      const x = o as {
+        groupNameZh?: string;
+        groupNameVi?: string;
+        optionNameZh?: string;
+        optionNameVi?: string;
+        extraPrice?: number;
+      };
+      return {
+        g: x.groupNameZh ?? x.groupNameVi ?? '',
+        o: x.optionNameZh ?? x.optionNameVi ?? '',
+        p: Number(x.extraPrice ?? 0),
+      };
+    });
+    norm.sort((a, b) => `${a.g}|${a.o}`.localeCompare(`${b.g}|${b.o}`));
+    return JSON.stringify(norm);
+  }
+
   async addCartItems(guest: GuestUser, dto: AddCartItemsDto) {
     await this.assertSession(guest);
     const cart = await this.getCart(guest.sessionId);
+    let lastDishNameZh = '';
+    let lastDishNameVi = '';
+    let lastAddedQty = 0;
     for (const raw of dto.items) {
       const dish = await this.prisma.dish.findFirst({
         where: { id: BigInt(raw.dishId), storeId: BigInt(guest.storeId), status: 'on', isDineIn: true },
       });
       if (!dish) throw new BusinessError('DISH_NOT_AVAILABLE');
       let extra = 0n;
-      if (Array.isArray(raw.optionsSnapshot)) {
-        for (const opt of raw.optionsSnapshot as Array<{ extraPrice?: number }>) {
+      const optionsSnapshot = raw.optionsSnapshot ?? null;
+      if (Array.isArray(optionsSnapshot)) {
+        for (const opt of optionsSnapshot as Array<{ extraPrice?: number }>) {
           extra += BigInt(opt.extraPrice ?? 0);
         }
       }
       const unitPrice = Number(dish.price + extra);
       const qty = raw.qty;
-      cart.push({
-        id: randomUUID(),
-        dishId: dish.id.toString(),
-        nameZh: dish.nameZh,
-        nameVi: dish.nameVi,
-        unitPrice,
-        qty,
-        amount: unitPrice * qty,
-        optionsSnapshot: raw.optionsSnapshot ?? null,
-        nickname: guest.nickname,
-        guestId: guest.guestId,
-      });
+      const dishId = dish.id.toString();
+      const optKey = this.optionsKey(optionsSnapshot);
+      // 仅合并：同一人 + 同一菜 + 同一规格
+      const existing = cart.find(
+        (c) =>
+          c.guestId === guest.guestId &&
+          c.dishId === dishId &&
+          this.optionsKey(c.optionsSnapshot) === optKey,
+      );
+      if (existing) {
+        existing.qty += qty;
+        existing.amount = existing.unitPrice * existing.qty;
+        existing.nickname = guest.nickname;
+      } else {
+        cart.push({
+          id: randomUUID(),
+          dishId,
+          nameZh: dish.nameZh,
+          nameVi: dish.nameVi,
+          unitPrice,
+          qty,
+          amount: unitPrice * qty,
+          optionsSnapshot,
+          nickname: guest.nickname,
+          guestId: guest.guestId,
+        });
+      }
+      lastDishNameZh = dish.nameZh;
+      lastDishNameVi = dish.nameVi;
+      lastAddedQty = qty;
     }
-    return this.saveCart(guest.sessionId, guest.storeId, cart);
+    return this.saveCart(guest.sessionId, guest.storeId, cart, {
+      guestId: guest.guestId,
+      nickname: guest.nickname,
+      action: 'add',
+      dishNameZh: lastDishNameZh,
+      dishNameVi: lastDishNameVi,
+      qtyAfter: lastAddedQty,
+      ownerGuestId: guest.guestId,
+      ownerNickname: guest.nickname,
+    });
   }
 
   async patchCartItem(guest: GuestUser, itemId: string, dto: PatchCartItemDto) {
@@ -225,13 +307,39 @@ export class PublicTableService {
     let cart = await this.getCart(guest.sessionId);
     const idx = cart.findIndex((c) => c.id === itemId);
     if (idx < 0) throw new BusinessError('CART_ITEM_NOT_FOUND');
+    const line = cart[idx];
+    const qtyBefore = line.qty;
+    const ownerGuestId = line.guestId;
+    const ownerNickname = line.nickname;
+    const dishNameZh = line.nameZh;
+    const dishNameVi = line.nameVi;
     if (dto.qty <= 0) {
       cart = cart.filter((c) => c.id !== itemId);
-    } else {
-      cart[idx].qty = dto.qty;
-      cart[idx].amount = cart[idx].unitPrice * dto.qty;
+      return this.saveCart(guest.sessionId, guest.storeId, cart, {
+        guestId: guest.guestId,
+        nickname: guest.nickname,
+        action: 'remove',
+        dishNameZh,
+        dishNameVi,
+        qtyBefore,
+        qtyAfter: 0,
+        ownerGuestId,
+        ownerNickname,
+      });
     }
-    return this.saveCart(guest.sessionId, guest.storeId, cart);
+    cart[idx].qty = dto.qty;
+    cart[idx].amount = cart[idx].unitPrice * dto.qty;
+    return this.saveCart(guest.sessionId, guest.storeId, cart, {
+      guestId: guest.guestId,
+      nickname: guest.nickname,
+      action: 'change',
+      dishNameZh,
+      dishNameVi,
+      qtyBefore,
+      qtyAfter: dto.qty,
+      ownerGuestId,
+      ownerNickname,
+    });
   }
 
   async removeCartItem(guest: GuestUser, itemId: string) {
@@ -241,7 +349,15 @@ export class PublicTableService {
   async clearMyCart(guest: GuestUser) {
     await this.assertSession(guest);
     const cart = (await this.getCart(guest.sessionId)).filter((c) => c.guestId !== guest.guestId);
-    return this.saveCart(guest.sessionId, guest.storeId, cart);
+    return this.saveCart(guest.sessionId, guest.storeId, cart, {
+      guestId: guest.guestId,
+      nickname: guest.nickname,
+      action: 'remove',
+      dishNameZh: '',
+      dishNameVi: '',
+      ownerGuestId: guest.guestId,
+      ownerNickname: guest.nickname,
+    });
   }
 
   private async assertSession(guest: GuestUser) {
@@ -436,9 +552,21 @@ export class PublicTableService {
       const mapped = this.mapOrder(full!);
       const lastBatch = mapped.batches[mapped.batches.length - 1];
       const isFirst = mapped.batches.length === 1;
+      const pendingConfirmCount = await this.prisma.orderBatch.count({
+        where: {
+          printStatus: BatchPrintStatus.need_confirm,
+          order: {
+            storeId: BigInt(guest.storeId),
+            status: OrderStatus.open,
+            type: OrderType.dine_in,
+          },
+        },
+      });
       if (isFirst) {
         this.events.emit(Events.ORDER_CREATED, {
           storeId: guest.storeId,
+          needConfirm,
+          pendingConfirmCount,
           order: { ...mapped, tableSessionId: guest.sessionId },
         });
       }
@@ -449,8 +577,13 @@ export class PublicTableService {
         roundNo: lastBatch?.roundNo,
         batch: lastBatch,
         needConfirm,
+        pendingConfirmCount,
         tableCode: mapped.tableCode,
         order: mapped,
+      });
+      this.events.emit(Events.QR_PENDING_CHANGED, {
+        storeId: guest.storeId,
+        count: pendingConfirmCount,
       });
       this.events.emit(Events.TABLE_STATUS_CHANGED, {
         storeId: guest.storeId,

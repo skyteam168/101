@@ -16,6 +16,7 @@ import {
   type ReservationStatus,
 } from '../../api/reservation';
 import { listFloorApi, type FloorTable } from '../../api/table';
+import { formatDateTimeLocal, toDatetimeLocalValue } from '../../utils/datetime';
 import { formatThousands, parseThousands } from '../../utils/vnd-input';
 
 const { t } = useI18n();
@@ -105,8 +106,8 @@ function openEdit(row: Reservation) {
   form.customerName = row.customerName;
   form.phone = row.phone;
   form.guestCount = row.guestCount;
-  // reserveAt from ISO → datetime-local 格式
-  form.reserveAt = row.reserveAt ? String(row.reserveAt).slice(0, 16) : '';
+  // reserveAt ISO → 本地 datetime-local，避免按 UTC 截断
+  form.reserveAt = toDatetimeLocalValue(row.reserveAt);
   form.tableId = row.tableId || '';
   form.status = row.status;
   form.depositText = formatThousands(row.deposit);
@@ -202,8 +203,7 @@ async function remove(row: Reservation) {
 }
 
 function formatDateTime(iso: string) {
-  if (!iso) return '—';
-  return iso.replace('T', ' ').slice(0, 16);
+  return formatDateTimeLocal(iso);
 }
 
 function tableCode(tableId: string | null) {
@@ -258,7 +258,12 @@ function tableCode(tableId: string | null) {
 
     <!-- 列表 -->
     <el-table :data="reservations" border>
-      <el-table-column :label="t('reservation.guest')" width="110" prop="customerName" />
+      <el-table-column :label="t('reservation.guest')" width="140">
+        <template #default="{ row }">
+          {{ row.customerName }}
+          <el-tag v-if="row.memberPriority" size="small" type="warning">{{ t('member.priority') }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column :label="t('common.phone')" width="130" prop="phone" />
       <el-table-column :label="t('reservation.guestCount')" width="80">
         <template #default="{ row }">{{ row.guestCount }}</template>

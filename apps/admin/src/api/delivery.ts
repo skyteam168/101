@@ -12,12 +12,14 @@ export type DeliveryOrder = {
     phone?: string;
     addressText?: string;
     detail?: string;
+    landmarkPhoto?: string | null;
     distanceKm?: number;
   } | null;
   subtotal: number;
   deliveryFee: number;
   total: number;
   remark?: string | null;
+  memberPriority?: boolean;
   cancelReason?: string | null;
   courierId?: string | null;
   courierName?: string | null;
@@ -37,6 +39,10 @@ export type DeliveryCustomer = {
 
 export const listDeliveryBoardApi = (status?: string) =>
   apiGet<DeliveryOrder[]>('/delivery/board', status ? { status } : undefined);
+
+/** 待接单外卖数量（菜单角标） */
+export const getPendingDeliveryCountApi = () =>
+  apiGet<{ count: number }>('/delivery/pending-count');
 
 export const listDeliveryCustomersApi = () => apiGet<DeliveryCustomer[]>('/delivery/customers');
 

@@ -20,6 +20,7 @@ export type Reservation = {
   status: ReservationStatus;
   deposit: number;
   remark: string | null;
+  memberPriority?: boolean;
   createdAt: string;
 };
 
@@ -39,6 +40,10 @@ export const listReservationsApi = async (params?: {
   const res = await apiGet<ReservationListResult | Reservation[]>('/reservations', params);
   return Array.isArray(res) ? res : res.list;
 };
+
+/** 待确认预定数量（菜单角标） */
+export const getPendingReservationCountApi = () =>
+  apiGet<{ count: number }>('/reservations/pending-count');
 
 /** 新建 */
 export const createReservationApi = (data: Record<string, unknown>) =>

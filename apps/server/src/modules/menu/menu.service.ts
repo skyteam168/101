@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DishStatus, Prisma } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
 import {
@@ -19,6 +20,7 @@ export class MenuService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeGateway,
+    private readonly audit: AuditService,
   ) {}
 
   private mapStation(s: { id: bigint; nameZh: string; nameVi: string }) {
@@ -239,7 +241,7 @@ export class MenuService {
     });
   }
 
-  async createDish(storeId: string, dto: CreateDishDto) {
+  async createDish(storeId: string, dto: CreateDishDto, operatorId?: string) {
     const cat = await this.prisma.category.findFirst({
       where: { id: BigInt(dto.categoryId), storeId: BigInt(storeId) },
     });
@@ -276,10 +278,24 @@ export class MenuService {
 
     const mapped = this.mapDish(row);
     this.emitDish(storeId, [mapped]);
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'menu',
+      action: 'dish.create',
+      targetType: 'dish',
+      targetId: mapped.id,
+      after: {
+        nameZh: mapped.nameZh,
+        nameVi: mapped.nameVi,
+        price: mapped.price,
+        status: mapped.status,
+      },
+    });
     return mapped;
   }
 
-  async updateDish(storeId: string, id: string, dto: UpdateDishDto) {
+  async updateDish(storeId: string, id: string, dto: UpdateDishDto, operatorId?: string) {
     const existing = await this.prisma.dish.findFirst({
       where: { id: BigInt(id), storeId: BigInt(storeId) },
     });
@@ -330,6 +346,27 @@ export class MenuService {
     if (statusChanged || stockChanged || dto.options || dto.price !== undefined) {
       this.emitDish(storeId, [mapped]);
     }
+    const action = statusChanged ? 'dish.status' : 'dish.update';
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'menu',
+      action,
+      targetType: 'dish',
+      targetId: id,
+      before: {
+        nameZh: existing.nameZh,
+        price: Number(existing.price),
+        status: existing.status,
+        stock: existing.stock,
+      },
+      after: {
+        nameZh: mapped.nameZh,
+        price: mapped.price,
+        status: mapped.status,
+        stock: mapped.stock,
+      },
+    });
     return mapped;
   }
 

@@ -13,6 +13,7 @@ import { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePerm } from '../../common/decorators/require-perm.decorator';
 import { BusinessError } from '../../common/errors/business.error';
+import { getClientIp } from '../../common/utils/client-ip.util';
 import { AuthUser } from '../auth/auth.types';
 import { AddComboItemDto } from '../combo/dto/combo.dto';
 import {
@@ -44,6 +45,14 @@ export class OrderController {
   @RequirePerm('menu:order')
   list(@CurrentUser() user: AuthUser, @Query() query: OrderQueryDto) {
     return this.orderService.list(this.storeId(user), query);
+  }
+
+  /** 扫码待确认轮次数量（桌台/订单菜单角标） */
+  @Get('pending-confirm-count')
+  @RequirePerm('menu:table')
+  async pendingConfirmCount(@CurrentUser() user: AuthUser) {
+    const count = await this.orderService.countNeedConfirm(this.storeId(user));
+    return { count };
   }
 
   @Get('by-table/:tableId')
@@ -174,10 +183,6 @@ export class OrderController {
     @Param('id') id: string,
     @Req() req: Request,
   ) {
-    const ip =
-      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-      req.ip ||
-      null;
-    return this.orderService.reverseCheckout(this.storeId(user), id, user.id, ip);
+    return this.orderService.reverseCheckout(this.storeId(user), id, user.id, getClientIp(req));
   }
 }

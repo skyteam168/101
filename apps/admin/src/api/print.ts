@@ -32,6 +32,7 @@ export type PrintJob = {
   retries: number;
   error: string | null;
   createdAt: string;
+  payload?: import('@restaurant/shared').PrintTicketPayload | null;
   printer?: { name: string; ip: string; role: string };
 };
 

@@ -112,13 +112,13 @@ export class MenuController {
   @Post('dishes')
   @RequirePerm('menu:dish:edit')
   createDish(@CurrentUser() user: AuthUser, @Body() dto: CreateDishDto) {
-    return this.menuService.createDish(this.storeId(user), dto);
+    return this.menuService.createDish(this.storeId(user), dto, user.id);
   }
 
   @Patch('dishes/:id')
   @RequirePerm('menu:dish:edit')
   updateDish(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateDishDto) {
-    return this.menuService.updateDish(this.storeId(user), id, dto);
+    return this.menuService.updateDish(this.storeId(user), id, dto, user.id);
   }
 
   @Delete('dishes/:id')

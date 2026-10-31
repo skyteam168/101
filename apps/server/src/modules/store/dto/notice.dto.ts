@@ -24,10 +24,12 @@ export class CreateNoticeDto {
 
   @ApiProperty()
   @IsString()
+  @MaxLength(5000)
   contentZh!: string;
 
   @ApiProperty()
   @IsString()
+  @MaxLength(5000)
   contentVi!: string;
 
   @ApiPropertyOptional({ enum: ['info', 'warn', 'important'] })
@@ -69,11 +71,13 @@ export class UpdateNoticeDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   contentZh?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   contentVi?: string;
 
   @ApiPropertyOptional({ enum: ['info', 'warn', 'important'] })

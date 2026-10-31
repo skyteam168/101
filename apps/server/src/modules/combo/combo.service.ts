@@ -2,11 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { ComboStatus, Prisma } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { ComboGroupDto, ComboQueryDto, CreateComboDto, UpdateComboDto } from './dto/combo.dto';
 
 @Injectable()
 export class ComboService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ========== 映射辅助 ==========
 
@@ -147,7 +151,7 @@ export class ComboService {
 
   // ========== CRUD ==========
 
-  async create(storeId: string, dto: CreateComboDto) {
+  async create(storeId: string, dto: CreateComboDto, operatorId?: string) {
     const sid = BigInt(storeId);
     const combo = await this.prisma.$transaction(async (tx) => {
       const c = await tx.combo.create({
@@ -181,10 +185,20 @@ export class ComboService {
       });
     });
 
-    return this.mapCombo(combo);
+    const mapped = this.mapCombo(combo);
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'menu',
+      action: 'combo.create',
+      targetType: 'combo',
+      targetId: mapped.id,
+      after: { nameZh: mapped.nameZh, price: mapped.price, status: mapped.status },
+    });
+    return mapped;
   }
 
-  async update(storeId: string, comboId: string, dto: UpdateComboDto) {
+  async update(storeId: string, comboId: string, dto: UpdateComboDto, operatorId?: string) {
     const cid = BigInt(comboId);
     const combo = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.combo.findFirst({
@@ -221,7 +235,22 @@ export class ComboService {
       });
     });
 
-    return this.mapCombo(combo);
+    const mapped = this.mapCombo(combo);
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'menu',
+      action: 'combo.update',
+      targetType: 'combo',
+      targetId: comboId,
+      after: {
+        nameZh: mapped.nameZh,
+        price: mapped.price,
+        status: mapped.status,
+        groupsUpdated: dto.groups !== undefined,
+      },
+    });
+    return mapped;
   }
 
   async delete(storeId: string, comboId: string) {

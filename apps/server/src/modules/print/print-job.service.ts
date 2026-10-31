@@ -22,6 +22,7 @@ type OrderMapped = {
   orderNo: string;
   type: string;
   tableCode?: string | null;
+  guestCount?: number | null;
   remark?: string | null;
   subtotal: number;
   discount: number;
@@ -216,6 +217,7 @@ export class PrintJobService {
       shift: { zh: '交班单', vi: 'Bàn giao ca' },
     };
     const titles = titleMap[template] || titleMap.front;
+    const isReceipt = template === 'receipt';
     return {
       template,
       paperWidth: opts.paperWidth,
@@ -225,6 +227,7 @@ export class PrintJobService {
         address: opts.store.address,
         phone: opts.store.phone,
         tableCode: opts.order?.tableCode,
+        guestCount: opts.order?.guestCount ?? null,
         orderNo: opts.order?.orderNo,
         roundNo: opts.roundNo,
         titleZh: titles.zh,
@@ -241,6 +244,9 @@ export class PrintJobService {
         createdAt: opts.order?.createdAt
           ? new Date(opts.order.createdAt).toISOString()
           : new Date().toISOString(),
+        paidAt: isReceipt ? new Date().toISOString() : undefined,
+        footerZh: isReceipt ? '欢迎下次光临' : undefined,
+        footerVi: isReceipt ? 'Hẹn gặp lại' : undefined,
         stationNameZh: opts.stationNameZh,
         stationNameVi: opts.stationNameVi,
         shift: opts.shift,

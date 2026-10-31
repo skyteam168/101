@@ -73,6 +73,12 @@ function handleEdit(addr: CustomerAddress) {
               </div>
               <div class="addr-text">{{ addr.addressText }}</div>
               <div v-if="addr.detail" class="addr-detail">{{ addr.detail }}</div>
+              <img
+                v-if="addr.landmarkPhoto"
+                :src="addr.landmarkPhoto"
+                class="addr-landmark"
+                alt=""
+              />
             </template>
             <template #right-icon>
               <van-icon name="edit" color="#969799" />
@@ -119,5 +125,14 @@ function handleEdit(addr: CustomerAddress) {
 .addr-phone { font-size: 13px; color: #646566; }
 .addr-text { font-size: 13px; color: #323233; }
 .addr-detail { font-size: 12px; color: #969799; }
+.addr-landmark {
+  margin-top: 8px;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #eee;
+  display: block;
+}
 .swipe-btns { display: flex; height: 100%; }
 </style>

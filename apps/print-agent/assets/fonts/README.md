@@ -1,17 +1,20 @@
 # 字体文件说明
 
-请将以下字体文件下载后放置于本目录（`assets/fonts/`）：
+桌贴 / 打印 PDF 需要支持 **中文 + 越南文声调** 的单文件字体（`.otf` / `.ttf`）。
 
 | 文件名 | 用途 | 下载地址 |
 |--------|------|---------|
 | `NotoSansSC-Regular.otf` | 中文 + 越南文 + 拉丁 | [Google Fonts · Noto Sans SC](https://fonts.google.com/noto/specimen/Noto+Sans+SC) |
-| `NotoSans-Regular.ttf` | 拉丁辅助字体 | [Google Fonts · Noto Sans](https://fonts.google.com/noto/specimen/Noto+Sans) |
+
+服务端也会从 `apps/server/assets/fonts/NotoSansSC-Regular.otf` 加载同名字体。
+
+## 重要
+
+**不要使用 `.ttc`（如微软雅黑 `msyh.ttc`）**：PDFKit 无法正确子集化，会导致中文乱码。
 
 ## 回退策略
 
-若本目录无字体文件，程序将按以下顺序查找系统字体：
+若本目录无字体文件，服务端按序尝试：
 
-- **Windows**：`C:\Windows\Fonts\msyh.ttc`（微软雅黑）→ `arial.ttf`
-- **Linux**：`/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc` → `DejaVuSans.ttf`
-
-建议在正式部署时放置 Noto 字体，以确保越南文（含声调符号）正确渲染。
+- **Windows**：`Noto Sans SC (TrueType).otf` → `simhei.ttf` → `arialuni.ttf`
+- **Linux**：Noto / 文泉驿等单文件 TTF/OTF（跳过 `.ttc`）

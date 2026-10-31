@@ -27,6 +27,19 @@ export class RedisService implements OnModuleDestroy {
     await this.client.set(key, value);
   }
 
+  /** 自增；若 key 新建则设置 TTL（秒） */
+  async incr(key: string, ttlSecondsWhenCreate?: number): Promise<number> {
+    const n = await this.client.incr(key);
+    if (n === 1 && ttlSecondsWhenCreate && ttlSecondsWhenCreate > 0) {
+      await this.client.expire(key, ttlSecondsWhenCreate);
+    }
+    return n;
+  }
+
+  async expire(key: string, ttlSeconds: number): Promise<void> {
+    if (ttlSeconds > 0) await this.client.expire(key, ttlSeconds);
+  }
+
   async del(...keys: string[]): Promise<void> {
     if (keys.length === 0) return;
     await this.client.del(...keys);

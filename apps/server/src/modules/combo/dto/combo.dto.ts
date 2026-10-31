@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -20,10 +22,12 @@ export class ComboGroupItemDto {
   @ApiPropertyOptional({ description: '编辑时传 id，新增则不传' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   id?: string;
 
   @ApiProperty({ description: '菜品 ID' })
   @IsString()
+  @MaxLength(32)
   @IsNotEmpty()
   dishId!: string;
 
@@ -112,6 +116,7 @@ export class CreateComboDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   descZh?: string;
 
   @ApiPropertyOptional()
@@ -197,6 +202,7 @@ export class UpdateComboDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   descZh?: string;
 
   @ApiPropertyOptional()
@@ -276,6 +282,7 @@ export class ComboQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(64)
   keyword?: string;
 
   @ApiPropertyOptional({ description: '页码，默认 1' })
@@ -298,6 +305,7 @@ export class ComboQueryDto {
 export class ComboGroupSelectionDto {
   @ApiProperty({ description: '分组 ID' })
   @IsString()
+  @MaxLength(32)
   @IsNotEmpty()
   groupId!: string;
 
@@ -305,6 +313,7 @@ export class ComboGroupSelectionDto {
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   dishIds!: string[];
 }
 
@@ -312,6 +321,7 @@ export class ComboGroupSelectionDto {
 export class AddComboItemDto {
   @ApiProperty({ description: '套餐 ID' })
   @IsString()
+  @MaxLength(32)
   @IsNotEmpty()
   comboId!: string;
 

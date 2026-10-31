@@ -152,6 +152,7 @@ export class OrderService {
       tableSessionId: o.tableSessionId?.toString() ?? null,
       tableCode: o.tableSession?.table?.code ?? null,
       tableId: o.tableSession?.table?.id?.toString() ?? null,
+      guestCount: o.tableSession?.guestCount ?? null,
       remark: o.remark,
       cancelReason: o.cancelReason,
       customerId: o.customerId?.toString() ?? null,
@@ -816,7 +817,19 @@ export class OrderService {
         total: fresh.total,
       };
 
-      const paySum = dto.payments.reduce((s, p) => s + BigInt(p.amount), 0n);
+      /**
+       * 现金单笔：以订单应付为准计入 amount，received 为顾客实付（可大于应付，差额为找零）。
+       * 避免前端把「实收」误当成「支付金额」或订单重算后 total 漂移导致 PAYMENT_AMOUNT_MISMATCH。
+       */
+      const lines = dto.payments.map((p) => {
+        if (p.method === PaymentMethod.cash && dto.payments.length === 1) {
+          const received = BigInt(p.received ?? p.amount);
+          return { ...p, amount: Number(amounts.total), received: Number(received) };
+        }
+        return p;
+      });
+
+      const paySum = lines.reduce((s, p) => s + BigInt(p.amount), 0n);
       if (paySum !== amounts.total) {
         throw new BusinessError('PAYMENT_AMOUNT_MISMATCH');
       }
@@ -824,7 +837,7 @@ export class OrderService {
         await this.marketing.markCouponUsed(tx, fresh.couponId.toString(), oid);
       }
 
-      for (const p of dto.payments) {
+      for (const p of lines) {
         let received = BigInt(p.received ?? p.amount);
         let change = 0n;
         if (p.method === PaymentMethod.cash) {
@@ -868,6 +881,19 @@ export class OrderService {
 
     const full = await this.getOrderFull(oid);
     const mapped = this.mapOrder(full!);
+    await this.audit.log({
+      userId,
+      storeId,
+      module: 'order',
+      action: 'order.checkout',
+      targetType: 'order',
+      targetId: orderId,
+      after: {
+        paidAmount: mapped.paidAmount,
+        total: mapped.total,
+        payments: dto.payments,
+      },
+    });
     this.events.emit(Events.ORDER_PAID, { storeId, order: mapped, userId });
     this.events.emit(Events.TABLE_STATUS_CHANGED, { storeId, orderId: mapped.id });
     return mapped;
@@ -978,7 +1004,27 @@ export class OrderService {
     return this.bySession(storeId, table.currentSessionId.toString());
   }
 
-  /** 确认扫码待确认轮次 */
+  /** 当前门店未确认的扫码轮次数量（用于角标） */
+  async countNeedConfirm(storeId: string): Promise<number> {
+    return this.prisma.orderBatch.count({
+      where: {
+        printStatus: BatchPrintStatus.need_confirm,
+        order: {
+          storeId: BigInt(storeId),
+          status: OrderStatus.open,
+          type: OrderType.dine_in,
+        },
+      },
+    });
+  }
+
+  private async emitQrPending(storeId: string) {
+    const count = await this.countNeedConfirm(storeId);
+    this.events.emit(Events.QR_PENDING_CHANGED, { storeId, count });
+    return count;
+  }
+
+  /** 确认扫码待确认轮次 → 放行后厨打印 */
   async confirmBatch(storeId: string, batchId: string, userId: string) {
     const batch = await this.prisma.orderBatch.findUnique({
       where: { id: BigInt(batchId) },
@@ -996,6 +1042,7 @@ export class OrderService {
     });
     const full = await this.getOrderFull(batch.orderId);
     const mapped = this.mapOrder(full!);
+    const pendingConfirmCount = await this.emitQrPending(storeId);
     this.events.emit(Events.ORDER_BATCH_ADDED, {
       storeId,
       orderId: mapped.id,
@@ -1003,6 +1050,8 @@ export class OrderService {
       roundNo: updated.roundNo,
       batch: mapped.batches.find((b) => b.id === batchId),
       confirmed: true,
+      needConfirm: false,
+      pendingConfirmCount,
       userId,
       order: mapped,
     });

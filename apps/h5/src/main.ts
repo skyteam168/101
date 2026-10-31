@@ -45,6 +45,9 @@ import 'vant/lib/index.css';
 import App from './App.vue';
 import { i18n } from './i18n';
 import { router } from './router';
+import { applyVantLocale } from './utils/vant-locale';
+
+applyVantLocale(String(i18n.global.locale.value));
 
 const app = createApp(App);
 app.use(createPinia()).use(router).use(i18n);

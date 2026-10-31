@@ -59,7 +59,9 @@ describe('ReservationService.confirm', () => {
     prisma.reservation.findFirst.mockResolvedValue(
       makeReservationRow({ status: ReservationStatus.confirmed }),
     );
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     await expect(service.confirm('1', '1')).rejects.toThrow(BusinessError);
   });
 
@@ -69,7 +71,9 @@ describe('ReservationService.confirm', () => {
     const updated = makeReservationRow({ status: ReservationStatus.confirmed });
     prisma.reservation.update.mockResolvedValue(updated);
 
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     const result = await service.confirm('1', '1');
     expect(result.status).toBe(ReservationStatus.confirmed);
   });
@@ -81,7 +85,9 @@ describe('ReservationService.cancel', () => {
     prisma.reservation.findFirst.mockResolvedValue(
       makeReservationRow({ status: ReservationStatus.seated }),
     );
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     await expect(service.cancel('1', '1', {})).rejects.toThrow(BusinessError);
   });
 
@@ -90,7 +96,9 @@ describe('ReservationService.cancel', () => {
     prisma.reservation.findFirst.mockResolvedValue(
       makeReservationRow({ status: ReservationStatus.cancelled }),
     );
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     await expect(service.cancel('1', '1', {})).rejects.toThrow(BusinessError);
   });
 
@@ -100,7 +108,9 @@ describe('ReservationService.cancel', () => {
     const updated = makeReservationRow({ status: ReservationStatus.cancelled });
     prisma.reservation.update.mockResolvedValue(updated);
 
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     const result = await service.cancel('1', '1', { reason: '顾客取消' });
     expect(result.status).toBe(ReservationStatus.cancelled);
   });
@@ -112,7 +122,9 @@ describe('ReservationService.noShow', () => {
     prisma.reservation.findFirst.mockResolvedValue(
       makeReservationRow({ status: ReservationStatus.seated }),
     );
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     await expect(service.noShow('1', '1')).rejects.toThrow(BusinessError);
   });
 
@@ -124,7 +136,9 @@ describe('ReservationService.noShow', () => {
     const updated = makeReservationRow({ status: ReservationStatus.no_show });
     prisma.reservation.update.mockResolvedValue(updated);
 
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     const result = await service.noShow('1', '1');
     expect(result.status).toBe(ReservationStatus.no_show);
   });
@@ -136,7 +150,9 @@ describe('ReservationService.seat', () => {
     prisma.reservation.findFirst.mockResolvedValue(
       makeReservationRow({ status: ReservationStatus.seated }),
     );
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     await expect(service.seat('1', '1', {}, '1')).rejects.toThrow(BusinessError);
   });
 
@@ -145,7 +161,9 @@ describe('ReservationService.seat', () => {
     prisma.reservation.findFirst.mockResolvedValue(makeReservationRow());
     prisma.table.findFirst.mockResolvedValue(null);
 
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     await expect(service.seat('1', '1', { tableId: '99' }, '1')).rejects.toThrow(BusinessError);
   });
 
@@ -158,7 +176,9 @@ describe('ReservationService.seat', () => {
       currentSessionId: 5n,
     });
 
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     await expect(service.seat('1', '1', { tableId: '1' }, '1')).rejects.toThrow(BusinessError);
   });
 
@@ -169,7 +189,9 @@ describe('ReservationService.seat', () => {
     const updated = makeReservationRow({ status: ReservationStatus.seated });
     prisma.reservation.update.mockResolvedValue(updated);
 
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     const result = await service.seat('1', '1', {}, '1');
     expect(result.status).toBe(ReservationStatus.seated);
   });
@@ -184,7 +206,9 @@ describe('ReservationService.list', () => {
       makeReservationRow({ status: ReservationStatus.confirmed }),
     ]);
 
-    const service = new ReservationService(prisma as never);
+    const service = new ReservationService(prisma as never, { emit: jest.fn() } as never, {
+      reservationPerk: jest.fn().mockResolvedValue({ priority: false, birthdayGift: false, customerId: null }),
+    } as never);
     const result = await service.list('1', {});
     expect(result.total).toBe(2);
     expect(result.list).toHaveLength(2);

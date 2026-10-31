@@ -53,6 +53,12 @@ export class RealtimeBridge {
     if (sessionId) this.gateway.emitToTable(sessionId, Events.ORDER_BATCH_ADDED, payload);
   }
 
+  @OnEvent(Events.QR_PENDING_CHANGED)
+  onQrPending(payload: { storeId?: string; count?: number }) {
+    const sid = this.storeId(payload);
+    if (sid) this.gateway.emitToStore(sid, Events.QR_PENDING_CHANGED, payload);
+  }
+
   @OnEvent(Events.ORDER_ITEM_VOIDED)
   onVoid(payload: { storeId?: string }) {
     const sid = this.storeId(payload);
@@ -152,10 +158,33 @@ export class RealtimeBridge {
     if (sid) this.gateway.emitToStore(sid, Events.RESERVATION_CREATED, payload);
   }
 
+  @OnEvent(Events.RESERVATION_PENDING_CHANGED)
+  onReservationPending(payload: { storeId?: string; count?: number }) {
+    const sid = this.storeId(payload);
+    if (sid) this.gateway.emitToStore(sid, Events.RESERVATION_PENDING_CHANGED, payload);
+  }
+
   @OnEvent(Events.GROUP_MEAL_INQUIRY_CREATED)
   onGroupMealInquiryCreated(payload: { storeId?: string }) {
     const sid = this.storeId(payload);
     if (sid) this.gateway.emitToStore(sid, Events.GROUP_MEAL_INQUIRY_CREATED, payload);
   }
 
+  @OnEvent(Events.CHAT_MESSAGE)
+  onChatMessage(payload: { storeId?: string; customerId?: string }) {
+    const sid = this.storeId(payload);
+    if (sid) this.gateway.emitToStore(sid, Events.CHAT_MESSAGE, payload);
+    if (payload.customerId) {
+      this.gateway.emitToCustomer(payload.customerId, Events.CHAT_MESSAGE, payload);
+    }
+  }
+
+  @OnEvent(Events.CHAT_READ)
+  onChatRead(payload: { storeId?: string; customerId?: string }) {
+    const sid = this.storeId(payload);
+    if (sid) this.gateway.emitToStore(sid, Events.CHAT_READ, payload);
+    if (payload.customerId) {
+      this.gateway.emitToCustomer(payload.customerId, Events.CHAT_READ, payload);
+    }
+  }
 }

@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -38,6 +40,7 @@ export class JoinTableDto {
 export class CartItemDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   dishId!: string;
 
   @ApiProperty()

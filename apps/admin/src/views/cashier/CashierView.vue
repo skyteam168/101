@@ -10,7 +10,7 @@ import {
   Minus,
   PriceTag,
 } from '@element-plus/icons-vue';
-import { formatVND, localeField } from '@restaurant/shared';
+import { formatVND, localeField, type PrintTicketPayload } from '@restaurant/shared';
 import { listCategoriesApi, listDishesApi, type Category, type Dish } from '../../api/menu';
 import { addComboItemApi, listCombosApi, type Combo, type ComboGroup } from '../../api/combo';
 import {
@@ -30,7 +30,10 @@ import {
 import { listFloorApi, openTableApi, type FloorTable } from '../../api/table';
 import { listCouponsApi } from '../../api/marketing';
 import { searchMembersApi, type Member } from '../../api/member';
+import { getStoreSettingsApi } from '../../api/store';
+import TicketPreview from '../../components/print/TicketPreview.vue';
 import { useUserStore } from '../../stores/user';
+import { buildReceiptPayload } from '../../utils/build-receipt-payload';
 import { formatThousands, parseThousands } from '../../utils/vnd-input';
 
 const { t, locale } = useI18n();
@@ -59,6 +62,8 @@ const coupons = ref<{ id: string; code: string; template: { nameZh: string; name
 const couponId = ref('');
 
 const checkoutVisible = ref(false);
+const receiptVisible = ref(false);
+const receiptPayload = ref<PrintTicketPayload | null>(null);
 const tempVisible = ref(false);
 const discountVisible = ref(false);
 const tempForm = reactive({ nameZh: '', nameVi: '', unitPriceText: '', qty: 1 });
@@ -206,11 +211,10 @@ async function ensureDining() {
   try {
     await openTableApi(table.id, 2);
   } catch {
-    // 桌台状态可能过期：重新拉取后若已在用餐则继续下单
+    // 桌台状态可能过期：重新拉取后若已在用餐则继续下单（业务错误已由 http 拦截器提示）
     await loadTables();
     const again = tables.value.find((x) => x.id === tableId.value);
     if (again?.status === 'dining') return true;
-    ElMessage.warning(t('cashier.tableBusy'));
     return false;
   }
   await loadTables();
@@ -348,6 +352,9 @@ async function doFree() {
   order.value = await freeOrderApi(order.value.id);
 }
 
+/** 现金快捷面额（点击填入实收并立即结账） */
+const CASH_QUICK_AMOUNTS = [50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000, 3_000_000];
+
 function openCheckout() {
   if (!order.value || order.value.total < 0) return;
   payForm.method = 'cash';
@@ -355,17 +362,37 @@ function openCheckout() {
   checkoutVisible.value = true;
 }
 
+async function quickCashPay(n: number) {
+  if (!order.value) return;
+  payForm.method = 'cash';
+  payForm.receivedText = formatThousands(n);
+  if (n < order.value.total) {
+    ElMessage.warning(t('cashier.cashInsufficient'));
+    return;
+  }
+  await confirmCheckout();
+}
+
+const cashReceived = computed(() => parseThousands(payForm.receivedText) || 0);
+const cashChange = computed(() => Math.max(0, cashReceived.value - (order.value?.total ?? 0)));
+
 async function confirmCheckout() {
   if (!order.value) return;
-  const amount = order.value.total;
+  // amount = 应付计入订单；received = 顾客给的钱（现金可大于应付，差额为找零）
+  const due = Number(order.value.total) || 0;
+  const received = cashReceived.value;
+  if (payForm.method === 'cash' && due > 0 && received < due) {
+    ElMessage.warning(t('cashier.cashInsufficient'));
+    return;
+  }
   const payments =
-    amount === 0
+    due === 0
       ? [{ method: 'cash', amount: 0, received: 0 }]
       : payForm.method === 'cash'
-        ? [{ method: 'cash', amount, received: parseThousands(payForm.receivedText) }]
-        : [{ method: payForm.method, amount }];
+        ? [{ method: 'cash', amount: due, received }]
+        : [{ method: payForm.method, amount: due }];
   // amount 0 checkout: backend Min(1) may fail — use free order total 0 with amount 0
-  if (amount === 0) {
+  if (due === 0) {
     try {
       await checkoutOrderApi(order.value.id, [{ method: 'cash', amount: 0, received: 0 }]);
     } catch {
@@ -378,9 +405,36 @@ async function confirmCheckout() {
   }
   checkoutVisible.value = false;
   ElMessage.success(t('order.paid'));
+  const snapOrder: Order = {
+    ...order.value,
+    paidAmount: order.value.total,
+    payments: payments.map((p, i) => {
+      const recv = 'received' in p ? (p.received as number) : p.amount;
+      return {
+        id: String(i),
+        method: p.method,
+        amount: p.amount,
+        received: recv,
+        change: Math.max(0, recv - p.amount),
+        createdAt: new Date().toISOString(),
+      };
+    }),
+  };
+  try {
+    const store = await getStoreSettingsApi();
+    receiptPayload.value = buildReceiptPayload(snapOrder, store);
+    receiptVisible.value = true;
+  } catch {
+    // 预览失败不影响结账完成
+  }
   order.value = null;
   selectedMember.value = null;
   await loadTables();
+}
+
+function closeReceipt() {
+  receiptVisible.value = false;
+  receiptPayload.value = null;
 }
 </script>
 
@@ -675,7 +729,7 @@ async function confirmCheckout() {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="checkoutVisible" :title="t('order.checkout')" width="400px">
+    <el-dialog v-model="checkoutVisible" :title="t('order.checkout')" width="460px">
       <el-form label-width="90px">
         <el-form-item :label="t('cashier.due')"><strong>{{ formatVND(order?.total ?? 0) }}</strong></el-form-item>
         <el-form-item :label="t('order.payMethod')">
@@ -690,6 +744,22 @@ async function confirmCheckout() {
             :model-value="payForm.receivedText"
             @update:model-value="(v: string) => (payForm.receivedText = formatThousands(parseThousands(v)))"
           />
+          <div class="cash-quick">
+            <el-button
+              v-for="n in CASH_QUICK_AMOUNTS"
+              :key="n"
+              size="small"
+              :type="n >= (order?.total ?? 0) ? 'primary' : 'default'"
+              plain
+              @click="quickCashPay(n)"
+            >
+              {{ formatThousands(n) }}
+            </el-button>
+          </div>
+          <div class="cash-quick-hint">{{ t('cashier.cashQuickHint') }}</div>
+        </el-form-item>
+        <el-form-item v-if="payForm.method === 'cash'" :label="t('order.change')">
+          <strong :class="{ 'change-ok': cashChange > 0 }">{{ formatVND(cashChange) }}</strong>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -697,10 +767,39 @@ async function confirmCheckout() {
         <el-button type="primary" @click="confirmCheckout">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="receiptVisible"
+      :title="t('print.receiptDialogTitle')"
+      width="400px"
+      destroy-on-close
+      @closed="closeReceipt"
+    >
+      <TicketPreview v-if="receiptPayload" :payload="receiptPayload" />
+      <template #footer>
+        <el-button type="primary" @click="closeReceipt">{{ t('common.close') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <style scoped>
+.cash-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cash-quick-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.3;
+}
+.change-ok {
+  color: #e6a23c;
+  font-size: 16px;
+}
 .cashier { display: flex; flex-direction: column; height: calc(100vh - 120px); gap: 10px; }
 .top { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .member { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }

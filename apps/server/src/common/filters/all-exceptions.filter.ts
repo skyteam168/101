@@ -30,9 +30,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
         typeof raw === 'string'
           ? raw
           : ((raw as { message?: string | string[] }).message ?? exception.message);
+      const messages = Array.isArray(message) ? message : [message];
+      // DTO Matches 的 message 写成业务错误码时，透传给前端 i18n
+      const businessCode = messages.find((m) =>
+        typeof m === 'string' && /^[A-Z][A-Z0-9_]+$/.test(m),
+      );
+      if (businessCode && status === HttpStatus.BAD_REQUEST) {
+        res.status(status).json({
+          code: businessCode,
+          message: businessCode,
+          data: null,
+        });
+        return;
+      }
       res.status(status).json({
         code: status === HttpStatus.UNAUTHORIZED ? 'UNAUTHORIZED' : 'HTTP_ERROR',
-        message: Array.isArray(message) ? message.join('; ') : message,
+        message: messages.join('; '),
         data: null,
       });
       return;

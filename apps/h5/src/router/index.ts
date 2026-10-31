@@ -20,6 +20,12 @@ export const router = createRouter({
           component: () => import('../views/shop/CartView.vue'),
         },
         {
+          path: 'shop/chat',
+          name: 'shop-chat',
+          component: () => import('../views/shop/ChatView.vue'),
+          meta: { requiresAuth: true },
+        },
+        {
           path: 'shop/me',
           name: 'shop-me',
           component: () => import('../views/shop/MeView.vue'),
@@ -51,6 +57,12 @@ export const router = createRouter({
     { path: '/shop/login', name: 'shop-login', component: () => import('../views/shop/AuthLoginView.vue') },
     { path: '/shop/register', name: 'shop-register', component: () => import('../views/shop/AuthRegisterView.vue') },
     { path: '/shop/forgot', name: 'shop-forgot', component: () => import('../views/shop/AuthForgotView.vue') },
+    {
+      path: '/shop/change-password',
+      name: 'shop-change-password',
+      component: () => import('../views/shop/AuthChangePasswordView.vue'),
+      meta: { requiresAuth: true },
+    },
 
     // 购物车 / 结账
     {

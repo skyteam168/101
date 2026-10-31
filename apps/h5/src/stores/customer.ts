@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { getMe, type CustomerProfile } from '../api/delivery';
+import { getMe, logoutCustomer, type CustomerProfile } from '../api/delivery';
 import {
   clearCustomerToken,
   getCustomerToken,
@@ -22,8 +22,13 @@ export const useCustomerStore = defineStore('customer', () => {
     setCustomerProfile(newProfile);
   }
 
-  /** 退出登录 */
-  function logout() {
+  /** 退出登录（尽量通知服务端写审计日志） */
+  async function logout() {
+    try {
+      if (token.value) await logoutCustomer();
+    } catch {
+      // 登出日志失败不挡本地清理
+    }
     token.value = null;
     profile.value = null;
     clearCustomerToken();

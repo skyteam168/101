@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { showToast } from 'vant';
-import { formatVND, localeField } from '@restaurant/shared';
+import { formatVND, isSafeExternalHttpUrl, isSafeMediaUrl, localeField } from '@restaurant/shared';
+import {
+  getMemberBenefits,
+  getMyMembership,
+  joinMemberApi,
+  type MemberBenefitLevel,
+  type Membership,
+} from '../api/member';
 import {
   getHomeFeedApi,
   type HomeBanner,
@@ -13,18 +20,29 @@ import {
 } from '../api/home';
 import { useCartStore } from '../stores/cart';
 import { useCustomerStore } from '../stores/customer';
+import { useInboxStore } from '../stores/inbox';
 import { getCustomerToken } from '../utils/customer-storage';
+import { listChatMessages, type ChatMessage } from '../api/chat';
 
 const { t, locale } = useI18n();
+const route = useRoute();
 const router = useRouter();
 const cart = useCartStore();
 const customer = useCustomerStore();
+const inbox = useInboxStore();
 
 const store = ref<HomeStore | null>(null);
 const banners = ref<HomeBanner[]>([]);
 const notices = ref<HomeNotice[]>([]);
+const personalMessages = ref<ChatMessage[]>([]);
 const newDishes = ref<HomeNewDish[]>([]);
 const showNotices = ref(false);
+const showJoin = ref(false);
+const joinLevels = ref<MemberBenefitLevel[]>([]);
+const membership = ref<Membership | null>(null);
+const joinBirthday = ref('');
+const joinAgree = ref(false);
+const joining = ref(false);
 
 const loc = computed(() => (String(locale.value).startsWith('vi') ? 'vi' : 'zh'));
 
@@ -44,10 +62,11 @@ const noticeText = computed(() => {
     .join('　　');
 });
 
+/** 欢迎区展示门头图，不再用菜品图 */
 const heroImage = computed(() => {
-  const withImg = newDishes.value.find((d) => d.image);
-  if (withImg?.image) return withImg.image;
-  if (banners.value[0]?.image) return banners.value[0].image;
+  if (store.value?.storefrontImage) return store.value.storefrontImage;
+  const envFirst = store.value?.envGallery?.find((g) => g.image)?.image;
+  if (envFirst) return envFirst;
   return '';
 });
 
@@ -64,12 +83,32 @@ function bannerTitle(b: HomeBanner) {
   return localeField(b as unknown as Record<string, unknown>, 'title', loc.value) || t('home.bannerDefault');
 }
 
+function noticeIcon(level?: string) {
+  if (level === 'important') return 'warning-o';
+  if (level === 'warn') return 'info-o';
+  return 'volume-o';
+}
+
+function noticeLevelLabel(level?: string) {
+  if (level === 'important') return t('home.noticeLevel.important');
+  if (level === 'warn') return t('home.noticeLevel.warn');
+  return t('home.noticeLevel.info');
+}
+
 function goReserve() {
   router.push({ name: 'reserve' });
 }
 
 function goShop() {
   router.push({ name: 'shop' });
+}
+
+function goChat() {
+  if (customer.isLoggedIn() || getCustomerToken()) {
+    router.push({ name: 'shop-chat' });
+  } else {
+    router.push({ name: 'shop-login', query: { redirect: '/shop/chat' } });
+  }
 }
 
 function goGroupMeal() {
@@ -80,6 +119,48 @@ function goCoupons() {
   router.push({ name: 'shop-coupons' });
 }
 
+function levelName(lv: { nameZh: string; nameVi: string }) {
+  return localeField(lv as unknown as Record<string, unknown>, 'name', loc.value);
+}
+
+async function openJoin() {
+  if (!(customer.isLoggedIn() || getCustomerToken())) {
+    router.push({ name: 'shop-login', query: { redirect: '/?join=1' } });
+    return;
+  }
+  try {
+    const [benefits, mine] = await Promise.all([getMemberBenefits(), getMyMembership()]);
+    joinLevels.value = benefits.levels;
+    membership.value = mine;
+    joinBirthday.value = mine.birthday || '';
+    joinAgree.value = false;
+    showJoin.value = true;
+  } catch {
+    /* http 已提示 */
+  }
+}
+
+async function submitJoin() {
+  if (!joinBirthday.value) {
+    showToast(t('errors.MEMBER_BIRTHDAY_REQUIRED'));
+    return;
+  }
+  if (!joinAgree.value) {
+    showToast(t('errors.MEMBER_AGREE_REQUIRED'));
+    return;
+  }
+  joining.value = true;
+  try {
+    membership.value = await joinMemberApi({ birthday: joinBirthday.value, agree: true });
+    showToast(t('home.joinOk'));
+    showJoin.value = false;
+  } catch {
+    /* http 已提示 */
+  } finally {
+    joining.value = false;
+  }
+}
+
 function goMine() {
   if (customer.isLoggedIn() || getCustomerToken()) {
     router.push({ name: 'shop-me' });
@@ -88,34 +169,105 @@ function goMine() {
   }
 }
 
+function goSearch() {
+  router.push({ name: 'shop' });
+}
+
+const greeting = computed(() => {
+  const name = customer.profile?.name?.trim();
+  if (name) return t('home.welcomeName', { name });
+  return t('home.welcome');
+});
+
 function onBannerClick(b: HomeBanner) {
   if (!b.link) {
     goShop();
     return;
   }
-  if (b.link.startsWith('http')) {
-    window.open(b.link, '_blank');
-  } else {
-    router.push(b.link);
+  if (isSafeExternalHttpUrl(b.link)) {
+    window.open(b.link, '_blank', 'noopener,noreferrer');
+    return;
   }
+  // 仅允许站内相对路径，拒绝 javascript: 等
+  if (b.link.startsWith('/') && !b.link.startsWith('//')) {
+    router.push(b.link);
+    return;
+  }
+  goShop();
 }
 
-function addNewDish(d: HomeNewDish) {
+const storeOpen = computed(() => store.value?.openNow !== false);
+const hoursText = computed(() => {
+  const h = store.value?.businessHours;
+  if (!h?.open || !h?.close) return '';
+  return `${h.open} - ${h.close}`;
+});
+const closedTip = computed(() => {
+  if (storeOpen.value) return '';
+  if (store.value?.closedReason === 'paused') return t('shop.storePaused');
+  if (hoursText.value) return t('shop.storeClosedHours', { hours: hoursText.value });
+  return t('shop.storeClosed');
+});
+
+function isNewDishUnavailable(d: HomeNewDish) {
+  if (d.status && d.status !== 'on') return true;
+  if (d.stock !== null && d.stock !== undefined && d.stock <= 0) return true;
+  return false;
+}
+
+function canAddNewDish(d: HomeNewDish) {
+  if (!storeOpen.value) {
+    showToast(closedTip.value || t('errors.STORE_CLOSED'));
+    return false;
+  }
   if (d.status && d.status !== 'on') {
     showToast(t('errors.DISH_NOT_AVAILABLE'));
-    return;
+    return false;
   }
   if (d.stock !== null && d.stock !== undefined && d.stock <= 0) {
     showToast(t('errors.DISH_SOLD_OUT'));
-    return;
+    return false;
   }
+  return true;
+}
+
+function addNewDish(d: HomeNewDish) {
+  if (!canAddNewDish(d)) return;
+  const prev = cart.getQty(d.id);
   cart.add({
     dishId: String(d.id),
     nameZh: d.nameZh,
     nameVi: d.nameVi,
     price: Number(d.takeawayPrice ?? d.price),
   });
-  showToast(t('home.addedCart'));
+  if (prev === 0) showToast(t('home.addedCart'));
+}
+
+function removeNewDish(d: HomeNewDish) {
+  cart.remove(d.id);
+}
+
+function personalKind(content: string) {
+  if (/优惠券|phiếu giảm/i.test(content)) return 'coupon';
+  if (/生日|sinh nhật/i.test(content)) return 'birthday';
+  return 'info';
+}
+
+async function loadPersonal() {
+  if (!(customer.isLoggedIn() || getCustomerToken())) {
+    personalMessages.value = [];
+    return;
+  }
+  try {
+    const page = await listChatMessages({ limit: 20 });
+    personalMessages.value = page.items
+      .filter((m) => m.senderType === 'staff' && !m.senderId && m.contentType === 'text')
+      .filter((m) => personalKind(m.content) !== 'info')
+      .slice(-4)
+      .reverse();
+  } catch {
+    personalMessages.value = [];
+  }
 }
 
 async function loadHome() {
@@ -133,82 +285,129 @@ async function loadHome() {
   }
 }
 
-onMounted(loadHome);
+onMounted(async () => {
+  await loadHome();
+  if (customer.isLoggedIn() || getCustomerToken()) {
+    try {
+      await customer.loadMe();
+    } catch {
+      /* 未登录或 token 失效时保持本地资料 */
+    }
+    void inbox.refresh();
+    void loadPersonal();
+    try {
+      membership.value = await getMyMembership();
+    } catch {
+      membership.value = null;
+    }
+  }
+  if (route.query.join === '1' && (customer.isLoggedIn() || getCustomerToken())) {
+    await openJoin();
+  }
+});
 </script>
 
 <template>
   <div class="home-app">
     <header class="top-bar">
-      <div class="store-pin">
-        <van-icon name="location-o" color="#ff6a00" />
+      <button type="button" class="store-pin" @click="goSearch">
+        <span class="pin-dot">
+          <van-icon name="location" size="16" />
+        </span>
         <span class="store-name">{{ storeName }}</span>
-      </div>
+        <van-icon name="arrow-down" size="12" class="pin-chevron" />
+        <span
+          v-if="store"
+          class="home-open-tag"
+          :class="storeOpen ? 'is-open' : 'is-closed'"
+        >
+          {{ storeOpen ? t('shop.openNow') : t('shop.resting') }}
+        </span>
+      </button>
       <div class="top-actions">
         <button type="button" class="icon-btn" @click="showNotices = true">
           <van-icon name="bell" size="20" />
-          <i v-if="notices.length" class="dot" />
+          <i v-if="notices.length || personalMessages.length || inbox.unread" class="dot" />
         </button>
         <button type="button" class="lang-mini" @click="switchLocale">
           {{ locale === 'zh-CN' ? 'VI' : '中' }}
         </button>
-        <button type="button" class="icon-btn" @click="goMine">
-          <van-icon name="user-o" size="20" />
+        <button type="button" class="icon-btn avatar-btn" @click="goMine">
+          <img
+            v-if="customer.profile?.avatar"
+            :src="customer.profile.avatar"
+            alt=""
+            class="avatar-photo"
+          />
+          <van-icon v-else name="user-o" size="18" />
         </button>
       </div>
     </header>
 
+    <div v-if="!storeOpen && closedTip" class="home-closed-banner">
+      {{ closedTip }}
+    </div>
+
     <section class="hero">
       <div class="hero-text">
-        <h1>{{ t('home.title') }}</h1>
+        <h1>{{ greeting }} <span class="wave" aria-hidden="true">👋</span></h1>
         <p>{{ t('home.subtitle') }}</p>
       </div>
       <div class="hero-media" :class="{ empty: !heroImage }">
         <img v-if="heroImage" :src="heroImage" alt="" />
-        <van-icon v-else name="shop-o" size="48" color="#ffb380" />
+        <van-icon v-else name="shop-o" size="42" color="#86efac" />
       </div>
     </section>
+
+    <button type="button" class="search-bar" @click="goSearch">
+      <van-icon name="search" size="18" />
+      <span>{{ t('home.searchPh') }}</span>
+    </button>
+
+    <button v-if="inbox.unread" type="button" class="inbox-strip" @click="goChat">
+      <van-icon name="chat-o" size="16" />
+      <span>{{ inbox.preview || t('home.inboxNew') }}</span>
+    </button>
 
     <van-notice-bar
       v-if="noticeText"
       class="notice-bar"
       left-icon="volume-o"
-      background="#fff7f0"
-      color="#c2410c"
+      background="transparent"
+      color="#b45309"
       scrollable
       :text="noticeText"
       @click="showNotices = true"
     />
 
-    <section class="grid-4">
-      <button type="button" class="grid-item c-orange" @click="goReserve">
-        <van-icon name="calendar-o" size="28" />
-        <span class="g-title">{{ t('home.reserve.title') }}</span>
-        <span class="g-desc">{{ t('home.reserve.desc') }}</span>
+    <section class="entry-row">
+      <button type="button" class="entry" @click="goReserve">
+        <span class="entry-icon c-orange"><van-icon name="shop-o" size="26" /></span>
+        <span class="entry-label">{{ t('home.reserve.title') }}</span>
       </button>
-      <button type="button" class="grid-item c-blue" @click="goShop">
-        <van-icon name="logistics" size="28" />
-        <span class="g-title">{{ t('home.delivery.title') }}</span>
-        <span class="g-desc">{{ t('home.delivery.desc') }}</span>
+      <button type="button" class="entry" @click="goShop">
+        <span class="entry-icon c-green"><van-icon name="logistics" size="26" /></span>
+        <span class="entry-label">{{ t('home.delivery.title') }}</span>
       </button>
-      <button type="button" class="grid-item c-green" @click="goGroupMeal">
-        <van-icon name="friends-o" size="28" />
-        <span class="g-title">{{ t('home.group.title') }}</span>
-        <span class="g-desc">{{ t('home.group.desc') }}</span>
+      <button type="button" class="entry" @click="goGroupMeal">
+        <span class="entry-icon c-purple"><van-icon name="friends-o" size="26" /></span>
+        <span class="entry-label">{{ t('home.group.title') }}</span>
       </button>
-      <button type="button" class="grid-item c-purple" @click="goCoupons">
-        <van-icon name="coupon-o" size="28" />
-        <span class="g-title">{{ t('home.coupon.title') }}</span>
-        <span class="g-desc">{{ t('home.coupon.desc') }}</span>
+      <button type="button" class="entry" @click="goCoupons">
+        <span class="entry-icon c-blue"><van-icon name="coupon-o" size="26" /></span>
+        <span class="entry-label">{{ t('home.coupon.title') }}</span>
       </button>
     </section>
 
     <section v-if="banners.length" class="banner-wrap">
-      <van-swipe :autoplay="4000" indicator-color="#ff6a00">
+      <van-swipe :autoplay="4000" indicator-color="#fff" :show-indicators="banners.length > 1">
         <van-swipe-item v-for="(b, idx) in banners" :key="idx">
           <button type="button" class="banner-card" @click="onBannerClick(b)">
-            <img v-if="b.image" :src="b.image" class="banner-img" alt="" />
+            <img v-if="b.image && isSafeMediaUrl(b.image)" :src="b.image" class="banner-img" alt="" />
             <div class="banner-mask">
+              <span class="hot-pill">{{ t('home.hot') }}</span>
               <div class="banner-title">{{ bannerTitle(b) }}</div>
+              <span class="banner-cta">{{ t('home.orderNow') }}</span>
             </div>
           </button>
         </van-swipe-item>
@@ -217,43 +416,194 @@ onMounted(loadHome);
     <section v-else class="banner-wrap">
       <button type="button" class="banner-card banner-fallback" @click="goShop">
         <div class="banner-mask">
+          <span class="hot-pill">{{ t('home.hot') }}</span>
           <div class="banner-title">{{ t('home.bannerDefault') }}</div>
-          <div class="banner-sub">{{ t('home.bannerDefaultSub') }}</div>
+          <span class="banner-cta">{{ t('home.orderNow') }}</span>
         </div>
       </button>
     </section>
 
     <section v-if="newDishes.length" class="new-section">
-      <h2 class="section-title">{{ t('home.newDishes') }}</h2>
+      <div class="section-head">
+        <h2 class="section-title">{{ t('home.newDishes') }}</h2>
+        <button type="button" class="see-all" @click="goSearch">
+          {{ t('home.seeAll') }}
+          <van-icon name="arrow" size="12" />
+        </button>
+      </div>
       <div class="dish-scroll">
-        <div v-for="d in newDishes" :key="d.id" class="dish-card">
+        <div
+          v-for="d in newDishes"
+          :key="d.id"
+          class="dish-card"
+          :class="{ unavailable: isNewDishUnavailable(d) || !storeOpen }"
+        >
           <div class="dish-cover" :style="d.image ? { backgroundImage: `url(${d.image})` } : undefined">
             <span class="new-badge">{{ t('home.newBadge') }}</span>
+            <span v-if="d.stock !== null && d.stock !== undefined && d.stock <= 0" class="cover-sold">
+              {{ t('shop.soldOut') }}
+            </span>
+            <span v-else-if="d.status && d.status !== 'on'" class="cover-sold">
+              {{ t('shop.offShelf') }}
+            </span>
           </div>
           <div class="dish-meta">
             <div class="dish-name">{{ dishName(d) }}</div>
-            <div class="dish-row">
-              <span class="dish-price">{{ formatVND(d.takeawayPrice || d.price) }}</span>
-              <button type="button" class="add-btn" @click="addNewDish(d)">
-                <van-icon name="plus" size="14" />
-              </button>
+            <div class="dish-foot">
+              <div class="dish-price">{{ formatVND(d.takeawayPrice || d.price) }}</div>
+              <div class="dish-actions">
+                <div v-if="storeOpen && !isNewDishUnavailable(d)" class="qty-ctrl">
+                  <button
+                    v-if="cart.getQty(d.id) > 0"
+                    type="button"
+                    class="qty-btn qty-minus"
+                    @click.stop="removeNewDish(d)"
+                  >
+                    <van-icon name="minus" size="12" />
+                  </button>
+                  <span v-if="cart.getQty(d.id) > 0" class="qty-num">{{ cart.getQty(d.id) }}</span>
+                  <button type="button" class="qty-btn qty-plus" @click.stop="addNewDish(d)">
+                    <van-icon name="plus" size="14" />
+                  </button>
+                </div>
+                <span v-else-if="d.stock !== null && d.stock !== undefined && d.stock <= 0" class="mini-sold">
+                  {{ t('shop.soldOut') }}
+                </span>
+                <span v-else-if="d.status && d.status !== 'on'" class="mini-sold">
+                  {{ t('shop.offShelf') }}
+                </span>
+                <span v-else class="mini-sold">{{ t('shop.resting') }}</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </section>
 
-    <van-popup v-model:show="showNotices" position="bottom" round :style="{ maxHeight: '60%' }">
+    <button type="button" class="member-banner" @click="openJoin">
+      <span class="member-crown" aria-hidden="true">
+        <van-icon name="diamond-o" size="22" />
+      </span>
+      <span class="member-copy">
+        <strong>{{ t('home.memberTitle') }}</strong>
+        <em>{{ membership?.joined && membership.memberLevel ? levelName(membership.memberLevel) : t('home.memberSub') }}</em>
+      </span>
+      <span class="member-cta">{{ membership?.joined ? t('home.joined') : t('home.joinNow') }}</span>
+    </button>
+
+    <van-popup v-model:show="showJoin" position="bottom" round :style="{ maxHeight: '86%' }">
+      <div class="join-sheet">
+        <h3>{{ t('home.joinTitle') }}</h3>
+        <p class="join-lead">{{ t('home.joinLead') }}</p>
+        <article v-for="lv in joinLevels" :key="lv.id" class="join-level">
+          <strong>{{ levelName(lv) }}</strong>
+          <ul>
+            <li v-if="lv.minSpend > 0">{{ t('home.benefitSpend', { amount: formatVND(lv.minSpend) }) }}</li>
+            <li v-if="lv.discountPercent">{{ t('home.benefitDiscount', { n: lv.discountPercent }) }}</li>
+            <li v-if="lv.deliveryFeeOff">{{ t('home.benefitFee', { amount: formatVND(lv.deliveryFeeOff) }) }}</li>
+            <li v-if="lv.priorityReserve">{{ t('home.benefitReserve') }}</li>
+            <li v-if="lv.priorityDelivery">{{ t('home.benefitDelivery') }}</li>
+            <li v-if="lv.birthdayGift">{{ t('home.benefitBirthday') }}</li>
+            <li v-if="lv.birthdayBonusPoints">{{ t('home.benefitPoints', { n: lv.birthdayBonusPoints }) }}</li>
+          </ul>
+        </article>
+        <template v-if="!membership?.joined">
+          <label class="join-date">
+            <span>{{ t('home.birthday') }}</span>
+            <input v-model="joinBirthday" type="date" />
+          </label>
+          <label class="join-agree">
+            <input v-model="joinAgree" type="checkbox" />
+            <span>{{ t('home.agree') }}</span>
+          </label>
+          <button type="button" class="join-submit" :disabled="joining" @click="submitJoin">
+            {{ t('home.joinSubmit') }}
+          </button>
+        </template>
+      </div>
+    </van-popup>
+
+    <van-popup
+      v-model:show="showNotices"
+      position="bottom"
+      round
+      :style="{ maxHeight: '72%' }"
+      class="notice-sheet"
+    >
       <div class="notice-popup">
-        <h3>{{ t('home.notices') }}</h3>
-        <div v-if="!notices.length" class="empty">{{ t('home.noNotices') }}</div>
-        <div v-for="n in notices" :key="n.id" class="notice-item" :class="`level-${n.level}`">
-          <div class="n-title">
-            {{ localeField(n as unknown as Record<string, unknown>, 'title', loc) }}
+        <div class="notice-handle" aria-hidden="true" />
+        <div class="notice-head">
+          <div class="notice-head-left">
+            <span class="notice-head-icon">
+              <van-icon name="volume-o" size="18" />
+            </span>
+            <div>
+              <h3>{{ t('home.notices') }}</h3>
+              <p class="notice-sub">{{ t('home.noticesSub', { n: notices.length + personalMessages.length }) }}</p>
+            </div>
           </div>
-          <div class="n-body">
-            {{ localeField(n as unknown as Record<string, unknown>, 'content', loc) }}
-          </div>
+          <button type="button" class="notice-close" @click="showNotices = false">
+            <van-icon name="cross" size="16" />
+          </button>
+        </div>
+
+        <div v-if="!notices.length && !personalMessages.length" class="empty">
+          <van-icon name="notes-o" size="36" color="#c8c9cc" />
+          <p>{{ t('home.noNotices') }}</p>
+        </div>
+
+        <div v-if="personalMessages.length" class="notice-list">
+          <p class="notice-group">{{ t('home.mineNotices') }}</p>
+          <button
+            v-for="m in personalMessages"
+            :key="m.id"
+            type="button"
+            class="notice-item personal"
+            @click="goChat"
+          >
+            <div class="n-icon-wrap">
+              <van-icon :name="personalKind(m.content) === 'birthday' ? 'gift-o' : 'coupon-o'" size="18" />
+            </div>
+            <div class="n-main">
+              <div class="n-top">
+                <h4 class="n-title">
+                  {{
+                    personalKind(m.content) === 'birthday'
+                      ? t('home.birthdayNotice')
+                      : personalKind(m.content) === 'coupon'
+                        ? t('home.couponNotice')
+                        : t('home.mineNotices')
+                  }}
+                </h4>
+                <span class="n-badge">{{ t('home.mineNotices') }}</span>
+              </div>
+              <p class="n-body">{{ m.content }}</p>
+            </div>
+          </button>
+        </div>
+
+        <div v-if="notices.length" class="notice-list">
+          <article
+            v-for="n in notices"
+            :key="n.id"
+            class="notice-item"
+            :class="`level-${n.level || 'info'}`"
+          >
+            <div class="n-icon-wrap">
+              <van-icon :name="noticeIcon(n.level)" size="18" />
+            </div>
+            <div class="n-main">
+              <div class="n-top">
+                <h4 class="n-title">
+                  {{ localeField(n as unknown as Record<string, unknown>, 'title', loc) }}
+                </h4>
+                <span class="n-badge">{{ noticeLevelLabel(n.level) }}</span>
+              </div>
+              <p class="n-body">
+                {{ localeField(n as unknown as Record<string, unknown>, 'content', loc) }}
+              </p>
+            </div>
+          </article>
         </div>
       </div>
     </van-popup>
@@ -262,31 +612,77 @@ onMounted(loadHome);
 
 <style scoped>
 .home-app {
-  padding: 12px 16px 24px;
-  background: linear-gradient(180deg, #fff 0%, #f7f8fa 120px);
+  padding: 14px 16px 28px;
   box-sizing: border-box;
+  background:
+    radial-gradient(120% 80% at 100% -10%, #d9fbe8 0%, transparent 46%),
+    radial-gradient(90% 50% at 0% 0%, #fff4e8 0%, transparent 42%),
+    #f6f7f9;
+  font-family: "Avenir Next", "PingFang SC", "Noto Sans SC", "Segoe UI", sans-serif;
 }
 .top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .store-pin {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  color: #1c1917;
+}
+.pin-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ecfdf3;
+  color: #16a34a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .store-name {
   font-size: 14px;
-  font-weight: 600;
-  color: #1f2937;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.pin-chevron {
+  color: #78716c;
+  flex-shrink: 0;
+}
+.home-open-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.home-open-tag.is-open {
+  color: #15803d;
+  background: #dcfce7;
+}
+.home-open-tag.is-closed {
+  color: #78716c;
+  background: #f5f5f4;
+}
+.home-closed-banner {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff7e8;
+  color: #c2410c;
+  font-size: 13px;
+  line-height: 1.4;
 }
 .top-actions {
   display: flex;
@@ -297,38 +693,52 @@ onMounted(loadHome);
 .icon-btn {
   position: relative;
   border: none;
-  background: #f3f4f6;
-  width: 34px;
-  height: 34px;
+  background: #fff;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #374151;
+  color: #292524;
+  box-shadow: 0 6px 16px rgba(28, 25, 23, 0.06);
+}
+.avatar-btn {
+  background: #fff7ed;
+  color: #ea580c;
+  overflow: hidden;
+  padding: 0;
+}
+.avatar-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .icon-btn .dot {
   position: absolute;
-  top: 6px;
-  right: 7px;
+  top: 7px;
+  right: 8px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: #ef4444;
+  box-shadow: 0 0 0 2px #fff;
 }
 .lang-mini {
-  border: none;
+  border: 0;
   background: #fff;
-  border: 1px solid #e5e7eb;
   font-size: 11px;
-  padding: 6px 8px;
+  font-weight: 700;
+  padding: 8px 9px;
   border-radius: 999px;
-  color: #4b5563;
+  color: #44403c;
+  box-shadow: 0 6px 16px rgba(28, 25, 23, 0.06);
 }
 .hero {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 14px;
 }
 .hero-text {
   flex: 1;
@@ -336,97 +746,129 @@ onMounted(loadHome);
 }
 .hero-text h1 {
   margin: 0;
-  font-size: 26px;
-  font-weight: 700;
-  color: #1e3a5f;
-  letter-spacing: 0.02em;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 800;
+  color: #1c1917;
+  letter-spacing: -0.03em;
+}
+.wave {
+  font-size: 24px;
 }
 .hero-text p {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: #6b7280;
-  line-height: 1.45;
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: #78716c;
 }
 .hero-media {
-  width: 108px;
-  height: 108px;
-  border-radius: 20px;
+  width: 112px;
+  height: 92px;
+  border-radius: 28px 28px 18px 28px;
   overflow: hidden;
   flex-shrink: 0;
-  background: #fff7f0;
+  background: linear-gradient(160deg, #fff, #dcfce7);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 8px 20px rgba(255, 106, 0, 0.12);
 }
 .hero-media img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.notice-bar {
-  margin-bottom: 14px;
-  border-radius: 10px;
-  overflow: hidden;
+.search-bar {
+  width: 100%;
+  height: 48px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(28, 25, 23, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  color: #a8a29e;
+  font-size: 14px;
+  margin-bottom: 16px;
 }
-.grid-4 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.grid-item {
-  border: none;
-  border-radius: 16px;
-  padding: 16px 14px;
+.inbox-strip {
+  width: 100%;
+  margin: 0 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #9a3412;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
   text-align: left;
-  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.inbox-strip span {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.notice-bar {
+  margin: -8px 0 12px;
+  border-radius: 10px;
+}
+.entry-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.entry {
+  border: 0;
+  background: transparent;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  min-height: 96px;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  align-items: center;
+  gap: 8px;
 }
-.grid-item:active {
-  transform: scale(0.98);
+.entry:active .entry-icon {
+  transform: scale(0.96);
 }
-.c-orange {
-  background: linear-gradient(135deg, #ff9a4d, #ff6a00);
+.entry-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  box-shadow: 0 8px 16px rgba(28, 25, 23, 0.08);
 }
-.c-blue {
-  background: linear-gradient(135deg, #60a5fa, #2563eb);
-}
-.c-green {
-  background: linear-gradient(135deg, #4ade80, #16a34a);
-}
-.c-purple {
-  background: linear-gradient(135deg, #c084fc, #7c3aed);
-}
-.g-title {
-  font-size: 15px;
-  font-weight: 700;
-  margin-top: 4px;
-}
-.g-desc {
-  font-size: 11px;
-  opacity: 0.92;
-  line-height: 1.3;
+.c-orange { background: linear-gradient(160deg, #ffb067, #ff7a1a); }
+.c-green { background: linear-gradient(160deg, #6ee7a8, #22c55e); }
+.c-purple { background: linear-gradient(160deg, #c4b5fd, #8b5cf6); }
+.c-blue { background: linear-gradient(160deg, #7dd3fc, #38bdf8); }
+.entry-label {
+  font-size: 12px;
+  font-weight: 650;
+  color: #292524;
+  text-align: center;
+  line-height: 1.25;
 }
 .banner-wrap {
-  margin-bottom: 16px;
-  border-radius: 14px;
+  margin-bottom: 18px;
+  border-radius: 22px;
   overflow: hidden;
 }
 .banner-card {
   position: relative;
   width: 100%;
-  height: 120px;
+  height: 148px;
   border: none;
   padding: 0;
   display: block;
   overflow: hidden;
-  background: linear-gradient(135deg, #ff8a3d, #ff6a00);
+  background: #1c1917;
 }
 .banner-img {
   width: 100%;
@@ -438,137 +880,477 @@ onMounted(loadHome);
   inset: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   justify-content: center;
+  gap: 8px;
   padding: 16px 18px;
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.45), transparent 70%);
+  background: linear-gradient(90deg, rgba(18, 14, 10, 0.72) 0%, rgba(18, 14, 10, 0.15) 72%);
   text-align: left;
   color: #fff;
 }
-.banner-fallback .banner-mask {
-  background: transparent;
+.banner-fallback {
+  background:
+    linear-gradient(120deg, #1c1917 0%, #44403c 55%, #ea580c 140%);
+}
+.hot-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #ff6a00;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 .banner-title {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.35;
-  max-width: 70%;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+  max-width: 78%;
+  letter-spacing: -0.02em;
 }
-.banner-sub {
-  margin-top: 6px;
+.banner-cta {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #fff;
+  color: #1c1917;
   font-size: 12px;
-  opacity: 0.9;
+  font-weight: 700;
 }
 .new-section {
-  margin-top: 4px;
+  margin-bottom: 16px;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
 }
 .section-title {
-  margin: 0 0 10px;
-  font-size: 16px;
-  font-weight: 700;
-  color: #1f2937;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #1c1917;
+  letter-spacing: -0.02em;
+}
+.see-all {
+  border: 0;
+  background: transparent;
+  color: #78716c;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
 }
 .dish-scroll {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding: 2px 2px 8px;
   -webkit-overflow-scrolling: touch;
 }
 .dish-card {
-  flex: 0 0 140px;
+  flex: 0 0 156px;
   background: #fff;
-  border-radius: 12px;
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 10px 24px rgba(28, 25, 23, 0.06);
+}
+.dish-card.unavailable .dish-name,
+.dish-card.unavailable .dish-price {
+  color: #a8a29e;
+}
+.dish-card.unavailable .dish-cover {
+  filter: grayscale(0.65);
+  opacity: 0.75;
 }
 .dish-cover {
   position: relative;
-  height: 100px;
-  background: #f3f4f6 center/cover no-repeat;
+  height: 108px;
+  background: #f5f5f4 center/cover no-repeat;
+}
+.cover-sold {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  z-index: 1;
 }
 .new-badge {
   position: absolute;
   top: 8px;
   left: 8px;
-  background: #ff6a00;
+  background: rgba(28, 25, 23, 0.72);
   color: #fff;
   font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 3px 7px;
+  border-radius: 999px;
 }
 .dish-meta {
-  padding: 8px 10px 10px;
+  padding: 10px 10px 12px;
 }
 .dish-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #111827;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1c1917;
   line-height: 1.3;
+  min-height: 36px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 34px;
 }
-.dish-row {
-  margin-top: 6px;
+.dish-foot {
+  margin-top: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 6px;
 }
 .dish-price {
-  font-size: 13px;
-  color: #ff6a00;
-  font-weight: 700;
+  font-size: 14px;
+  color: #ea580c;
+  font-weight: 800;
 }
-.add-btn {
-  width: 26px;
-  height: 26px;
+.dish-actions {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+.mini-sold {
+  font-size: 11px;
+  color: #a8a29e;
+}
+.qty-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qty-num {
+  min-width: 16px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  color: #292524;
+}
+.qty-btn {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
   border: none;
   border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  aspect-ratio: 1 / 1;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.qty-plus {
   background: #ff6a00;
   color: #fff;
+  box-shadow: 0 4px 10px rgba(255, 106, 0, 0.28);
+}
+.qty-minus {
+  border: 1px solid #ebedf0;
+  background: #fff;
+  color: #646566;
+}
+.member-banner {
+  width: 100%;
+  border: 0;
+  border-radius: 20px;
+  padding: 14px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: linear-gradient(100deg, #ecfdf3 0%, #f0fdf4 55%, #fff7ed 100%);
+  box-shadow: 0 8px 20px rgba(22, 163, 74, 0.08);
+}
+.member-crown {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: #dcfce7;
+  color: #16a34a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.member-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.member-copy strong {
+  font-size: 15px;
+  color: #14532d;
+}
+.member-copy em {
+  font-style: normal;
+  font-size: 12px;
+  color: #4d7c0f;
+  line-height: 1.35;
+}
+.member-cta {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #1c1917;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+}
+.join-sheet {
+  padding: 18px 16px calc(20px + env(safe-area-inset-bottom));
+}
+.join-sheet h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.join-lead {
+  margin: 8px 0 12px;
+  color: #78716c;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.join-level {
+  background: #f6f7f9;
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.join-level ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #44403c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.join-date,
+.join-agree {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+.join-date input {
+  flex: 1;
+  height: 36px;
+  border: 1px solid #e7e5e4;
+  border-radius: 10px;
+  padding: 0 8px;
+}
+.join-submit {
+  width: 100%;
+  margin-top: 14px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: #ff6a00;
+  color: #fff;
+  font-weight: 700;
+}
+.notice-popup {
+  padding: 8px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, #fff8f2 0%, #fff 56px);
+}
+.notice-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: #e5e6eb;
+  margin: 4px auto 14px;
+}
+.notice-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.notice-head-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.notice-head-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #fff1e6;
+  color: #ff6a00;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-.notice-popup {
-  padding: 16px 16px 28px;
+  flex-shrink: 0;
 }
 .notice-popup h3 {
-  margin: 0 0 12px;
-  font-size: 16px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1f2329;
+  line-height: 1.2;
+}
+.notice-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #969799;
+}
+.notice-close {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: #f2f3f5;
+  color: #646566;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.notice-group {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ea580c;
+}
+.notice-item.personal {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.notice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
 }
 .notice-item {
-  background: #f9fafb;
-  border-radius: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: #fff;
+  border-radius: 14px;
   padding: 12px;
-  margin-bottom: 8px;
-  border-left: 3px solid #ff8a3d;
+  border: 1px solid #f0f1f2;
+  box-shadow: 0 4px 14px rgba(31, 35, 41, 0.04);
+}
+.n-icon-wrap {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #fff1e6;
+  color: #ff6a00;
+}
+.notice-item.level-warn .n-icon-wrap {
+  background: #fff7e8;
+  color: #ed6a0c;
+}
+.notice-item.level-important .n-icon-wrap {
+  background: #ffecec;
+  color: #ee0a24;
 }
 .notice-item.level-warn {
-  background: #fffbeb;
-  border-left-color: #f59e0b;
+  border-color: #ffe2b8;
+  background: linear-gradient(180deg, #fffaf0 0%, #fff 70%);
 }
 .notice-item.level-important {
-  background: #fef2f2;
-  border-left-color: #ef4444;
+  border-color: #ffd0d0;
+  background: linear-gradient(180deg, #fff5f5 0%, #fff 70%);
+}
+.n-main {
+  flex: 1;
+  min-width: 0;
+}
+.n-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 .n-title {
-  font-weight: 600;
+  margin: 0;
+  font-weight: 650;
   font-size: 14px;
-  margin-bottom: 4px;
+  color: #323233;
+  line-height: 1.35;
+}
+.n-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #fff1e6;
+  color: #ff6a00;
+  font-weight: 600;
+}
+.notice-item.level-warn .n-badge {
+  background: #fff7e8;
+  color: #ed6a0c;
+}
+.notice-item.level-important .n-badge {
+  background: #ffecec;
+  color: #ee0a24;
 }
 .n-body {
+  margin: 0;
   font-size: 13px;
-  color: #4b5563;
+  color: #646566;
   white-space: pre-wrap;
-  line-height: 1.45;
+  line-height: 1.55;
 }
 .empty {
-  color: #9ca3af;
+  color: #969799;
   font-size: 13px;
   text-align: center;
-  padding: 24px 0;
+  padding: 36px 0 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.empty p {
+  margin: 0;
 }
 </style>

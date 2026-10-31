@@ -40,6 +40,14 @@ export class ReservationController {
     return this.reservationService.list(this.storeId(user), query);
   }
 
+  /** 待确认预定数量（菜单角标） */
+  @Get('pending-count')
+  @RequirePerm('reservation:view')
+  async pendingCount(@CurrentUser() user: AuthUser) {
+    const count = await this.reservationService.countPending(this.storeId(user));
+    return { count };
+  }
+
   /** 预定详情 */
   @Get(':id')
   @RequirePerm('reservation:view')

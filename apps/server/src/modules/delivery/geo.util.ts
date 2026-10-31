@@ -25,7 +25,11 @@ export type BusinessHours = {
   open: string; // HH:mm
   close: string;
   days: number[]; // 0=Sun ... 6=Sat
+  /** 商家手动暂停接单（休息中） */
+  paused?: boolean;
 };
+
+export type StoreClosedReason = 'paused' | 'outside_hours' | null;
 
 export function isWithinBusinessHours(now: Date, hours: BusinessHours | null | undefined): boolean {
   if (!hours?.open || !hours?.close) return true;
@@ -39,6 +43,16 @@ export function isWithinBusinessHours(now: Date, hours: BusinessHours | null | u
   if (closeMins >= openMins) return mins >= openMins && mins <= closeMins;
   // 跨午夜
   return mins >= openMins || mins <= closeMins;
+}
+
+/** 是否可接单：未手动暂停且在营业时间内 */
+export function getStoreOpenStatus(
+  now: Date,
+  hours: BusinessHours | null | undefined,
+): { openNow: boolean; closedReason: StoreClosedReason } {
+  if (hours?.paused) return { openNow: false, closedReason: 'paused' };
+  if (!isWithinBusinessHours(now, hours)) return { openNow: false, closedReason: 'outside_hours' };
+  return { openNow: true, closedReason: null };
 }
 
 /** 越南手机号：0xxxxxxxxx 或 +84xxxxxxxxx */

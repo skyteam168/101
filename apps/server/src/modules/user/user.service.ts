@@ -2,7 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { UserLang, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { BusinessError } from '../../common/errors/business.error';
+import { assertPasswordComplexity } from '../../common/password.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
 import { CreateUserDto, ResetPasswordDto, UpdateUserDto } from './dto/user.dto';
 
@@ -11,6 +13,7 @@ export class UserService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rbac: RbacService,
+    private readonly audit: AuditService,
   ) {}
 
   private mapUser(u: {
@@ -50,9 +53,10 @@ export class UserService {
     return users.map((u) => this.mapUser(u));
   }
 
-  async create(dto: CreateUserDto, storeId?: string | null) {
+  async create(dto: CreateUserDto, storeId?: string | null, operatorId?: string) {
     const exists = await this.prisma.user.findUnique({ where: { username: dto.username } });
     if (exists) throw new BusinessError('USER_USERNAME_EXISTS');
+    assertPasswordComplexity(dto.password);
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.$transaction(async (tx) => {
@@ -80,10 +84,20 @@ export class UserService {
         include: { userRoles: { include: { role: true } } },
       });
     });
-    return this.mapUser(user);
+    const mapped = this.mapUser(user);
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'rbac',
+      action: 'user.create',
+      targetType: 'user',
+      targetId: mapped.id,
+      after: { username: mapped.username, displayName: mapped.displayName, roleIds: dto.roleIds },
+    });
+    return mapped;
   }
 
-  async update(id: string, dto: UpdateUserDto) {
+  async update(id: string, dto: UpdateUserDto, operatorId?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: BigInt(id) } });
     if (!user) throw new BusinessError('USER_NOT_FOUND');
 
@@ -114,10 +128,30 @@ export class UserService {
         include: { userRoles: { include: { role: true } } },
       });
     });
-    return this.mapUser(updated);
+    const mapped = this.mapUser(updated);
+    await this.audit.log({
+      userId: operatorId,
+      storeId: user.storeId?.toString() ?? null,
+      module: 'rbac',
+      action: 'user.update',
+      targetType: 'user',
+      targetId: id,
+      before: {
+        displayName: user.displayName,
+        phone: user.phone,
+        status: user.status,
+      },
+      after: {
+        displayName: mapped.displayName,
+        phone: mapped.phone,
+        status: mapped.status,
+        roleIds: dto.roleIds,
+      },
+    });
+    return mapped;
   }
 
-  async setStatus(id: string, status: 'active' | 'disabled') {
+  async setStatus(id: string, status: 'active' | 'disabled', operatorId?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: BigInt(id) } });
     if (!user) throw new BusinessError('USER_NOT_FOUND');
     if (user.username === 'admin' && status === 'disabled') {
@@ -131,12 +165,24 @@ export class UserService {
     if (status === 'disabled') {
       await this.rbac.clearUserPermCache(id);
     }
-    return this.mapUser(updated);
+    const mapped = this.mapUser(updated);
+    await this.audit.log({
+      userId: operatorId,
+      storeId: user.storeId?.toString() ?? null,
+      module: 'rbac',
+      action: status === 'disabled' ? 'user.disable' : 'user.enable',
+      targetType: 'user',
+      targetId: id,
+      before: { status: user.status },
+      after: { status },
+    });
+    return mapped;
   }
 
   async resetPassword(id: string, dto: ResetPasswordDto) {
     const user = await this.prisma.user.findUnique({ where: { id: BigInt(id) } });
     if (!user) throw new BusinessError('USER_NOT_FOUND');
+    assertPasswordComplexity(dto.password);
     const passwordHash = await bcrypt.hash(dto.password, 10);
     await this.prisma.user.update({
       where: { id: user.id },

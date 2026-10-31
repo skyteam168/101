@@ -25,6 +25,14 @@ export class DeliveryAdminController {
     return this.orders.adminList(this.storeId(user), status);
   }
 
+  /** 待接单外卖数量（菜单角标） */
+  @Get('pending-count')
+  @RequirePerm('menu:delivery')
+  async pendingCount(@CurrentUser() user: AuthUser) {
+    const count = await this.orders.countPendingAccept(this.storeId(user));
+    return { count };
+  }
+
   @Get('customers')
   @RequirePerm('menu:delivery')
   customers(@CurrentUser() user: AuthUser) {

@@ -12,16 +12,18 @@ import {
 import { Events } from '@restaurant/shared';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { ComboService } from '../combo/combo.service';
 import { PlaceGroupMealOrderDto } from '../group-meal/dto/group-meal.dto';
 import { MarketingService } from '../marketing/marketing.service';
+import { MemberService } from '../member/member.service';
 import { computePricing } from '../marketing/pricing.util';
 import {
   BusinessHours,
   DeliveryFeeRule,
   calcDeliveryFee,
+  getStoreOpenStatus,
   haversineKm,
-  isWithinBusinessHours,
 } from './geo.util';
 import { CancelOrderDto, PlaceOrderDto, QuoteDto } from './dto/delivery.dto';
 
@@ -36,6 +38,8 @@ export class DeliveryOrderService {
     private readonly events: EventEmitter2,
     private readonly marketing: MarketingService,
     private readonly comboService: ComboService,
+    private readonly members: MemberService,
+    private readonly audit: AuditService,
   ) {}
 
   private money(n: bigint | number) {
@@ -58,6 +62,15 @@ export class DeliveryOrderService {
   async getPublicStore(storeId = '1') {
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!store) throw new BusinessError('STORE_REQUIRED');
+    const envGallery = Array.isArray(store.envGallery)
+      ? (store.envGallery as { image?: string; captionZh?: string; captionVi?: string }[])
+          .filter((x) => x && typeof x.image === 'string')
+          .map((x) => ({
+            image: x.image as string,
+            captionZh: x.captionZh,
+            captionVi: x.captionVi,
+          }))
+      : [];
     return {
       id: store.id.toString(),
       nameZh: store.nameZh,
@@ -71,29 +84,37 @@ export class DeliveryOrderService {
       minOrderAmount: this.money(store.minOrderAmount),
       businessHours: store.businessHours as BusinessHours | null,
       bankTransferQr: store.bankTransferQr,
-      openNow: isWithinBusinessHours(new Date(), store.businessHours as BusinessHours | null),
+      storefrontImage: store.storefrontImage,
+      envGallery,
+      ...getStoreOpenStatus(new Date(), store.businessHours as BusinessHours | null),
     };
   }
 
-  async quote(storeId: string, dto: QuoteDto) {
+  async quote(storeId: string, dto: QuoteDto, customerId?: string) {
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!store) throw new BusinessError('STORE_REQUIRED');
     if (store.lat == null || store.lng == null) {
       throw new BusinessError('STORE_LOCATION_MISSING');
     }
-    if (!isWithinBusinessHours(new Date(), store.businessHours as BusinessHours | null)) {
+    if (!getStoreOpenStatus(new Date(), store.businessHours as BusinessHours | null).openNow) {
       throw new BusinessError('STORE_CLOSED');
     }
     const distanceKm = haversineKm(Number(store.lat), Number(store.lng), dto.lat, dto.lng);
     const radius = Number(store.deliveryRadiusKm);
     if (distanceKm > radius) throw new BusinessError('OUT_OF_DELIVERY_RANGE');
     const rules = (store.deliveryFeeRules as DeliveryFeeRule[]) || [];
-    const deliveryFee = calcDeliveryFee(distanceKm, rules);
+    const rawFee = calcDeliveryFee(distanceKm, rules);
+    const perk = customerId
+      ? await this.members.deliveryPerk(customerId, rawFee)
+      : { fee: rawFee, off: 0, priority: false };
+    const deliveryFee = perk.fee;
     const subtotal = Math.round(dto.subtotal || 0);
     const minOrder = this.money(store.minOrderAmount);
     return {
       distanceKm: Math.round(distanceKm * 100) / 100,
       deliveryFee,
+      deliveryFeeOff: perk.off,
+      memberPriority: perk.priority,
       minOrderAmount: minOrder,
       subtotalOk: subtotal <= 0 || subtotal >= minOrder,
       total: subtotal + deliveryFee,
@@ -125,6 +146,7 @@ export class DeliveryOrderService {
         : null,
       addressSnapshot: o.addressSnapshot,
       remark: o.remark,
+      memberPriority: o.memberPriority,
       cancelReason: o.cancelReason,
       subtotal: this.money(o.subtotal),
       discount: this.money(o.discount),
@@ -188,7 +210,7 @@ export class DeliveryOrderService {
     }
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!store) throw new BusinessError('STORE_REQUIRED');
-    if (!isWithinBusinessHours(new Date(), store.businessHours as BusinessHours | null)) {
+    if (!getStoreOpenStatus(new Date(), store.businessHours as BusinessHours | null).openNow) {
       throw new BusinessError('STORE_CLOSED');
     }
     if (store.lat == null || store.lng == null) throw new BusinessError('STORE_LOCATION_MISSING');
@@ -209,9 +231,9 @@ export class DeliveryOrderService {
     if (distanceKm > Number(store.deliveryRadiusKm)) {
       throw new BusinessError('OUT_OF_DELIVERY_RANGE');
     }
-    const deliveryFee = BigInt(
-      calcDeliveryFee(distanceKm, (store.deliveryFeeRules as DeliveryFeeRule[]) || []),
-    );
+    const rawFee = calcDeliveryFee(distanceKm, (store.deliveryFeeRules as DeliveryFeeRule[]) || []);
+    const perk = await this.members.deliveryPerk(customerId, rawFee);
+    const deliveryFee = BigInt(perk.fee);
 
     const dishIds = dto.items.map((i) => BigInt(i.dishId));
     const dishes = await this.prisma.dish.findMany({
@@ -280,6 +302,7 @@ export class DeliveryOrderService {
       phone: address.phone,
       addressText: address.addressText,
       detail: address.detail,
+      landmarkPhoto: address.landmarkPhoto ?? null,
       lat: Number(address.lat),
       lng: Number(address.lng),
       distanceKm: Math.round(distanceKm * 100) / 100,
@@ -320,7 +343,8 @@ export class DeliveryOrderService {
           discount: BigInt(priced.discount),
           deliveryFee,
           total,
-          promoSnapshot: { ...priced.snapshot, manualDiscount: 0 },
+          memberPriority: perk.priority,
+          promoSnapshot: { ...priced.snapshot, manualDiscount: 0, deliveryFeeOff: perk.off },
           payMethod: dto.payMethod as PaymentMethod,
           remark: dto.remark,
           statusTimeline: timeline,
@@ -384,7 +408,7 @@ export class DeliveryOrderService {
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!store) throw new BusinessError('STORE_REQUIRED');
     if (store.lat == null || store.lng == null) throw new BusinessError('STORE_LOCATION_MISSING');
-    if (!isWithinBusinessHours(new Date(), store.businessHours as BusinessHours | null)) {
+    if (!getStoreOpenStatus(new Date(), store.businessHours as BusinessHours | null).openNow) {
       throw new BusinessError('STORE_CLOSED');
     }
 
@@ -401,9 +425,9 @@ export class DeliveryOrderService {
       Number(address.lng),
     );
     if (distanceKm > Number(store.deliveryRadiusKm)) throw new BusinessError('OUT_OF_DELIVERY_RANGE');
-    const deliveryFee = BigInt(
-      calcDeliveryFee(distanceKm, (store.deliveryFeeRules as DeliveryFeeRule[]) || []),
-    );
+    const rawFee = calcDeliveryFee(distanceKm, (store.deliveryFeeRules as DeliveryFeeRule[]) || []);
+    const perk = await this.members.deliveryPerk(customerId, rawFee);
+    const deliveryFee = BigInt(perk.fee);
 
     const combo = await this.comboService.getComboForOrder(BigInt(dto.comboId), store.id);
     if (!combo.isGroupMeal || !combo.isDelivery) throw new BusinessError('COMBO_NOT_FOUND');
@@ -479,6 +503,7 @@ export class DeliveryOrderService {
       phone: address.phone,
       addressText: address.addressText,
       detail: address.detail,
+      landmarkPhoto: address.landmarkPhoto ?? null,
       lat: Number(address.lat),
       lng: Number(address.lng),
       distanceKm: Math.round(distanceKm * 100) / 100,
@@ -523,7 +548,13 @@ export class DeliveryOrderService {
           discount: BigInt(priced.discount),
           deliveryFee,
           total,
-          promoSnapshot: { ...priced.snapshot, manualDiscount: 0, guestCount: dto.guestCount },
+          memberPriority: perk.priority,
+          promoSnapshot: {
+            ...priced.snapshot,
+            manualDiscount: 0,
+            guestCount: dto.guestCount,
+            deliveryFeeOff: perk.off,
+          },
           payMethod: dto.payMethod as PaymentMethod,
           remark: dto.remark,
           statusTimeline: timeline,
@@ -761,6 +792,26 @@ export class DeliveryOrderService {
       this.events.emit(Events.ORDER_PAID, { storeId, order: mapped, userId: opts.userId });
     }
 
+    const auditAction =
+      next === OrderStatus.accepted
+        ? 'delivery.accept'
+        : next === OrderStatus.rejected
+          ? 'delivery.reject'
+          : next === OrderStatus.cancelled
+            ? 'delivery.cancel'
+            : null;
+    if (auditAction) {
+      await this.audit.log({
+        userId: opts.userId,
+        storeId,
+        module: 'delivery',
+        action: auditAction,
+        targetType: 'order',
+        targetId: orderId,
+        after: { status: next, reason: opts.reason, courierId: opts.courierId },
+      });
+    }
+
     return mapped;
   }
 
@@ -783,6 +834,17 @@ export class DeliveryOrderService {
     return mapped;
   }
 
+  /** 待接单外卖数量（菜单角标） */
+  async countPendingAccept(storeId: string): Promise<number> {
+    return this.prisma.order.count({
+      where: {
+        storeId: BigInt(storeId),
+        type: OrderType.delivery,
+        status: OrderStatus.pending,
+      },
+    });
+  }
+
   async adminList(storeId: string, status?: string) {
     const where: Prisma.OrderWhereInput = {
       storeId: BigInt(storeId),
@@ -798,7 +860,7 @@ export class DeliveryOrderService {
         customer: true,
         courier: true,
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ memberPriority: 'desc' }, { createdAt: 'desc' }],
       take: 200,
     });
     return rows.map((r) => this.mapOrder(r));

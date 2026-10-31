@@ -36,6 +36,7 @@ export interface OrderItem {
 
 export interface ReceiptItem {
   nameZh: string;
+  nameVi?: string;
   qty: number;
   amount: number;
 }
@@ -74,6 +75,10 @@ export interface CancelData {
 
 export interface ReceiptData {
   storeName?: string;
+  storeNameZh?: string;
+  storeNameVi?: string;
+  address?: string | null;
+  phone?: string | null;
   orderNo: string;
   tableCode?: string;
   guestCount?: number;
@@ -86,8 +91,12 @@ export interface ReceiptData {
   paidAmount: number;
   change: number;
   paymentMethod: string;
+  payments?: { method: string; amount: number }[];
   cashier: string;
   createdAt: string;
+  paidAt?: string;
+  footerZh?: string;
+  footerVi?: string;
 }
 
 export interface DeliveryData {
@@ -328,11 +337,19 @@ class TicketRenderer {
   }
 
   /**
-   * 渲染收据菜品列表
+   * 渲染收据菜品列表（中越双语：中文主行 + 越南文副行，客人两侧都能看懂）
    */
   renderReceiptItems(items: ReceiptItem[]): void {
     for (const item of items) {
-      this.rowText(`${item.nameZh} ×${item.qty}`, fmtVND(item.amount), this.sz.normal);
+      const zh = item.nameZh || '';
+      const vi = item.nameVi || '';
+      const primary = zh || vi;
+      this.rowText(`${primary} ×${item.qty}`, fmtVND(item.amount), this.sz.normal);
+      if (vi && zh && vi !== zh) {
+        this.leftText(vi, this.sz.small);
+      } else if (!zh && vi) {
+        /* primary 已是越南文 */
+      }
     }
   }
 
@@ -468,12 +485,21 @@ function renderCancel(r: TicketRenderer, data: CancelData): void {
 }
 
 function renderReceipt(r: TicketRenderer, data: ReceiptData): void {
-  if (data.storeName) r.centerText(data.storeName, r.sz.medium, true);
+  const storeName = data.storeName || data.storeNameZh || data.storeNameVi;
+  if (storeName) r.centerText(storeName, r.sz.medium, true);
+  if (data.address) r.centerText(data.address, r.sz.small);
+  if (data.phone) r.centerText(data.phone, r.sz.small);
   r.centerText('收据 / HÓA ĐƠN', r.sz.large, true);
   r.separator();
-  r.rowText(`单号: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
-  if (data.tableCode) r.rowText(`桌台: ${data.tableCode}`, `${data.guestCount ?? ''} 位`, r.sz.small);
-  r.leftText(`收银: ${data.cashier}`, r.sz.small);
+  if (data.tableCode) {
+    const guests =
+      data.guestCount != null && data.guestCount > 0 ? `${data.guestCount} 位` : '';
+    r.rowText(`桌台: ${data.tableCode}`, guests, r.sz.small);
+  }
+  r.leftText(`单号: ${data.orderNo}`, r.sz.small);
+  r.leftText(`下单: ${fmtDateTime(data.createdAt)}`, r.sz.small);
+  if (data.paidAt) r.leftText(`结账: ${fmtDateTime(data.paidAt)}`, r.sz.small);
+  if (data.cashier) r.leftText(`收银: ${data.cashier}`, r.sz.small);
   r.separator();
   r.renderReceiptItems(data.items);
   r.separator();
@@ -484,10 +510,20 @@ function renderReceipt(r: TicketRenderer, data: ReceiptData): void {
   r.separator();
   r.rowText('合计  TỔNG CỘNG:', fmtVND(data.total), r.sz.medium, true);
   r.separator();
-  r.rowText(`支付 ${data.paymentMethod}:`, fmtVND(data.paidAmount), r.sz.normal);
+  if (data.payments?.length) {
+    for (const p of data.payments) {
+      r.rowText(`支付 ${p.method}:`, fmtVND(p.amount), r.sz.normal);
+    }
+  } else {
+    r.rowText(`支付 ${data.paymentMethod || ''}:`, fmtVND(data.paidAmount), r.sz.normal);
+  }
   if (data.change > 0) r.rowText('找零  Tiền thừa:', fmtVND(data.change), r.sz.normal);
   r.gap(16);
-  r.centerText('谢谢惠顾  Cảm ơn quý khách!', r.sz.normal);
+  const footer =
+    data.footerZh || data.footerVi
+      ? [data.footerZh, data.footerVi].filter(Boolean).join('  ')
+      : '谢谢惠顾  Cảm ơn quý khách!';
+  r.centerText(footer, r.sz.normal);
   r.gap(24);
 }
 

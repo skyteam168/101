@@ -9,7 +9,9 @@ describe('MemberService soft delete / ban', () => {
       update: jest.fn(),
     },
   };
-  const service = new MemberService(prisma as never);
+  const service = new MemberService(prisma as never, { sendSystemMessage: jest.fn() } as never, {
+    log: jest.fn(),
+  } as never);
 
   beforeEach(() => {
     jest.clearAllMocks();

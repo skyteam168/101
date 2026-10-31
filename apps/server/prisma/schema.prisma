@@ -164,6 +164,12 @@ enum CustomerStatus {
   deleted
 }
 
+/** 顾客首次注册来源（绑定 Google 不覆盖） */
+enum RegisterSource {
+  email
+  google
+}
+
 enum CouponDiscountType {
   amount
   percent
@@ -214,6 +220,7 @@ model User {
   payments       Payment[]
   assetEvents    AssetEvent[]
   auditLogs      AuditLog[]
+  loginLogs      LoginLog[]
   cashierShifts     CashierShift[]
   purchases         Purchase[]
   stocktakes        Stocktake[]
@@ -312,6 +319,11 @@ model Store {
   /** 各类语音播报开关 */
   announceSettings    Json?    @map("announce_settings")
   /**
+   * 专属语音文件 URL（按场景 + 语言）：
+   * { dineInNew: { zh?, vi? }, qrNeedConfirm: { zh?, vi? }, checkout: { zh?, vi? }, ... }
+   */
+  announceClips       Json?    @map("announce_clips")
+  /**
    * 邮件 SMTP 配置 JSON：
    * { enabled, host, port, secure, user, pass, from }
    */
@@ -321,6 +333,24 @@ model Store {
    * [{ image, link?, titleZh?, titleVi? }]
    */
   homeBanners         Json?    @map("home_banners")
+  /** 门头 / 招牌照片 URL（H5 欢迎区与菜单页顶部） */
+  storefrontImage     String?  @map("storefront_image") @db.VarChar(512)
+  /** 管理后台侧栏 Logo 图片 URL */
+  adminLogo           String?  @map("admin_logo") @db.VarChar(512)
+  /**
+   * 餐厅环境相册 JSON：
+   * [{ image, captionZh?, captionVi? }]
+   */
+  envGallery          Json?    @map("env_gallery")
+  /**
+   * 大模型 / 翻译 API 配置（管理端填写，接口回传时 apiKey 脱敏）：
+   * { enabled, provider, apiBase, apiKey, model }
+   */
+  aiSettings          Json?    @map("ai_settings")
+  /**
+   * 桌贴 WiFi：{ ssid, password }
+   */
+  guestWifi           Json?    @map("guest_wifi")
   /** 厨房单一菜一切 */
   printSplitItem      Boolean  @default(false) @map("print_split_item")
   createdAt           DateTime @default(now()) @map("created_at")
@@ -350,8 +380,53 @@ model Store {
   reservations         Reservation[]
   notices              StoreNotice[]
   groupMealInquiries   GroupMealInquiry[]
+  chatConversations    ChatConversation[]
 
   @@map("stores")
+}
+
+/** 顾客 ↔ 商家聊天会话 */
+model ChatConversation {
+  id             BigInt    @id @default(autoincrement())
+  storeId        BigInt    @map("store_id")
+  customerId     BigInt    @map("customer_id")
+  lastMessageAt  DateTime? @map("last_message_at")
+  lastPreview    String?   @map("last_preview") @db.VarChar(255)
+  unreadStaff    Int       @default(0) @map("unread_staff")
+  unreadCustomer Int       @default(0) @map("unread_customer")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  store    Store         @relation(fields: [storeId], references: [id])
+  customer Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@unique([storeId, customerId])
+  @@index([storeId, lastMessageAt])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id             BigInt   @id @default(autoincrement())
+  conversationId BigInt   @map("conversation_id")
+  /** customer | staff */
+  senderType     String   @map("sender_type") @db.VarChar(16)
+  /** customerId 或 staff userId */
+  senderId       BigInt?  @map("sender_id")
+  /** text | image */
+  contentType    String   @map("content_type") @db.VarChar(16)
+  content        String   @db.Text
+  /**
+   * 译文缓存（按目标语言）：
+   * { zh?: string, vi?: string, en?: string }
+   */
+  translations   Json?    @map("translations")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
 }
 
 /** 门店公告（H5 首页展示） */
@@ -561,6 +636,8 @@ model Order {
   /** 命中规则/券快照 */
   promoSnapshot   Json?         @map("promo_snapshot")
   remark          String?       @db.VarChar(512)
+  /** 会员优先配送 */
+  memberPriority  Boolean       @default(false) @map("member_priority")
   cancelReason    String?       @map("cancel_reason") @db.VarChar(512)
   /** 顾客选择的支付方式（货到付款=cash，银行转账=bank_transfer；预留 momo/vnpay） */
   payMethod       PaymentMethod? @map("pay_method")
@@ -674,8 +751,18 @@ model MemberLevel {
   nameZh               String   @map("name_zh") @db.VarChar(64)
   nameVi               String   @map("name_vi") @db.VarChar(64)
   minPoints            Int      @default(0) @map("min_points")
+  /** 累计消费（越南盾）达到后可升到此等级 */
+  minSpend             BigInt   @default(0) @map("min_spend")
   discountPercent      Int      @default(0) @map("discount_percent")
   birthdayBonusPoints  Int      @default(0) @map("birthday_bonus_points")
+  /** 外卖配送费减免（越南盾） */
+  deliveryFeeOff       BigInt   @default(0) @map("delivery_fee_off")
+  /** 预定优先安排 */
+  priorityReserve      Boolean  @default(false) @map("priority_reserve")
+  /** 外卖优先配送 */
+  priorityDelivery     Boolean  @default(false) @map("priority_delivery")
+  /** 生日到店赠菜（门店指定，不固定菜品） */
+  birthdayGift         Boolean  @default(true) @map("birthday_gift")
   sort                 Int      @default(0)
   isActive             Boolean  @default(true) @map("is_active")
   createdAt            DateTime @default(now()) @map("created_at")
@@ -691,15 +778,30 @@ model MemberLevel {
 model Customer {
   id              BigInt         @id @default(autoincrement())
   email           String         @unique @db.VarChar(128)
-  passwordHash    String         @map("password_hash") @db.VarChar(255)
+  /** Google 登录可无密码 */
+  passwordHash    String?        @map("password_hash") @db.VarChar(255)
+  /** Google OpenID sub，用于绑定/合并账号 */
+  googleSub       String?        @unique @map("google_sub") @db.VarChar(64)
+  /** 首次注册渠道；后续绑定另一方式不覆盖 */
+  registerSource  RegisterSource @default(email) @map("register_source")
   name            String?        @db.VarChar(128)
   phone           String?        @db.VarChar(32)
+  /** 顾客头像 URL */
+  avatar          String?        @db.VarChar(512)
   lang            UserLang       @default(vi)
   emailVerifiedAt DateTime?      @map("email_verified_at")
   status          CustomerStatus @default(active)
   deletedAt       DateTime?      @map("deleted_at")
   birthday        DateTime?      @db.Date
+  /** 同意加入会员的时间；空表示尚未入会 */
+  memberJoinedAt  DateTime?      @map("member_joined_at")
   memberLevelId   BigInt?        @map("member_level_id")
+  /** 累计已支付消费，用于升级 */
+  lifetimeSpend   BigInt         @default(0) @map("lifetime_spend")
+  /** 已发送生日祝福的年份 */
+  birthdayNotifiedYear Int?      @map("birthday_notified_year")
+  /** 生日赠菜已核销的年份 */
+  birthdayGiftRedeemedYear Int?  @map("birthday_gift_redeemed_year")
   points          Int            @default(0)
   balance         BigInt         @default(0)
   createdAt       DateTime       @default(now()) @map("created_at")
@@ -713,10 +815,13 @@ model Customer {
   balanceLedgers       BalanceLedger[]
   reservations         Reservation[]
   groupMealInquiries   GroupMealInquiry[]
+  chatConversations    ChatConversation[]
+  loginLogs            CustomerLoginLog[]
 
   @@index([status])
   @@index([memberLevelId])
   @@index([phone])
+  @@index([registerSource])
   @@map("customers")
 }
 
@@ -830,6 +935,8 @@ model CustomerAddress {
   phone       String   @db.VarChar(32)
   addressText String   @map("address_text") @db.VarChar(512)
   detail      String?  @db.VarChar(255)
+  /** 大门/门牌等配送参照照片 */
+  landmarkPhoto String? @map("landmark_photo") @db.VarChar(512)
   lat         Decimal? @db.Decimal(10, 7)
   lng         Decimal? @db.Decimal(10, 7)
   isDefault   Boolean  @default(false) @map("is_default")
@@ -1289,6 +1396,8 @@ model Reservation {
   /** 定金（越南盾整数） */
   deposit        BigInt            @default(0)
   remark         String?           @db.VarChar(512)
+  /** 会员优先安排 */
+  memberPriority Boolean           @default(false) @map("member_priority")
   /** 创建人 ID */
   createdBy      BigInt?           @map("created_by")
   /** 入座后对应的桌台会话 ID */
@@ -1312,21 +1421,79 @@ model Reservation {
 
 // ========== 审计 ==========
 
+enum LoginResult {
+  success
+  fail
+  logout
+}
+
+/** H5 顾客注册 / 登录 / 登出审计（与后台 login_logs 分表） */
+model CustomerLoginLog {
+  id         BigInt      @id @default(autoincrement())
+  customerId BigInt?     @map("customer_id")
+  email      String      @db.VarChar(128)
+  /** register | login | logout */
+  action     String      @db.VarChar(16)
+  result     LoginResult
+  failReason String?     @map("fail_reason") @db.VarChar(64)
+  ip         String?     @db.VarChar(64)
+  userAgent  String?     @map("user_agent") @db.VarChar(512)
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([createdAt])
+  @@index([email, createdAt])
+  @@index([customerId, createdAt])
+  @@index([action, createdAt])
+  @@index([result, createdAt])
+  @@map("customer_login_logs")
+}
+
+model LoginLog {
+  id         BigInt      @id @default(autoincrement())
+  storeId    BigInt?     @map("store_id")
+  userId     BigInt?     @map("user_id")
+  username   String      @db.VarChar(64)
+  result     LoginResult
+  failReason String?     @map("fail_reason") @db.VarChar(64)
+  ip         String?     @db.VarChar(64)
+  userAgent  String?     @map("user_agent") @db.VarChar(512)
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([createdAt])
+  @@index([username, createdAt])
+  @@index([userId, createdAt])
+  @@index([result, createdAt])
+  @@map("login_logs")
+}
+
 model AuditLog {
-  id         BigInt   @id @default(autoincrement())
-  userId     BigInt?  @map("user_id")
-  action     String   @db.VarChar(64)
-  targetType String   @map("target_type") @db.VarChar(64)
-  targetId   String   @map("target_id") @db.VarChar(64)
-  before     Json?
-  after      Json?
-  ip         String?  @db.VarChar(64)
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id          BigInt   @id @default(autoincrement())
+  storeId     BigInt?  @map("store_id")
+  userId      BigInt?  @map("user_id")
+  username    String?  @db.VarChar(64)
+  displayName String?  @map("display_name") @db.VarChar(128)
+  module      String?  @db.VarChar(32)
+  action      String   @db.VarChar(64)
+  targetType  String   @map("target_type") @db.VarChar(64)
+  targetId    String   @map("target_id") @db.VarChar(64)
+  before      Json?
+  after       Json?
+  ip          String?  @db.VarChar(64)
+  userAgent   String?  @map("user_agent") @db.VarChar(512)
+  requestId   String?  @map("request_id") @db.VarChar(64)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   user User? @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
+  @@index([storeId, createdAt])
+  @@index([module, createdAt])
+  @@index([action, createdAt])
   @@index([targetType, targetId])
   @@map("audit_logs")
 }

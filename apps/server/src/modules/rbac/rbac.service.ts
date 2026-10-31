@@ -3,6 +3,7 @@ import { PermissionType } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { AuditService } from '../audit/audit.service';
 
 const PERM_CACHE_PREFIX = 'rbac:perms:';
 const PERM_CACHE_TTL = 3600;
@@ -33,6 +34,7 @@ export class RbacService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly audit: AuditService,
   ) {}
 
   async getUserPermissionCodes(userId: string): Promise<string[]> {
@@ -228,13 +230,14 @@ export class RbacService {
     return rows.map((r) => r.permissionId.toString());
   }
 
-  async setRolePermissions(roleId: string, permissionIds: string[]) {
+  async setRolePermissions(roleId: string, permissionIds: string[], operatorId?: string) {
     const role = await this.prisma.role.findUnique({ where: { id: BigInt(roleId) } });
     if (!role) throw new BusinessError('ROLE_NOT_FOUND');
     if (role.code === 'super_admin') {
       throw new BusinessError('ROLE_SYSTEM_PROTECTED');
     }
 
+    const beforeIds = await this.getRolePermissionIds(roleId);
     const ids = permissionIds.map((id) => BigInt(id));
     await this.prisma.$transaction(async (tx) => {
       await tx.rolePermission.deleteMany({ where: { roleId: role.id } });
@@ -245,6 +248,15 @@ export class RbacService {
       }
     });
     await this.clearPermCacheForRole(role.id);
+    await this.audit.log({
+      userId: operatorId,
+      module: 'rbac',
+      action: 'role.update_perms',
+      targetType: 'role',
+      targetId: roleId,
+      before: { permissionIds: beforeIds },
+      after: { permissionIds, roleCode: role.code },
+    });
     return { ok: true };
   }
 

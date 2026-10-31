@@ -10,11 +10,13 @@ import { MailService } from './mail.service';
 import { CustomerAuthGuard } from '../../common/guards/customer-auth.guard';
 import { ComboModule } from '../combo/combo.module';
 import { MarketingModule } from '../marketing/marketing.module';
+import { MemberModule } from '../member/member.module';
 
 @Module({
   imports: [
     MarketingModule,
     ComboModule,
+    MemberModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

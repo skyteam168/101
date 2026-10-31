@@ -2,8 +2,13 @@ import { ElNotification } from 'element-plus';
 import { Events } from '@restaurant/shared';
 import { computed, onUnmounted, ref, shallowRef } from 'vue';
 import { i18n } from '../i18n';
-import { getAnnounceApi, type AnnounceSettings } from '../api/store';
+import {
+  getAnnounceApi,
+  type AnnounceClips,
+  type AnnounceSettings,
+} from '../api/store';
 import { getAccessToken } from '../utils/auth-storage';
+import { useOpsAlertStore } from '../stores/ops-alert';
 import { useUserStore } from '../stores/user';
 import { io, type Socket } from 'socket.io-client';
 
@@ -15,13 +20,20 @@ export type VoiceKind =
   | 'requestBill'
   | 'orderCancel'
   | 'printFailed'
-  | 'reservationNew';
+  | 'reservationNew'
+  | 'qrNeedConfirm'
+  | 'checkout'
+  | 'chatMessage';
 
 type QueueItem = {
   kind: VoiceKind;
   text: string;
   title: string;
   notify?: boolean;
+  /** ElNotification 类型 */
+  notifyType?: 'info' | 'warning' | 'success' | 'error';
+  /** 仅提示音/专属 mp3，不朗读正文（短信式） */
+  soundOnly?: boolean;
 };
 
 const MUTE_KEY = 'voice_muted';
@@ -39,7 +51,11 @@ const settings = ref<AnnounceSettings>({
   orderCancel: true,
   printFailed: true,
   reservationNew: true,
+  qrNeedConfirm: true,
+  checkout: true,
+  chatMessage: true,
 });
+const clips = ref<AnnounceClips>({});
 
 const queue: QueueItem[] = [];
 let socket: Socket | null = null;
@@ -100,6 +116,27 @@ async function playFallbackAnnounce() {
   }
 }
 
+/** 优先播放后台上传的专属语音；soundOnly 时无专属则仅依赖前面的 ding */
+async function playKindAudio(kind: VoiceKind, text: string, soundOnly = false) {
+  const pair = clips.value[kind];
+  const custom = announceLang.value === 'vi' ? pair?.vi : pair?.zh;
+  if (custom) {
+    try {
+      await playMp3(custom);
+      return;
+    } catch {
+      // 自定义文件失败则回退
+    }
+  }
+  if (soundOnly) return;
+  const voice = pickVoice(announceLang.value);
+  if (voice) {
+    await speakText(text);
+  } else {
+    await playFallbackAnnounce();
+  }
+}
+
 async function processQueue() {
   if (playing.value || muted.value || !unlocked.value) return;
   const item = queue.shift();
@@ -111,34 +148,40 @@ async function processQueue() {
         title: item.title,
         message: item.text,
         position: 'bottom-right',
-        duration: 5000,
-        type: item.kind === 'printFailed' || item.kind === 'orderCancel' ? 'error' : 'info',
+        duration: 6000,
+        type:
+          item.notifyType ||
+          (item.kind === 'printFailed' || item.kind === 'orderCancel'
+            ? 'error'
+            : item.kind === 'qrNeedConfirm'
+              ? 'warning'
+              : 'info'),
       });
     }
-    try {
-      await playMp3('/audio/ding.wav');
-    } catch {
+    // 有专属提示音时跳过默认 ding，避免叠两声；短信式场景无专属则只播 ding
+    const pair = clips.value[item.kind];
+    const hasCustom = !!(announceLang.value === 'vi' ? pair?.vi : pair?.zh);
+    if (!hasCustom) {
       try {
-        await playMp3('/audio/ding.mp3');
+        await playMp3('/audio/ding.wav');
       } catch {
-        // ding optional
+        try {
+          await playMp3('/audio/ding.mp3');
+        } catch {
+          // ding optional
+        }
       }
     }
-    const voice = pickVoice(announceLang.value);
-    if (voice) {
-      await speakText(item.text);
-    } else {
-      await playFallbackAnnounce();
-    }
+    await playKindAudio(item.kind, item.text, item.soundOnly === true);
   } finally {
     playing.value = false;
     void processQueue();
   }
 }
 
-function enqueue(kind: VoiceKind, text: string, title: string) {
+function enqueue(kind: VoiceKind, text: string, title: string, opts?: Partial<QueueItem>) {
   if (!settings.value[kind]) return;
-  queue.push({ kind, text, title });
+  queue.push({ kind, text, title, ...opts });
   void processQueue();
 }
 
@@ -168,6 +211,15 @@ function tableCode(payload: Record<string, unknown>) {
   );
 }
 
+function syncPendingCount(payload: Record<string, unknown>) {
+  const ops = useOpsAlertStore();
+  if (typeof payload.pendingConfirmCount === 'number') {
+    ops.setConfirmCount(payload.pendingConfirmCount);
+  } else if (typeof payload.count === 'number') {
+    ops.setConfirmCount(payload.count);
+  }
+}
+
 function bindEvents(s: Socket) {
   s.on(Events.ORDER_CREATED, (payload: Record<string, unknown>) => {
     const order = (payload.order || payload) as {
@@ -182,6 +234,17 @@ function bindEvents(s: Socket) {
       startDeliveryRepeat(String(order.id || order.orderNo), text, t('voice.title.deliveryNew'));
       return;
     }
+    // 需确认的扫码首单：只走待确认语音，避免与「新堂食」重复
+    if (payload.needConfirm) {
+      syncPendingCount(payload);
+      enqueue(
+        'qrNeedConfirm',
+        t('voice.qrNeedConfirm', { table: code || '-', round: 1 }),
+        t('voice.title.qrNeedConfirm'),
+        { notifyType: 'warning' },
+      );
+      return;
+    }
     enqueue(
       'dineInNew',
       t('voice.dineInNew', { table: code || '-' }),
@@ -190,11 +253,36 @@ function bindEvents(s: Socket) {
   });
 
   s.on(Events.ORDER_BATCH_ADDED, (payload: Record<string, unknown>) => {
+    syncPendingCount(payload);
     const roundNo = Number(payload.roundNo || (payload.batch as { roundNo?: number })?.roundNo || 0);
-    if (roundNo <= 1) return;
     const order = payload.order as { tableCode?: string } | undefined;
     const code = order?.tableCode || tableCode(payload);
-    enqueue('addItem', t('voice.addItem', { table: code || '-', round: roundNo }), t('voice.title.addItem'));
+
+    if (payload.confirmed) return;
+
+    if (payload.needConfirm) {
+      // 首轮已在 ORDER_CREATED 播过；加菜轮次在此提示
+      if (roundNo > 1) {
+        enqueue(
+          'qrNeedConfirm',
+          t('voice.qrNeedConfirm', { table: code || '-', round: roundNo }),
+          t('voice.title.qrNeedConfirm'),
+          { notifyType: 'warning' },
+        );
+      }
+      return;
+    }
+
+    if (roundNo <= 1) return;
+    enqueue(
+      'addItem',
+      t('voice.addItem', { table: code || '-', round: roundNo }),
+      t('voice.title.addItem'),
+    );
+  });
+
+  s.on(Events.QR_PENDING_CHANGED, (payload: Record<string, unknown>) => {
+    syncPendingCount(payload);
   });
 
   s.on(Events.DELIVERY_NEW, (payload: Record<string, unknown>) => {
@@ -234,6 +322,24 @@ function bindEvents(s: Socket) {
     );
   });
 
+  s.on(Events.ORDER_PAID, (payload: Record<string, unknown>) => {
+    const order = (payload.order || payload) as {
+      orderNo?: string;
+      tableCode?: string;
+      type?: string;
+    };
+    const code = order.tableCode || tableCode(payload);
+    enqueue(
+      'checkout',
+      t('voice.checkout', {
+        table: code || '-',
+        no: order.orderNo || '',
+      }),
+      t('voice.title.checkout'),
+      { notifyType: 'success' },
+    );
+  });
+
   s.on(Events.PRINT_FAILED, (payload: Record<string, unknown>) => {
     enqueue(
       'printFailed',
@@ -243,6 +349,12 @@ function bindEvents(s: Socket) {
   });
 
   s.on(Events.RESERVATION_CREATED, (payload: Record<string, unknown>) => {
+    const ops = useOpsAlertStore();
+    if (typeof payload.pendingCount === 'number') {
+      ops.setReservationCount(payload.pendingCount);
+    } else {
+      void ops.refreshReservation();
+    }
     const r = (payload.reservation || payload) as {
       customerName?: string;
       guestCount?: number;
@@ -258,6 +370,31 @@ function bindEvents(s: Socket) {
       t('voice.title.reservationNew'),
     );
   });
+
+  s.on(Events.RESERVATION_PENDING_CHANGED, (payload: Record<string, unknown>) => {
+    const ops = useOpsAlertStore();
+    if (typeof payload.count === 'number') ops.setReservationCount(payload.count);
+    else void ops.refreshReservation();
+  });
+
+  // 顾客发来的聊天：角标 + 短信式提示音（可上传专属 mp3）
+  s.on(Events.CHAT_MESSAGE, (payload: Record<string, unknown>) => {
+    const msg = payload.message as
+      | { senderType?: string; contentType?: string; content?: string }
+      | undefined;
+    if (!msg || msg.senderType !== 'customer') return;
+    void useOpsAlertStore().refreshChat();
+    const preview =
+      msg.contentType === 'image'
+        ? '[image]'
+        : String(msg.content || '').slice(0, 40) || '-';
+    enqueue(
+      'chatMessage',
+      t('voice.chatMessage', { preview }),
+      t('voice.title.chatMessage'),
+      { soundOnly: true },
+    );
+  });
 }
 
 async function loadAnnounceConfig() {
@@ -265,6 +402,7 @@ async function loadAnnounceConfig() {
     const data = await getAnnounceApi();
     announceLang.value = data.announceLang;
     settings.value = { ...settings.value, ...data.announceSettings };
+    clips.value = { ...(data.announceClips || {}) };
   } catch {
     // 无桌台权限时忽略
   }
@@ -289,7 +427,6 @@ function connectSocket() {
 /** 浏览器要求用户手势后才能出声 */
 export function unlockVoice() {
   unlocked.value = true;
-  // 预热 TTS voices + 静音短 ding
   if (window.speechSynthesis) {
     window.speechSynthesis.getVoices();
     window.speechSynthesis.onvoiceschanged = () => {
@@ -313,6 +450,7 @@ export function useVoiceAlert() {
     started = true;
     await loadAnnounceConfig();
     connectSocket();
+    useOpsAlertStore().start();
   }
 
   function stop() {
@@ -322,6 +460,7 @@ export function useVoiceAlert() {
     for (const id of deliveryTimers.keys()) stopDeliveryRepeat(id);
     queue.length = 0;
     if (window.speechSynthesis) window.speechSynthesis.cancel();
+    useOpsAlertStore().stop();
   }
 
   onUnmounted(() => {
@@ -334,6 +473,7 @@ export function useVoiceAlert() {
     playing: computed(() => playing.value),
     announceLang: computed(() => announceLang.value),
     settings: shallowRef(settings),
+    clips: shallowRef(clips),
     unlockVoice,
     setVoiceMuted,
     start,
@@ -354,4 +494,5 @@ export function stopVoiceAlertGlobal() {
   deliveryTimers.clear();
   queue.length = 0;
   unlocked.value = false;
+  useOpsAlertStore().stop();
 }

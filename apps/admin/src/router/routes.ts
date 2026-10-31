@@ -6,6 +6,7 @@ export const viewModules: Record<string, () => Promise<unknown>> = {
   '/system/users': () => import('../views/system/UsersView.vue'),
   '/system/roles': () => import('../views/system/RolesView.vue'),
   '/system/settings': () => import('../views/system/SettingsView.vue'),
+  '/system/audit': () => import('../views/system/AuditView.vue'),
   '/cashier': () => import('../views/cashier/CashierView.vue'),
   '/tables': () => import('../views/tables/TablesView.vue'),
   '/orders': () => import('../views/orders/OrdersView.vue'),
@@ -21,6 +22,7 @@ export const viewModules: Record<string, () => Promise<unknown>> = {
   '/combos': () => import('../views/combo/CombosView.vue'),
   '/reservations': () => import('../views/reservation/ReservationsView.vue'),
   '/group-meals': () => import('../views/group-meal/GroupMealsView.vue'),
+  '/chat': () => import('../views/chat/ChatView.vue'),
 };
 
 export const constantRoutes: RouteRecordRaw[] = [

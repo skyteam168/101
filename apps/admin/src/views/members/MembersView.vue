@@ -6,6 +6,7 @@ import { formatVND, localeField } from '@restaurant/shared';
 import {
   adjustBalanceApi,
   adjustPointsApi,
+  redeemBirthdayGiftApi,
   createLevelApi,
   listLevelsApi,
   listMembersApi,
@@ -34,8 +35,13 @@ const levelForm = reactive({
   nameZh: '',
   nameVi: '',
   minPoints: 0,
+  minSpend: 0,
   discountPercent: 0,
   birthdayBonusPoints: 0,
+  deliveryFeeOff: 0,
+  priorityReserve: false,
+  priorityDelivery: false,
+  birthdayGift: true,
   isActive: true,
 });
 
@@ -67,8 +73,13 @@ function openLevel(row?: MemberLevel) {
   levelForm.nameZh = row?.nameZh || '';
   levelForm.nameVi = row?.nameVi || '';
   levelForm.minPoints = row?.minPoints || 0;
+  levelForm.minSpend = row?.minSpend || 0;
   levelForm.discountPercent = row?.discountPercent || 0;
   levelForm.birthdayBonusPoints = row?.birthdayBonusPoints || 0;
+  levelForm.deliveryFeeOff = row?.deliveryFeeOff || 0;
+  levelForm.priorityReserve = !!row?.priorityReserve;
+  levelForm.priorityDelivery = !!row?.priorityDelivery;
+  levelForm.birthdayGift = row?.birthdayGift !== false;
   levelForm.isActive = row?.isActive ?? true;
   levelDialog.value = true;
 }
@@ -78,13 +89,24 @@ async function saveLevel() {
     nameZh: levelForm.nameZh,
     nameVi: levelForm.nameVi,
     minPoints: levelForm.minPoints,
+    minSpend: levelForm.minSpend,
     discountPercent: levelForm.discountPercent,
     birthdayBonusPoints: levelForm.birthdayBonusPoints,
+    deliveryFeeOff: levelForm.deliveryFeeOff,
+    priorityReserve: levelForm.priorityReserve,
+    priorityDelivery: levelForm.priorityDelivery,
+    birthdayGift: levelForm.birthdayGift,
   };
   if (levelForm.id) await updateLevelApi(levelForm.id, { ...payload, isActive: levelForm.isActive });
   else await createLevelApi(payload);
   ElMessage.success(t('common.saved'));
   levelDialog.value = false;
+  await refresh();
+}
+
+async function redeemGift(row: Member) {
+  await redeemBirthdayGiftApi(row.id);
+  ElMessage.success(t('common.saved'));
   await refresh();
 }
 
@@ -157,6 +179,20 @@ async function setLevel(row: Member, levelId: string) {
         <el-table :data="members" border>
           <el-table-column prop="name" :label="t('member.name')" width="120" />
           <el-table-column prop="email" label="Email" min-width="160" />
+          <el-table-column :label="t('member.registerSource')" width="110">
+            <template #default="{ row }">
+              <el-tag
+                :type="row.registerSource === 'google' ? 'warning' : 'info'"
+                size="small"
+              >
+                {{
+                  row.registerSource === 'google'
+                    ? t('member.sourceGoogle')
+                    : t('member.sourceEmail')
+                }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="phone" :label="t('common.phone')" width="120" />
           <el-table-column :label="t('member.level')" width="140">
             <template #default="{ row }">
@@ -184,6 +220,7 @@ async function setLevel(row: Member, levelId: string) {
           </el-table-column>
           <el-table-column :label="t('common.actions')" width="280" fixed="right">
             <template #default="{ row }">
+              <el-button link type="success" @click="redeemGift(row)">{{ t('member.redeemGift') }}</el-button>
               <el-button link type="primary" @click="openIssue(row)">{{ t('member.issueCoupon') }}</el-button>
               <el-button link @click="openAdjust(row, 'points')">{{ t('member.adjPoints') }}</el-button>
               <el-button link @click="openAdjust(row, 'balance')">{{ t('member.adjBalance') }}</el-button>
@@ -203,9 +240,13 @@ async function setLevel(row: Member, levelId: string) {
           <el-table-column :label="t('inventory.name')" min-width="120">
             <template #default="{ row }">{{ nameOf(row) }}</template>
           </el-table-column>
-          <el-table-column prop="minPoints" :label="t('member.minPoints')" width="100" />
+          <el-table-column prop="minSpend" :label="t('member.minSpend')" width="130">
+            <template #default="{ row }">{{ formatVND(row.minSpend || 0) }}</template>
+          </el-table-column>
+          <el-table-column prop="deliveryFeeOff" :label="t('member.deliveryFeeOff')" width="120">
+            <template #default="{ row }">{{ formatVND(row.deliveryFeeOff || 0) }}</template>
+          </el-table-column>
           <el-table-column prop="discountPercent" :label="t('member.discountPercent')" width="100" />
-          <el-table-column prop="birthdayBonusPoints" :label="t('member.birthdayBonus')" width="110" />
           <el-table-column :label="t('common.status')" width="90">
             <template #default="{ row }">
               {{ row.isActive ? t('common.enabled') : t('common.disabled') }}
@@ -225,8 +266,13 @@ async function setLevel(row: Member, levelId: string) {
         <el-form-item :label="t('common.nameZh')"><el-input v-model="levelForm.nameZh" /></el-form-item>
         <el-form-item :label="t('common.nameVi')"><el-input v-model="levelForm.nameVi" /></el-form-item>
         <el-form-item :label="t('member.minPoints')"><el-input-number v-model="levelForm.minPoints" :min="0" /></el-form-item>
+        <el-form-item :label="t('member.minSpend')"><el-input-number v-model="levelForm.minSpend" :min="0" :step="10000" /></el-form-item>
         <el-form-item :label="t('member.discountPercent')"><el-input-number v-model="levelForm.discountPercent" :min="0" :max="100" /></el-form-item>
         <el-form-item :label="t('member.birthdayBonus')"><el-input-number v-model="levelForm.birthdayBonusPoints" :min="0" /></el-form-item>
+        <el-form-item :label="t('member.deliveryFeeOff')"><el-input-number v-model="levelForm.deliveryFeeOff" :min="0" :step="1000" /></el-form-item>
+        <el-form-item :label="t('member.priorityReserve')"><el-switch v-model="levelForm.priorityReserve" /></el-form-item>
+        <el-form-item :label="t('member.priorityDelivery')"><el-switch v-model="levelForm.priorityDelivery" /></el-form-item>
+        <el-form-item :label="t('member.birthdayGift')"><el-switch v-model="levelForm.birthdayGift" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="levelDialog = false">{{ t('common.cancel') }}</el-button>

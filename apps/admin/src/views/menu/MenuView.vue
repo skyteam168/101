@@ -400,7 +400,12 @@ onUnmounted(() => {
     </template>
   </el-dialog>
 
-  <el-drawer v-model="drawer" size="560px" :title="editingId ? t('common.edit') : t('common.create')">
+  <el-drawer
+    v-model="drawer"
+    size="720px"
+    class="dish-drawer"
+    :title="editingId ? t('common.edit') : t('common.create')"
+  >
     <el-tabs>
       <el-tab-pane label="中文">
         <el-form label-width="100px">
@@ -448,10 +453,24 @@ onUnmounted(() => {
         <el-checkbox v-model="dishForm.isNew">{{ t('menuMgmt.isNew') }}</el-checkbox>
       </el-form-item>
       <el-form-item :label="t('menuMgmt.image')">
-        <el-upload :show-file-list="false" accept="image/*" :before-upload="onUpload">
-          <el-button>{{ t('menuMgmt.upload') }}</el-button>
-        </el-upload>
-        <img v-if="dishForm.image" :src="dishForm.image" class="preview" />
+        <div class="image-row">
+          <div v-if="dishForm.image" class="preview-wrap">
+            <img :src="dishForm.image" class="preview" alt="" />
+          </div>
+          <div class="image-actions">
+            <el-upload :show-file-list="false" accept="image/*" :before-upload="onUpload">
+              <el-button>{{ t('menuMgmt.upload') }}</el-button>
+            </el-upload>
+            <el-button
+              v-if="dishForm.image"
+              link
+              type="danger"
+              @click="dishForm.image = ''"
+            >
+              {{ t('common.delete') }}
+            </el-button>
+          </div>
+        </div>
       </el-form-item>
     </el-form>
 
@@ -459,15 +478,24 @@ onUnmounted(() => {
       <strong>{{ t('menuMgmt.options') }}</strong>
       <el-button link type="primary" @click="addOption">{{ t('common.create') }}</el-button>
     </div>
-    <div v-for="(opt, idx) in dishForm.options" :key="idx" class="opt-row">
-      <el-input v-model="opt.groupNameZh" :placeholder="t('menuMgmt.groupZh')" />
-      <el-input v-model="opt.groupNameVi" :placeholder="t('menuMgmt.groupVi')" />
-      <el-input v-model="opt.optionNameZh" :placeholder="t('menuMgmt.optionZh')" />
-      <el-input v-model="opt.optionNameVi" :placeholder="t('menuMgmt.optionVi')" />
-      <el-input-number v-model="opt.extraPrice" :min="0" />
-      <el-checkbox v-model="opt.required">{{ t('menuMgmt.required') }}</el-checkbox>
-      <el-checkbox v-model="opt.multi">{{ t('menuMgmt.multi') }}</el-checkbox>
-      <el-button link type="danger" @click="dishForm.options.splice(idx, 1)">{{ t('common.delete') }}</el-button>
+    <div v-for="(opt, idx) in dishForm.options" :key="idx" class="opt-card">
+      <div class="opt-grid">
+        <el-input v-model="opt.groupNameZh" :placeholder="t('menuMgmt.groupZh')" />
+        <el-input v-model="opt.groupNameVi" :placeholder="t('menuMgmt.groupVi')" />
+        <el-input v-model="opt.optionNameZh" :placeholder="t('menuMgmt.optionZh')" />
+        <el-input v-model="opt.optionNameVi" :placeholder="t('menuMgmt.optionVi')" />
+      </div>
+      <div class="opt-flags">
+        <div class="opt-price">
+          <span class="opt-price-label">{{ t('menuMgmt.extraPrice') }}</span>
+          <el-input-number v-model="opt.extraPrice" :min="0" :step="1000" controls-position="right" />
+        </div>
+        <el-checkbox v-model="opt.required">{{ t('menuMgmt.required') }}</el-checkbox>
+        <el-checkbox v-model="opt.multi">{{ t('menuMgmt.multi') }}</el-checkbox>
+        <el-button link type="danger" @click="dishForm.options.splice(idx, 1)">
+          {{ t('common.delete') }}
+        </el-button>
+      </div>
     </div>
 
     <template #footer>
@@ -484,7 +512,30 @@ onUnmounted(() => {
 .cat-item { display: flex; justify-content: space-between; width: 100%; align-items: center; }
 .ops { opacity: 0.85; }
 .hint { margin-left: 8px; color: #909399; font-size: 12px; }
-.preview { margin-top: 8px; max-width: 160px; border-radius: 6px; }
-.opt-head { display: flex; justify-content: space-between; margin: 16px 0 8px; }
-.opt-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 110px auto auto auto; gap: 6px; margin-bottom: 8px; align-items: center; }
+.image-row { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.preview-wrap { flex-shrink: 0; }
+.preview { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; border: 1px solid #ebeef5; display: block; }
+.image-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-top: 4px; }
+.opt-head { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 8px; }
+.opt-card {
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #fafafa;
+}
+.opt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.opt-flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 10px;
+}
+.opt-price { display: flex; align-items: center; gap: 8px; }
+.opt-price-label { color: #606266; font-size: 13px; white-space: nowrap; }
 </style>

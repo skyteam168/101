@@ -102,7 +102,7 @@ describe('ComboService.list', () => {
     prisma.combo.count.mockResolvedValue(1);
     prisma.combo.findMany.mockResolvedValue([row]);
 
-    const service = new ComboService(prisma as never);
+    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
     const result = await service.list('1', {});
 
     expect(result.total).toBe(1);
@@ -121,7 +121,7 @@ describe('ComboService.findById', () => {
     const prisma = makePrisma();
     prisma.combo.findFirst.mockResolvedValue(null);
 
-    const service = new ComboService(prisma as never);
+    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
     await expect(service.findById('1', '999')).rejects.toThrow(BusinessError);
   });
 
@@ -129,7 +129,7 @@ describe('ComboService.findById', () => {
     const prisma = makePrisma();
     prisma.combo.findFirst.mockResolvedValue(makeComboRow());
 
-    const service = new ComboService(prisma as never);
+    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
     const result = await service.findById('1', '1');
     expect(result.id).toBe('1');
     expect(result.takeawayPrice).toBe(95000);
@@ -142,7 +142,7 @@ describe('ComboService.delete', () => {
     prisma.combo.findFirst.mockResolvedValue(makeComboRow());
     prisma.orderItem.count.mockResolvedValue(3);
 
-    const service = new ComboService(prisma as never);
+    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
     await expect(service.delete('1', '1')).rejects.toThrow(BusinessError);
   });
 
@@ -150,7 +150,7 @@ describe('ComboService.delete', () => {
     const prisma = makePrisma();
     prisma.combo.findFirst.mockResolvedValue(null);
 
-    const service = new ComboService(prisma as never);
+    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
     await expect(service.delete('1', '1')).rejects.toThrow(BusinessError);
   });
 
@@ -160,7 +160,7 @@ describe('ComboService.delete', () => {
     prisma.orderItem.count.mockResolvedValue(0);
     prisma.combo.delete.mockResolvedValue({});
 
-    const service = new ComboService(prisma as never);
+    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
     const result = await service.delete('1', '1');
     expect(result.success).toBe(true);
   });
@@ -171,7 +171,7 @@ describe('ComboService.getComboForOrder', () => {
     const prisma = makePrisma();
     prisma.combo.findFirst.mockResolvedValue(null); // status=off 会找不到
 
-    const service = new ComboService(prisma as never);
+    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
     await expect(service.getComboForOrder(1n, 1n)).rejects.toThrow(BusinessError);
   });
 
@@ -179,7 +179,7 @@ describe('ComboService.getComboForOrder', () => {
     const prisma = makePrisma();
     prisma.combo.findFirst.mockResolvedValue(makeComboRow());
 
-    const service = new ComboService(prisma as never);
+    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
     const result = await service.getComboForOrder(1n, 1n);
     expect(result.id).toBe(1n);
     expect(result.nameZh).toBe('测试套餐');

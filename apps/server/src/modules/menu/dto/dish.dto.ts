@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -18,25 +20,30 @@ export class DishOptionDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   id?: string;
 
   @ApiProperty()
   @IsString()
+  @MaxLength(255)
   @IsNotEmpty()
   groupNameZh!: string;
 
   @ApiProperty()
   @IsString()
+  @MaxLength(255)
   @IsNotEmpty()
   groupNameVi!: string;
 
   @ApiProperty()
   @IsString()
+  @MaxLength(255)
   @IsNotEmpty()
   optionNameZh!: string;
 
   @ApiProperty()
   @IsString()
+  @MaxLength(255)
   @IsNotEmpty()
   optionNameVi!: string;
 
@@ -85,16 +92,19 @@ export class CreateDishDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   descZh?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   descVi?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   image?: string;
 
   @ApiProperty({ description: '堂食价，越南盾整数' })
@@ -112,6 +122,7 @@ export class CreateDishDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   unit?: string;
 
   @ApiPropertyOptional({ enum: ['on', 'off'] })
@@ -184,16 +195,19 @@ export class UpdateDishDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   descZh?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   descVi?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(512)
   image?: string | null;
 
   @ApiPropertyOptional()
@@ -213,6 +227,7 @@ export class UpdateDishDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   unit?: string;
 
   @ApiPropertyOptional({ enum: ['on', 'off'] })
@@ -269,6 +284,7 @@ export class BatchStatusDto {
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   ids!: string[];
 
   @ApiProperty({ enum: ['on', 'off'] })
@@ -281,6 +297,7 @@ export class BatchPriceDto {
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   ids!: string[];
 
   @ApiPropertyOptional()
@@ -303,6 +320,7 @@ export class BatchSoldOutDto {
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   ids!: string[];
 }
 
@@ -310,11 +328,13 @@ export class DishQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(64)
   categoryId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(64)
   keyword?: string;
 
   @ApiPropertyOptional({ enum: ['on', 'off'] })

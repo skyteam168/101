@@ -1,5 +1,9 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CouponDiscountType, PromoChannel, PromoScope } from '@prisma/client';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
+import { CouponDiscountType,
+  PromoChannel,
+  PromoScope } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -65,6 +69,7 @@ export class CreateCouponTemplateDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   dishIds?: string[];
 
   @ApiPropertyOptional({ enum: PromoChannel })
@@ -126,6 +131,7 @@ export class UpdateCouponTemplateDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   dishIds?: string[];
 
   @ApiPropertyOptional({ enum: PromoChannel })
@@ -142,12 +148,14 @@ export class UpdateCouponTemplateDto {
 export class IssueCouponDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   templateId!: string;
 
   @ApiProperty({ type: [String] })
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   customerIds!: string[];
 }
 
@@ -190,6 +198,7 @@ export class CreatePromoRuleDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   dishIds?: string[];
 
   @ApiPropertyOptional({ enum: PromoChannel })
@@ -239,6 +248,7 @@ export class UpdatePromoRuleDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   dishIds?: string[];
 
   @ApiPropertyOptional({ enum: PromoChannel })

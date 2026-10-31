@@ -45,7 +45,7 @@ export class ComboController {
   @Post()
   @RequirePerm('combo:edit')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateComboDto) {
-    return this.comboService.create(this.storeId(user), dto);
+    return this.comboService.create(this.storeId(user), dto, user.id);
   }
 
   /** 更新套餐（groups 字段传则全量覆盖分组） */
@@ -56,7 +56,7 @@ export class ComboController {
     @Param('id') id: string,
     @Body() dto: UpdateComboDto,
   ) {
-    return this.comboService.update(this.storeId(user), id, dto);
+    return this.comboService.update(this.storeId(user), id, dto, user.id);
   }
 
   /** 删除套餐（有订单引用则拒绝） */

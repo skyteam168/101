@@ -17,8 +17,8 @@ export const useUserStore = defineStore('user', () => {
     return permissions.value.includes(code);
   }
 
-  async function login(username: string, password: string) {
-    const data = await loginApi(username, password);
+  async function login(username: string, password: string, cfTurnstileToken?: string) {
+    const data = await loginApi(username, password, cfTurnstileToken);
     setTokens(data.accessToken, data.refreshToken);
     await fetchMe();
   }

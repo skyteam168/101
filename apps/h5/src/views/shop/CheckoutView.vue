@@ -42,11 +42,10 @@ const selectedAddress = computed(() =>
   addresses.value.find((a) => a.id === selectedAddressId.value) ?? null,
 );
 
+const emptyCart = computed(() => cart.totalQty === 0);
+
 onMounted(async () => {
-  if (cart.totalQty === 0) {
-    router.replace({ name: 'shop' });
-    return;
-  }
+  if (emptyCart.value) return;
   try {
     const [addrList, storeInfo, couponList] = await Promise.all([
       listAddresses(),
@@ -90,7 +89,20 @@ async function selectAddress(addr: CustomerAddress) {
   await doQuote(addr);
 }
 
+const storeOpen = computed(() => store.value?.openNow !== false);
+const closedTip = computed(() => {
+  if (storeOpen.value) return '';
+  if (store.value?.closedReason === 'paused') return t('shop.storePaused');
+  const h = store.value?.businessHours;
+  if (h?.open && h?.close) return t('shop.storeClosedHours', { hours: `${h.open} - ${h.close}` });
+  return t('shop.storeClosed');
+});
+
 async function handleSubmit() {
+  if (!storeOpen.value) {
+    showToast(closedTip.value || t('errors.STORE_CLOSED'));
+    return;
+  }
   if (!selectedAddressId.value) {
     showToast(t('shop.checkout.addressRequired'));
     return;
@@ -105,6 +117,7 @@ async function handleSubmit() {
       items: cart.items.map((i) => ({
         dishId: i.dishId,
         qty: i.qty,
+        optionsSnapshot: i.optionsSnapshot,
       })),
     });
     cart.clear();
@@ -120,7 +133,13 @@ async function handleSubmit() {
   <div class="checkout-page">
     <van-nav-bar :title="t('shop.checkout.title')" left-arrow @click-left="router.back()" />
 
-    <div style="padding-bottom: 70px">
+    <van-empty v-if="emptyCart" :description="t('shop.checkout.emptyCart')">
+      <van-button round type="danger" @click="router.replace({ name: 'shop' })">
+        {{ t('shop.checkout.goMenu') }}
+      </van-button>
+    </van-empty>
+
+    <div v-else style="padding-bottom: 70px">
       <!-- 收货地址 -->
       <van-cell-group :title="t('shop.checkout.address')" inset style="margin-top: 12px">
         <van-cell
@@ -248,27 +267,35 @@ async function handleSubmit() {
       </van-cell-group>
     </div>
 
-    <!-- 底部提交 -->
-    <van-submit-bar
-      :price="(quote ? quote.total : cart.totalAmount) * 100"
-      :decimal-length="0"
-      currency="₫"
-      :button-text="t('shop.checkout.submit')"
-      :loading="submitting"
-      :disabled="!quote"
-      @submit="handleSubmit"
-    >
-      <template #default>
-        <span style="font-size: 12px; color: #969799">
-          {{ t('shop.checkout.totalLabel') }}
-        </span>
-      </template>
-    </van-submit-bar>
+    <template v-if="!emptyCart">
+      <div v-if="!storeOpen && closedTip" class="checkout-closed">
+        {{ closedTip }}
+      </div>
+
+      <van-submit-bar
+        :price="(quote ? quote.total : cart.totalAmount) * 100"
+        :decimal-length="0"
+        currency="₫"
+        :label="`${t('shop.checkout.totalLabel')}:`"
+        :button-text="storeOpen ? t('shop.checkout.submit') : t('shop.cannotOrder')"
+        :loading="submitting"
+        :disabled="!storeOpen || !quote"
+        @submit="handleSubmit"
+      />
+    </template>
   </div>
 </template>
 
 <style scoped>
 .checkout-page { min-height: 100vh; background: #f7f8fa; }
+.checkout-closed {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff7e8;
+  color: #ed6a0c;
+  font-size: 13px;
+}
 .popup-title { font-size: 16px; font-weight: 700; text-align: center; padding-bottom: 8px; }
 .addr-active { background: #fff7f7; }
 .qr-box { text-align: center; padding: 12px; }

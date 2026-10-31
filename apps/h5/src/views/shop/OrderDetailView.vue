@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { showConfirmDialog, showToast } from 'vant';
 import { io, type Socket } from 'socket.io-client';
-import { Events, formatVND } from '@restaurant/shared';
+import { Events, formatVND, isSafeMediaUrl } from '@restaurant/shared';
 import { cancelOrder, getOrderDetail, type DeliveryOrder } from '../../api/delivery';
 import { getCustomerToken } from '../../utils/customer-storage';
 
@@ -105,6 +105,12 @@ function payMethodLabel(method?: string | null): string {
           :title="`${addr.contactName || ''}  ${addr.phone || ''}`"
           :label="`${addr.addressText || ''}${addr.detail ? ' ' + addr.detail : ''}`"
         />
+        <div v-if="addr.landmarkPhoto && isSafeMediaUrl(addr.landmarkPhoto)" class="landmark-box">
+          <div class="landmark-label">{{ t('shop.address.landmarkTitle') }}</div>
+          <a :href="addr.landmarkPhoto" target="_blank" rel="noopener noreferrer">
+            <img :src="addr.landmarkPhoto" class="landmark-img" alt="" />
+          </a>
+        </div>
       </van-cell-group>
       <van-cell-group :title="t('shop.order.timeline')" inset style="margin-top: 12px">
         <div class="timeline">
@@ -184,5 +190,21 @@ function payMethodLabel(method?: string | null): string {
 .timeline-note {
   font-size: 12px;
   color: #969799;
+}
+.landmark-box {
+  padding: 0 16px 12px;
+}
+.landmark-label {
+  font-size: 12px;
+  color: #969799;
+  margin-bottom: 6px;
+}
+.landmark-img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  display: block;
 }
 </style>

@@ -1,3 +1,18 @@
+<script setup lang="ts">
+import { watch } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { applyVantLocale } from './utils/vant-locale';
+
+const { locale } = useI18n();
+watch(
+  locale,
+  (lang) => {
+    applyVantLocale(String(lang));
+  },
+  { immediate: true },
+);
+</script>
+
 <template>
   <router-view />
 </template>

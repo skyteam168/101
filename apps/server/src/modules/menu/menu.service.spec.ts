@@ -33,7 +33,7 @@ describe('MenuService', () => {
       },
     };
     const realtime = { emitDishUpdated: jest.fn() };
-    const service = new MenuService(prisma as never, realtime as never);
+    const service = new MenuService(prisma as never, realtime as never, { log: jest.fn() } as never);
     const result = await service.batchSoldOut('1', { ids: ['1'] });
     expect(prisma.dish.updateMany).toHaveBeenCalledWith({
       where: { storeId: 1n, id: { in: [1n] } },
@@ -80,7 +80,9 @@ describe('MenuService', () => {
         ]),
       },
     };
-    const service = new MenuService(prisma as never, { emitDishUpdated: jest.fn() } as never);
+    const service = new MenuService(prisma as never, { emitDishUpdated: jest.fn() } as never, {
+      log: jest.fn(),
+    } as never);
     const menu = await service.getPublicMenu('1', 'dine_in');
     expect(prisma.category.findMany).toHaveBeenCalled();
     expect(menu[0].dishes[0].nameZh).toBe('可乐');

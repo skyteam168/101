@@ -5,6 +5,7 @@ import * as QRCode from 'qrcode';
 import PDFDocument from 'pdfkit';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import {
   AssetEventQtyDto,
   AssetQueryDto,
@@ -26,7 +27,10 @@ type Tx = Prisma.TransactionClient;
 
 @Injectable()
 export class AssetService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ---------- map ----------
 
@@ -498,7 +502,17 @@ export class AssetService {
         },
       });
     });
-    return this.reloadMapped(storeId, BigInt(assetId));
+    const mapped = await this.reloadMapped(storeId, BigInt(assetId));
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'asset',
+      action: 'asset.assign',
+      targetType: 'asset',
+      targetId: assetId,
+      after: { qty: dto.qty, toLocation: dto.toLocation, reason: dto.reason },
+    });
+    return mapped;
   }
 
   async eventTransfer(
@@ -525,7 +539,17 @@ export class AssetService {
         },
       });
     });
-    return this.reloadMapped(storeId, BigInt(assetId));
+    const mapped = await this.reloadMapped(storeId, BigInt(assetId));
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'asset',
+      action: 'asset.transfer',
+      targetType: 'asset',
+      targetId: assetId,
+      after: { qty: dto.qty, toLocation: dto.toLocation, reason: dto.reason },
+    });
+    return mapped;
   }
 
   async eventRepair(
@@ -611,7 +635,17 @@ export class AssetService {
         },
       });
     });
-    return this.reloadMapped(storeId, BigInt(assetId));
+    const mapped = await this.reloadMapped(storeId, BigInt(assetId));
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'asset',
+      action: 'asset.scrap',
+      targetType: 'asset',
+      targetId: assetId,
+      after: { qty: dto.qty, amount: dto.amount, reason: dto.reason },
+    });
+    return mapped;
   }
 
   async eventSell(
@@ -638,7 +672,17 @@ export class AssetService {
         },
       });
     });
-    return this.reloadMapped(storeId, BigInt(assetId));
+    const mapped = await this.reloadMapped(storeId, BigInt(assetId));
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'asset',
+      action: 'asset.sell',
+      targetType: 'asset',
+      targetId: assetId,
+      after: { qty: dto.qty, amount: dto.amount, reason: dto.reason },
+    });
+    return mapped;
   }
 
   async eventCheck(
@@ -676,7 +720,22 @@ export class AssetService {
         },
       });
     });
-    return this.reloadMapped(storeId, BigInt(assetId));
+    const mapped = await this.reloadMapped(storeId, BigInt(assetId));
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'asset',
+      action: 'asset.check',
+      targetType: 'asset',
+      targetId: assetId,
+      after: {
+        actualInUse: dto.actualInUse,
+        actualIdle: dto.actualIdle,
+        actualRepair: dto.actualRepair,
+        reason: dto.reason,
+      },
+    });
+    return mapped;
   }
 
   // ---------- report ----------

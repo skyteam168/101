@@ -8,6 +8,7 @@ import {
   updateGroupMealInquiryApi,
   type GroupMealInquiry,
 } from '../../api/group-meal';
+import { formatDateTimeLocal } from '../../utils/datetime';
 
 const { t, locale } = useI18n();
 const loc = () => (locale.value === 'vi-VN' ? 'vi' : 'zh');
@@ -55,7 +56,7 @@ onMounted(refresh);
       <el-table-column prop="company" :label="t('groupMeal.company')" min-width="100" />
       <el-table-column prop="guestCount" :label="t('groupMeal.guestCount')" width="90" />
       <el-table-column :label="t('groupMeal.preferAt')" min-width="150">
-        <template #default="{ row }">{{ row.preferAt?.slice(0, 16).replace('T', ' ') }}</template>
+        <template #default="{ row }">{{ formatDateTimeLocal(row.preferAt) }}</template>
       </el-table-column>
       <el-table-column :label="t('groupMeal.combo')" min-width="120">
         <template #default="{ row }">

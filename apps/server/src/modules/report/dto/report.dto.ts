@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsDateString,
@@ -62,6 +64,7 @@ export class ShiftQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   cashierId?: string;
 
   @ApiPropertyOptional()
@@ -75,6 +78,7 @@ export class ShiftQueryDto {
 export class PrintShiftDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   @IsNotEmpty()
   shiftId!: string;
 }

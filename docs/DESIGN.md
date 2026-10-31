@@ -71,7 +71,8 @@ auth / rbac / user / store-setting / menu / table / order / delivery / kitchen /
 | 采购 | ingredients | name_zh/vi, kind(vegetable/seasoning/other), unit, stock_qty, last_cost, is_active |
 | 采购 | purchases / purchase_items | business_date, supplier_id, supplier(名称快照), total_amount；明细 ingredient_id, qty, unit_price, amount |
 | 采购 | stocktakes / stocktake_items | business_date 唯一；opening/purchased/counted/consumption + 金额 |
-| 系统 | audit_logs | user_id, action, target_type, target_id, before(JSON), after(JSON), ip |
+| 系统 | login_logs | store_id?, user_id?, username, result(success/fail/logout), fail_reason?, ip, user_agent；索引按时间/用户名/结果 |
+| 系统 | audit_logs | store_id?, user_id?, username/display_name 快照, module, action, target_type, target_id, before/after(JSON), ip, user_agent?, request_id? |
 
 **订单状态**：堂食 `open（用餐中）→ paid（已结账）` 或 `cancelled`；外卖 `pending（待接单）→ accepted → cooking → delivering → completed`，任何完成前状态可 `cancelled`/`rejected`。
 
@@ -81,7 +82,17 @@ auth / rbac / user / store-setting / menu / table / order / delivery / kitchen /
 
 预置角色：超级管理员、管理员/店长、收银员、服务员、厨房。
 
-权限点示例：`menu:dish:edit`、`table:open`、`order:create`、`order:add-item`、`order:void-item`、`order:cancel`、`order:discount`、`order:checkout`、`delivery:accept`、`print:reprint`、`asset:scrap`、`asset:sell`、`report:view`、`system:role`。
+权限点示例：`menu:dish:edit`、`table:open`、`order:create`、`order:add-item`、`order:void-item`、`order:cancel`、`order:discount`、`order:checkout`、`delivery:accept`、`print:reprint`、`asset:scrap`、`asset:sell`、`report:view`、`system:role`、`audit:view`。
+
+### 审计日志
+
+- **登录日志**（`login_logs`）：后台员工登录成功 / 失败（库内区分 `USER_NOT_FOUND` / `BAD_PASSWORD` / `DISABLED`，对外仍统一 `AUTH_INVALID_CREDENTIALS`）/ 登出；写失败不阻断登录。
+- **顾客登录日志**（`customer_login_logs`）：H5 注册 / 密码登录 / 验证码登录 / Google / 改密 / 登出；记 email、真实 IP、UA、失败原因；配合 Cloudflare Turnstile（`CF_TURNSTILE_*`）与 Google GIS（`GOOGLE_CLIENT_ID`）。
+- **顾客账号**：`password_hash` 可空（纯 Google）；`google_sub` 唯一；同邮箱 Google 登录自动合并。
+- **真实 IP**：优先 `CF-Connecting-IP`，其次 `X-Forwarded-For` 最左端；去掉 `::ffff:`；Express `trust proxy`。
+- **操作日志**（`audit_logs`）：Service 层显式埋点敏感写操作（订单退菜/取消/改价/折扣/结账、用户与角色、门店设置、菜品/套餐、采购盘点、资产流转、外卖接拒、会员封禁、发券等）；禁止记录明文密码。
+- 查询 API：`GET /api/audit/login-logs`、`GET /api/audit/operation-logs`，需 `audit:view`；Admin 菜单「系统 → 审计日志」`/system/audit`。日志只增不改不删。
+- HTTP 访问日志带真实 IP；员工/顾客认证写 Nest Logger，便于上线排错。
 
 ### 多语言
 

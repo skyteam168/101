@@ -35,6 +35,7 @@ pnpm dev
 | --- | --- |
 | Admin | http://localhost:5173 |
 | H5 | http://localhost:5174 |
+| 手机扫桌贴 | 在 `apps/server/.env` 设置 `H5_BASE_URL=http://<电脑局域网IP>:5174`，手机与电脑同一 Wi‑Fi；改完需重启 server |
 | API | http://localhost:3000/api |
 | Swagger | http://localhost:3000/api/docs |
 | 公开菜单 | http://localhost:3000/api/public/menu?channel=dine_in |
@@ -67,12 +68,14 @@ Windows exe 打包与开机自启见 [`apps/print-agent/README.md`](apps/print-a
 
 | 账号 | 密码 | 角色 | 说明 |
 | --- | --- | --- | --- |
-| `admin` | `Admin@123` | 超级管理员 | 可见角色权限菜单 |
+| `admin` | `Admin@123` | 超级管理员 | 可见角色权限与审计日志菜单（登录/操作日志只读） |
 | `cashier` | `Cashier@123` | 收银员 | 看不到角色管理；调 `/api/rbac/roles` 返回 403 |
 
 后台登录页：http://localhost:5173/login
 
 复制环境变量：`apps/server/.env.example` → `apps/server/.env`（仓库已带开发用 `.env`，默认连 `127.0.0.1:3307`）。
+
+上线 H5 防机器人与 Google 登录：在 `.env` 配置 Cloudflare Turnstile `CF_TURNSTILE_SITE_KEY` / `CF_TURNSTILE_SECRET_KEY`，以及 `GOOGLE_CLIENT_ID`（Google Cloud OAuth Web 客户端，授权 JS 来源含 H5 域名）。站点走 Cloudflare 代理可拿到 `CF-Connecting-IP`；未配置 Secret 时本地跳过 Turnstile。顾客注册/密码与验证码登录/Google/改密/登出写入 `customer_login_logs`，员工写入 `login_logs`。
 
 若本机已占用 3306，开发 compose 使用 **3307→3306**。首次迁移需要 `restaurant` 用户具备建库权限（`deploy/mysql/init/01-grants.sql` 会在新卷初始化时自动执行）。
 

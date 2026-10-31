@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -105,12 +107,14 @@ export class OpenTableDto {
 export class TransferTableDto {
   @ApiProperty({ description: '目标桌台 ID' })
   @IsString()
+  @MaxLength(32)
   targetTableId!: string;
 }
 
 export class MergeTableDto {
   @ApiProperty({ description: '并入的源桌台 ID（将被清空）' })
   @IsString()
+  @MaxLength(32)
   sourceTableId!: string;
 }
 
@@ -120,5 +124,6 @@ export class ExportStickersDto {
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })
+  @MaxLength(32, { each: true })
   tableIds?: string[];
 }

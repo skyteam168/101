@@ -21,19 +21,23 @@ export class UserController {
   @Post()
   @RequirePerm('menu:system:user')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateUserDto) {
-    return this.userService.create(dto, user.storeId);
+    return this.userService.create(dto, user.storeId, user.id);
   }
 
   @Patch(':id')
   @RequirePerm('menu:system:user')
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.userService.update(id, dto);
+  update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateUserDto) {
+    return this.userService.update(id, dto, user.id);
   }
 
   @Put(':id/status')
   @RequirePerm('menu:system:user')
-  setStatus(@Param('id') id: string, @Body('status') status: 'active' | 'disabled') {
-    return this.userService.setStatus(id, status);
+  setStatus(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body('status') status: 'active' | 'disabled',
+  ) {
+    return this.userService.setStatus(id, status, user.id);
   }
 
   @Put(':id/password')

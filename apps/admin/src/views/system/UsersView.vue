@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isPasswordComplex } from '@restaurant/shared';
 import { onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -72,6 +73,10 @@ async function save() {
       roleIds: form.roleIds,
     });
   } else {
+    if (!isPasswordComplex(form.password)) {
+      ElMessage.warning(t('auth.passwordTooWeak'));
+      return;
+    }
     await createUserApi({ ...form });
   }
   ElMessage.success(t('common.saved'));
@@ -89,6 +94,8 @@ async function toggleStatus(row: UserRow) {
 async function resetPwd(row: UserRow) {
   const { value } = await ElMessageBox.prompt(t('users.newPassword'), t('users.resetPassword'), {
     inputValue: 'Cashier@123',
+    inputPlaceholder: t('auth.passwordHint'),
+    inputValidator: (v) => (isPasswordComplex(v || '') ? true : t('auth.passwordTooWeak')),
   });
   await resetUserPasswordApi(row.id, value);
   ElMessage.success(t('common.saved'));
@@ -136,7 +143,12 @@ onMounted(load);
           <el-input v-model="form.username" :disabled="!!editingId" />
         </el-form-item>
         <el-form-item v-if="!editingId" :label="t('auth.password')">
-          <el-input v-model="form.password" type="password" show-password />
+          <el-input
+            v-model="form.password"
+            type="password"
+            show-password
+            :placeholder="t('auth.passwordHint')"
+          />
         </el-form-item>
         <el-form-item :label="t('users.displayName')">
           <el-input v-model="form.displayName" />

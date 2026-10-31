@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -25,6 +27,12 @@ export class SendCodeDto {
   @IsOptional()
   @IsIn(['zh', 'vi'])
   lang?: 'zh' | 'vi';
+
+  /** register=注册 | login=验证码登录 | reset=重置密码 */
+  @ApiPropertyOptional({ enum: ['register', 'login', 'reset'] })
+  @IsOptional()
+  @IsIn(['register', 'login', 'reset'])
+  purpose?: 'register' | 'login' | 'reset';
 }
 
 export class RegisterDto {
@@ -37,10 +45,11 @@ export class RegisterDto {
   @Matches(/^\d{6}$/)
   code!: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: '8–64 位，须含字母和数字' })
   @IsString()
-  @MinLength(6)
-  @MaxLength(64)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d)[\x21-\x7E]{8,64}$/, {
+    message: 'PASSWORD_TOO_WEAK',
+  })
   password!: string;
 
   @ApiPropertyOptional()
@@ -49,10 +58,22 @@ export class RegisterDto {
   @MaxLength(128)
   name?: string;
 
+  @ApiPropertyOptional({ description: '越南手机号' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  phone?: string;
+
   @ApiPropertyOptional({ enum: ['zh', 'vi'] })
   @IsOptional()
   @IsIn(['zh', 'vi'])
   lang?: 'zh' | 'vi';
+
+  @ApiPropertyOptional({ description: 'Cloudflare Turnstile token' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  cfTurnstileToken?: string;
 }
 
 export class CustomerLoginDto {
@@ -63,6 +84,56 @@ export class CustomerLoginDto {
   @ApiProperty()
   @IsString()
   password!: string;
+
+  @ApiPropertyOptional({ description: 'Cloudflare Turnstile token' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  cfTurnstileToken?: string;
+}
+
+export class LoginByCodeDto {
+  @ApiProperty()
+  @IsEmail()
+  email!: string;
+
+  @ApiProperty()
+  @IsString()
+  @Matches(/^\d{6}$/)
+  code!: string;
+
+  @ApiPropertyOptional({ description: 'Cloudflare Turnstile token' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  cfTurnstileToken?: string;
+}
+
+export class GoogleLoginDto {
+  @ApiProperty({ description: 'Google Identity Services ID Token' })
+  @IsString()
+  @MaxLength(4096)
+  @MinLength(20)
+  idToken!: string;
+
+  @ApiPropertyOptional({ enum: ['zh', 'vi'] })
+  @IsOptional()
+  @IsIn(['zh', 'vi'])
+  lang?: 'zh' | 'vi';
+}
+
+export class ChangePasswordDto {
+  @ApiPropertyOptional({ description: '已有密码时必填；纯 Google 账号首次设密可空' })
+  @IsOptional()
+  @IsString()
+  oldPassword?: string;
+
+  @ApiProperty({ description: '8–64 位，须含字母和数字' })
+  @IsString()
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d)[\x21-\x7E]{8,64}$/, {
+    message: 'PASSWORD_TOO_WEAK',
+  })
+  newPassword!: string;
 }
 
 export class ForgotPasswordDto {
@@ -75,10 +146,11 @@ export class ForgotPasswordDto {
   @Matches(/^\d{6}$/)
   code!: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: '8–64 位，须含字母和数字' })
   @IsString()
-  @MinLength(6)
-  @MaxLength(64)
+  @Matches(/^(?=.*[A-Za-z])(?=.*\d)[\x21-\x7E]{8,64}$/, {
+    message: 'PASSWORD_TOO_WEAK',
+  })
   newPassword!: string;
 }
 
@@ -94,6 +166,12 @@ export class UpdateCustomerProfileDto {
   @IsString()
   @MaxLength(32)
   phone?: string;
+
+  @ApiPropertyOptional({ description: '头像 URL' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  avatar?: string | null;
 
   @ApiPropertyOptional({ enum: ['zh', 'vi'] })
   @IsOptional()
@@ -128,6 +206,12 @@ export class AddressDto {
   @MaxLength(255)
   detail?: string;
 
+  @ApiPropertyOptional({ description: '大门/门牌参照照片 URL' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  landmarkPhoto?: string | null;
+
   @ApiProperty()
   @Type(() => Number)
   @IsNumber()
@@ -147,6 +231,7 @@ export class AddressDto {
 export class OrderItemDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   dishId!: string;
 
   @ApiProperty()
@@ -162,6 +247,7 @@ export class OrderItemDto {
 export class PlaceOrderDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(512)
   addressId!: string;
 
   @ApiProperty({ type: [OrderItemDto] })
@@ -184,6 +270,7 @@ export class PlaceOrderDto {
   @ApiPropertyOptional({ description: '优惠券 ID' })
   @IsOptional()
   @IsString()
+  @MaxLength(32)
   couponId?: string;
 }
 
@@ -217,6 +304,7 @@ export class RejectOrderDto {
 export class AssignCourierDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   courierId!: string;
 }
 

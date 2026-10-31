@@ -35,7 +35,7 @@ describe('AssetService events', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AssetService(prisma as never);
+    service = new AssetService(prisma as never, { log: jest.fn() } as never);
     tx.$queryRaw.mockResolvedValue([{ ...assetRow }]);
     prisma.asset.findFirst.mockResolvedValue({
       id: 1n,

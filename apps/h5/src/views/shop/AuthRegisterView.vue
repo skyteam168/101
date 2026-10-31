@@ -1,12 +1,15 @@
 <script setup lang="ts">
+import { isPasswordComplex } from '@restaurant/shared';
 import { reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { showToast } from 'vant';
-import { register, sendCode } from '../../api/delivery';
+import { loginWithGoogle, register, sendCode } from '../../api/delivery';
+import GoogleSignInButton from '../../components/GoogleSignInButton.vue';
+import TurnstileWidget from '../../components/TurnstileWidget.vue';
 import { useCustomerStore } from '../../stores/customer';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const router = useRouter();
 const customer = useCustomerStore();
 
@@ -14,6 +17,9 @@ const form = reactive({ email: '', code: '', name: '', phone: '', password: '', 
 const loading = ref(false);
 const codeSending = ref(false);
 const countdown = ref(0);
+const cfToken = ref('');
+const turnstileEnabled = ref(false);
+const turnstileReset = ref(0);
 
 let timer: ReturnType<typeof setInterval>;
 
@@ -24,7 +30,7 @@ async function handleSendCode() {
   }
   codeSending.value = true;
   try {
-    const res = await sendCode({ email: form.email });
+    const res = await sendCode({ email: form.email, purpose: 'register' });
     showToast(
       res.devCode
         ? `${t('shop.auth.codeSent')} (${res.devCode})`
@@ -49,13 +55,41 @@ async function handleRegister() {
     showToast(t('shop.auth.passwordMismatch'));
     return;
   }
+  if (!isPasswordComplex(form.password)) {
+    showToast(t('shop.auth.passwordTooWeak'));
+    return;
+  }
+  if (turnstileEnabled.value && !cfToken.value) {
+    showToast(t('shop.auth.turnstileRequired'));
+    return;
+  }
   loading.value = true;
   try {
     const res = await register({
       email: form.email,
       code: form.code,
       name: form.name,
+      phone: form.phone.trim() || undefined,
       password: form.password,
+      cfTurnstileToken: cfToken.value || undefined,
+    });
+    customer.setAuth(res.accessToken, res.customer);
+    showToast(t('shop.auth.registerSuccess'));
+    router.replace({ name: 'shop' });
+  } catch {
+    turnstileReset.value += 1;
+    cfToken.value = '';
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function onGoogleCredential(idToken: string) {
+  loading.value = true;
+  try {
+    const res = await loginWithGoogle({
+      idToken,
+      lang: locale.value === 'zh-CN' ? 'zh' : 'vi',
     });
     customer.setAuth(res.accessToken, res.customer);
     showToast(t('shop.auth.registerSuccess'));
@@ -125,6 +159,12 @@ async function handleRegister() {
         />
       </van-cell-group>
 
+      <TurnstileWidget
+        :reset-key="turnstileReset"
+        @update:token="(v) => (cfToken = v)"
+        @ready="(v) => (turnstileEnabled = v)"
+      />
+
       <div class="auth-actions">
         <van-button
           block
@@ -136,6 +176,7 @@ async function handleRegister() {
         >
           {{ t('shop.auth.register') }}
         </van-button>
+        <GoogleSignInButton @credential="onGoogleCredential" />
         <van-button block plain round @click="router.push({ name: 'shop-login' })">
           {{ t('shop.auth.toLogin') }}
         </van-button>

@@ -39,6 +39,12 @@ export type HomeStore = {
   address: string | null;
   phone: string | null;
   banners: HomeBanner[];
+  /** 门头图 */
+  storefrontImage?: string | null;
+  envGallery?: { image: string; captionZh?: string; captionVi?: string }[];
+  businessHours?: { open: string; close: string; days: number[]; paused?: boolean } | null;
+  openNow?: boolean;
+  closedReason?: 'paused' | 'outside_hours' | null;
 };
 
 export type HomeFeed = {

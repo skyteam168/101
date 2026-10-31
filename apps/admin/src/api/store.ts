@@ -9,7 +9,13 @@ export type AnnounceSettings = {
   orderCancel: boolean;
   printFailed: boolean;
   reservationNew: boolean;
+  qrNeedConfirm: boolean;
+  checkout: boolean;
+  chatMessage: boolean;
 };
+
+export type AnnounceClipPair = { zh?: string; vi?: string };
+export type AnnounceClips = Partial<Record<keyof AnnounceSettings, AnnounceClipPair>>;
 
 export type StoreNotice = {
   id: string;
@@ -27,7 +33,13 @@ export type StoreNotice = {
 };
 
 export type DeliveryFeeRule = { maxKm: number; fee: number };
-export type BusinessHours = { open: string; close: string; days: number[] };
+export type BusinessHours = {
+  open: string;
+  close: string;
+  days: number[];
+  /** 手动暂停接单 */
+  paused?: boolean;
+};
 
 export type MailSettings = {
   enabled: boolean;
@@ -37,6 +49,20 @@ export type MailSettings = {
   user: string;
   pass: string;
   from: string;
+};
+
+export type AiSettings = {
+  enabled: boolean;
+  provider: string;
+  apiBase: string;
+  apiKey: string;
+  model: string;
+};
+
+export type EnvGalleryItem = {
+  image: string;
+  captionZh?: string;
+  captionVi?: string;
 };
 
 export type StoreSettings = {
@@ -52,6 +78,7 @@ export type StoreSettings = {
   qrRequirePin: boolean;
   announceLang: 'zh' | 'vi';
   announceSettings: AnnounceSettings;
+  announceClips?: AnnounceClips;
   printSplitItem: boolean;
   deliveryRadiusKm: number;
   deliveryFeeRules: DeliveryFeeRule[];
@@ -63,6 +90,19 @@ export type StoreSettings = {
   businessDayCutHour: number;
   mailSettings?: MailSettings;
   homeBanners?: HomeBanner[];
+  storefrontImage?: string | null;
+  /** 管理后台侧栏 Logo */
+  adminLogo?: string | null;
+  envGallery?: EnvGalleryItem[];
+  aiSettings?: AiSettings;
+  /** 桌贴 WiFi */
+  guestWifi?: { ssid: string; password: string };
+};
+
+export type StoreBrand = {
+  nameZh: string;
+  nameVi: string;
+  adminLogo: string | null;
 };
 
 export type HomeBanner = {
@@ -74,8 +114,14 @@ export type HomeBanner = {
 
 export const getStoreSettingsApi = () => apiGet<StoreSettings>('/store/settings');
 
+export const getStoreBrandApi = () => apiGet<StoreBrand>('/store/brand');
+
 export const getAnnounceApi = () =>
-  apiGet<{ announceLang: 'zh' | 'vi'; announceSettings: AnnounceSettings }>('/store/announce');
+  apiGet<{
+    announceLang: 'zh' | 'vi';
+    announceSettings: AnnounceSettings;
+    announceClips?: AnnounceClips;
+  }>('/store/announce');
 
 export const updateStoreSettingsApi = (data: Partial<StoreSettings>) =>
   apiPatch<StoreSettings>('/store/settings', data);
@@ -96,3 +142,15 @@ export const updateNoticeApi = (id: string, data: Partial<StoreNotice>) =>
   apiPatch<StoreNotice>(`/store/notices/${id}`, data);
 
 export const deleteNoticeApi = (id: string) => apiDelete(`/store/notices/${id}`);
+
+export async function uploadStoreImageApi(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  const http = (await import('./http')).default;
+  const { data } = await http.post<{ code: number; data: { url: string; key: string } }>(
+    '/store/upload',
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return data.data;
+}

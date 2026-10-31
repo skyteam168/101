@@ -39,8 +39,15 @@ export type PrintTicketPayload = {
     deliveryFee?: number;
     total?: number;
     paidAmount?: number;
-    payments?: { method: string; amount: number }[];
+    payments?: { method: string; amount: number; received?: number }[];
     createdAt?: string;
+    /** 结账时间（结账单） */
+    paidAt?: string;
+    /** 用餐人数 */
+    guestCount?: number | null;
+    /** 页脚欢迎语 */
+    footerZh?: string;
+    footerVi?: string;
     address?: string | null;
     phone?: string | null;
     customerName?: string | null;

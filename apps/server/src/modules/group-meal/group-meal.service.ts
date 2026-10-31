@@ -90,11 +90,20 @@ export class GroupMealService {
     });
 
     const mapped = this.map(row);
+    const pendingCount = await this.countPending(mapped.storeId);
     this.events.emit(Events.GROUP_MEAL_INQUIRY_CREATED, {
       storeId: mapped.storeId,
       inquiry: mapped,
+      pendingCount,
     });
     return mapped;
+  }
+
+  /** 待处理团购询单数量（菜单角标） */
+  async countPending(storeId: string): Promise<number> {
+    return this.prisma.groupMealInquiry.count({
+      where: { storeId: BigInt(storeId), status: GroupMealInquiryStatus.pending },
+    });
   }
 
   async list(storeId: string, query: GroupMealInquiryQueryDto) {
@@ -130,6 +139,14 @@ export class GroupMealService {
       },
       include: { combo: { select: { nameZh: true, nameVi: true } } },
     });
-    return this.map(row);
+    const mapped = this.map(row);
+    const pendingCount = await this.countPending(storeId);
+    this.events.emit(Events.GROUP_MEAL_INQUIRY_CREATED, {
+      storeId,
+      inquiry: mapped,
+      pendingCount,
+      updated: true,
+    });
+    return mapped;
   }
 }

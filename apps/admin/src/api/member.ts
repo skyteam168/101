@@ -5,8 +5,13 @@ export type MemberLevel = {
   nameZh: string;
   nameVi: string;
   minPoints: number;
+  minSpend: number;
   discountPercent: number;
   birthdayBonusPoints: number;
+  deliveryFeeOff: number;
+  priorityReserve: boolean;
+  priorityDelivery: boolean;
+  birthdayGift: boolean;
   sort: number;
   isActive: boolean;
 };
@@ -20,8 +25,14 @@ export type Member = {
   points: number;
   balance: number;
   birthday: string | null;
+  memberJoinedAt?: string | null;
+  lifetimeSpend?: number;
+  birthdayGiftRedeemedYear?: number | null;
   memberLevelId: string | null;
   memberLevel: MemberLevel | null;
+  registerSource?: 'email' | 'google';
+  hasPassword?: boolean;
+  hasGoogle?: boolean;
   createdAt: string;
 };
 
@@ -45,3 +56,5 @@ export const adjustPointsApi = (id: string, delta: number, remark?: string) =>
   apiPost<Member>(`/members/${id}/points`, { delta, remark });
 export const adjustBalanceApi = (id: string, delta: number, remark?: string) =>
   apiPost<Member>(`/members/${id}/balance`, { delta, remark });
+export const redeemBirthdayGiftApi = (id: string) =>
+  apiPost<Member>(`/members/${id}/birthday-gift`, {});

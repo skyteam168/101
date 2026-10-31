@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isPasswordComplex } from '@restaurant/shared';
 import { reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
@@ -22,7 +23,7 @@ async function handleSendCode() {
   }
   codeSending.value = true;
   try {
-    const res = await sendCode({ email: form.email });
+    const res = await sendCode({ email: form.email, purpose: 'reset' });
     showToast(
       res.devCode
         ? `${t('shop.auth.codeSent')} (${res.devCode})`
@@ -45,6 +46,10 @@ async function handleReset() {
   }
   if (form.newPassword !== form.confirmPassword) {
     showToast(t('shop.auth.passwordMismatch'));
+    return;
+  }
+  if (!isPasswordComplex(form.newPassword)) {
+    showToast(t('shop.auth.passwordTooWeak'));
     return;
   }
   loading.value = true;

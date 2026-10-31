@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, UserLang } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
+import { assertSafeExternalHttpUrl, assertSafeMediaUrl } from '../../common/safe-url.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { BusinessHours, getStoreOpenStatus } from '../delivery/geo.util';
 
 export type AnnounceSettings = {
   dineInNew: boolean;
@@ -12,6 +15,29 @@ export type AnnounceSettings = {
   orderCancel: boolean;
   printFailed: boolean;
   reservationNew: boolean;
+  /** 扫码下单待确认 */
+  qrNeedConfirm: boolean;
+  /** 结账完成提示 */
+  checkout: boolean;
+  /** 顾客聊天新消息提示音 */
+  chatMessage: boolean;
+};
+
+export type AnnounceClipPair = { zh?: string; vi?: string };
+export type AnnounceClips = Partial<Record<keyof AnnounceSettings, AnnounceClipPair>>;
+
+export type AiSettings = {
+  enabled: boolean;
+  provider: string;
+  apiBase: string;
+  apiKey: string;
+  model: string;
+};
+
+export type EnvGalleryItem = {
+  image: string;
+  captionZh?: string;
+  captionVi?: string;
 };
 
 export const DEFAULT_ANNOUNCE_SETTINGS: AnnounceSettings = {
@@ -23,11 +49,39 @@ export const DEFAULT_ANNOUNCE_SETTINGS: AnnounceSettings = {
   orderCancel: true,
   printFailed: true,
   reservationNew: true,
+  qrNeedConfirm: true,
+  checkout: true,
+  chatMessage: true,
+};
+
+const ANNOUNCE_CLIP_KEYS: (keyof AnnounceSettings)[] = [
+  'dineInNew',
+  'addItem',
+  'deliveryNew',
+  'callWaiter',
+  'requestBill',
+  'orderCancel',
+  'printFailed',
+  'reservationNew',
+  'qrNeedConfirm',
+  'checkout',
+  'chatMessage',
+];
+
+export const DEFAULT_AI_SETTINGS: AiSettings = {
+  enabled: false,
+  provider: 'openai',
+  apiBase: 'https://api.openai.com/v1',
+  apiKey: '',
+  model: 'gpt-4o-mini',
 };
 
 @Injectable()
 export class StoreService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   private mergeAnnounce(raw: unknown): AnnounceSettings {
     const base = { ...DEFAULT_ANNOUNCE_SETTINGS };
@@ -35,6 +89,36 @@ export class StoreService {
       Object.assign(base, raw as Partial<AnnounceSettings>);
     }
     return base;
+  }
+
+  private mergeAnnounceClips(raw: unknown): AnnounceClips {
+    const out: AnnounceClips = {};
+    if (!raw || typeof raw !== 'object') return out;
+    const obj = raw as Record<string, unknown>;
+    for (const key of ANNOUNCE_CLIP_KEYS) {
+      const pair = obj[key];
+      if (!pair || typeof pair !== 'object') continue;
+      const p = pair as { zh?: unknown; vi?: unknown };
+      const next: AnnounceClipPair = {};
+      if (typeof p.zh === 'string' && p.zh) next.zh = p.zh;
+      if (typeof p.vi === 'string' && p.vi) next.vi = p.vi;
+      if (next.zh || next.vi) out[key] = next;
+    }
+    return out;
+  }
+
+  mapAiSettings(raw: unknown, maskKey = true): AiSettings {
+    const base = { ...DEFAULT_AI_SETTINGS };
+    if (raw && typeof raw === 'object') Object.assign(base, raw as Partial<AiSettings>);
+    if (maskKey && base.apiKey) base.apiKey = '********';
+    return base;
+  }
+
+  /** 供翻译服务读取明文 Key（不脱敏） */
+  async getAiSettingsRaw(storeId: string): Promise<AiSettings> {
+    const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
+    if (!store) throw new BusinessError('STORE_REQUIRED');
+    return this.mapAiSettings(store.aiSettings, false);
   }
 
   async getSettings(storeId: string) {
@@ -53,6 +137,7 @@ export class StoreService {
       qrRequirePin: store.qrRequirePin,
       announceLang: store.announceLang,
       announceSettings: this.mergeAnnounce(store.announceSettings),
+      announceClips: this.mergeAnnounceClips(store.announceClips),
       printSplitItem: store.printSplitItem,
       deliveryRadiusKm: Number(store.deliveryRadiusKm),
       deliveryFeeRules: store.deliveryFeeRules || [],
@@ -64,7 +149,36 @@ export class StoreService {
       businessDayCutHour: store.businessDayCutHour,
       mailSettings: this.mapMailSettings(store.mailSettings),
       homeBanners: this.mapHomeBanners(store.homeBanners),
+      storefrontImage: store.storefrontImage,
+      adminLogo: store.adminLogo,
+      envGallery: this.mapEnvGallery(store.envGallery),
+      aiSettings: this.mapAiSettings(store.aiSettings, true),
+      guestWifi: this.mapGuestWifi(store.guestWifi),
     };
+  }
+
+  /** 侧栏品牌：任意已登录员工可拉取 */
+  async getBrand(storeId: string) {
+    const store = await this.prisma.store.findUnique({
+      where: { id: BigInt(storeId) },
+      select: { nameZh: true, nameVi: true, adminLogo: true },
+    });
+    if (!store) throw new BusinessError('STORE_REQUIRED');
+    return {
+      nameZh: store.nameZh,
+      nameVi: store.nameVi,
+      adminLogo: store.adminLogo,
+    };
+  }
+
+  private mapGuestWifi(raw: unknown): { ssid: string; password: string } {
+    const base = { ssid: '', password: '' };
+    if (raw && typeof raw === 'object') {
+      const o = raw as { ssid?: string; password?: string };
+      if (typeof o.ssid === 'string') base.ssid = o.ssid;
+      if (typeof o.password === 'string') base.password = o.password;
+    }
+    return base;
   }
 
   private mapHomeBanners(raw: unknown): {
@@ -92,10 +206,70 @@ export class StoreService {
       });
   }
 
+  private sanitizeOptionalMedia(url: string | null): string | null {
+    if (url == null || url === '') return null;
+    assertSafeMediaUrl(url);
+    return url.trim();
+  }
+
+  private sanitizeHomeBanners(
+    banners: {
+      image: string;
+      link?: string;
+      titleZh?: string;
+      titleVi?: string;
+    }[],
+  ) {
+    return banners.map((b) => {
+      assertSafeMediaUrl(b.image);
+      const link = (b.link || '').trim();
+      if (link) {
+        if (link.startsWith('/') && !link.startsWith('//')) {
+          // 站内相对路径
+        } else {
+          assertSafeExternalHttpUrl(link);
+        }
+      }
+      return {
+        image: b.image.trim(),
+        link: link || undefined,
+        titleZh: b.titleZh?.slice(0, 128),
+        titleVi: b.titleVi?.slice(0, 128),
+      };
+    });
+  }
+
+  private sanitizeEnvGallery(items: EnvGalleryItem[]) {
+    return items.map((g) => {
+      assertSafeMediaUrl(g.image);
+      return {
+        image: g.image.trim(),
+        captionZh: g.captionZh?.slice(0, 128),
+        captionVi: g.captionVi?.slice(0, 128),
+      };
+    });
+  }
+
+  mapEnvGallery(raw: unknown): EnvGalleryItem[] {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((x) => x && typeof x === 'object' && typeof (x as { image?: string }).image === 'string')
+      .map((x) => {
+        const b = x as EnvGalleryItem;
+        return {
+          image: b.image,
+          captionZh: b.captionZh || undefined,
+          captionVi: b.captionVi || undefined,
+        };
+      });
+  }
+
   /** H5 首页门店摘要 */
   async getPublicHomeStore(storeId: string) {
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!store) throw new BusinessError('STORE_REQUIRED');
+    const hours = store.businessHours as BusinessHours | null;
+    const openStatus = getStoreOpenStatus(new Date(), hours);
     return {
       id: store.id.toString(),
       nameZh: store.nameZh,
@@ -103,6 +277,10 @@ export class StoreService {
       address: store.address,
       phone: store.phone,
       banners: this.mapHomeBanners(store.homeBanners),
+      storefrontImage: store.storefrontImage,
+      envGallery: this.mapEnvGallery(store.envGallery),
+      businessHours: hours,
+      ...openStatus,
     };
   }
 
@@ -127,6 +305,7 @@ export class StoreService {
     dto: {
       announceLang?: 'zh' | 'vi';
       announceSettings?: Partial<AnnounceSettings>;
+      announceClips?: AnnounceClips;
       qrOrderNeedConfirm?: boolean;
       qrAutoOpen?: boolean;
       qrRequirePin?: boolean;
@@ -158,7 +337,13 @@ export class StoreService {
         titleZh?: string;
         titleVi?: string;
       }[];
+      storefrontImage?: string | null;
+      adminLogo?: string | null;
+      envGallery?: EnvGalleryItem[];
+      aiSettings?: Partial<AiSettings>;
+      guestWifi?: { ssid?: string; password?: string };
     },
+    operatorId?: string,
   ) {
     const existing = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!existing) throw new BusinessError('STORE_REQUIRED');
@@ -167,6 +352,12 @@ export class StoreService {
       ...this.mergeAnnounce(existing.announceSettings),
       ...(dto.announceSettings || {}),
     };
+
+    // 整表替换，便于前端清空某一语言的专属语音
+    let nextClips: Prisma.InputJsonValue | undefined;
+    if (dto.announceClips !== undefined) {
+      nextClips = this.mergeAnnounceClips(dto.announceClips) as Prisma.InputJsonValue;
+    }
 
     let nextMail: Prisma.InputJsonValue | undefined;
     if (dto.mailSettings !== undefined) {
@@ -182,11 +373,22 @@ export class StoreService {
       nextMail = { ...prev, ...incoming } as Prisma.InputJsonValue;
     }
 
+    let nextAi: Prisma.InputJsonValue | undefined;
+    if (dto.aiSettings !== undefined) {
+      const prev = this.mapAiSettings(existing.aiSettings, false);
+      const incoming = { ...dto.aiSettings };
+      if (incoming.apiKey === '********' || incoming.apiKey === undefined) {
+        delete incoming.apiKey;
+      }
+      nextAi = { ...prev, ...incoming } as Prisma.InputJsonValue;
+    }
+
     const row = await this.prisma.store.update({
       where: { id: existing.id },
       data: {
         announceLang: dto.announceLang as UserLang | undefined,
         announceSettings: nextAnnounce,
+        announceClips: nextClips,
         qrOrderNeedConfirm: dto.qrOrderNeedConfirm,
         qrAutoOpen: dto.qrAutoOpen,
         qrRequirePin: dto.qrRequirePin,
@@ -214,8 +416,55 @@ export class StoreService {
         homeBanners:
           dto.homeBanners === undefined
             ? undefined
-            : (dto.homeBanners as Prisma.InputJsonValue),
+            : (this.sanitizeHomeBanners(dto.homeBanners) as Prisma.InputJsonValue),
+        storefrontImage:
+          dto.storefrontImage === undefined
+            ? undefined
+            : this.sanitizeOptionalMedia(dto.storefrontImage),
+        adminLogo:
+          dto.adminLogo === undefined
+            ? undefined
+            : this.sanitizeOptionalMedia(dto.adminLogo),
+        envGallery:
+          dto.envGallery === undefined
+            ? undefined
+            : (this.sanitizeEnvGallery(dto.envGallery) as Prisma.InputJsonValue),
+        aiSettings: nextAi,
+        guestWifi:
+          dto.guestWifi === undefined
+            ? undefined
+            : ({
+                ...this.mapGuestWifi(existing.guestWifi),
+                ...dto.guestWifi,
+              } as Prisma.InputJsonValue),
       },
+    });
+
+    // 审计不落明文密码 / API Key
+    const auditAfter = { ...dto } as Record<string, unknown>;
+    if (auditAfter.mailSettings && typeof auditAfter.mailSettings === 'object') {
+      const mail = { ...(auditAfter.mailSettings as Record<string, unknown>) };
+      if (mail.pass) mail.pass = '********';
+      auditAfter.mailSettings = mail;
+    }
+    if (auditAfter.aiSettings && typeof auditAfter.aiSettings === 'object') {
+      const ai = { ...(auditAfter.aiSettings as Record<string, unknown>) };
+      if (ai.apiKey) ai.apiKey = '********';
+      auditAfter.aiSettings = ai;
+    }
+    if (auditAfter.guestWifi && typeof auditAfter.guestWifi === 'object') {
+      const wifi = { ...(auditAfter.guestWifi as Record<string, unknown>) };
+      if (wifi.password) wifi.password = '********';
+      auditAfter.guestWifi = wifi;
+    }
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'settings',
+      action: 'store.settings_update',
+      targetType: 'store',
+      targetId: storeId,
+      after: auditAfter,
     });
 
     return this.getSettings(row.id.toString());

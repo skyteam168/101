@@ -1,4 +1,6 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional } from '@nestjs/swagger';
 import { IngredientKind } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
@@ -169,6 +171,7 @@ export class UpdateIngredientDto {
 export class PurchaseItemDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   ingredientId!: string;
 
   @ApiProperty()
@@ -212,6 +215,7 @@ export class CreatePurchaseDto {
 export class StocktakeLineDto {
   @ApiProperty()
   @IsString()
+  @MaxLength(32)
   ingredientId!: string;
 
   @ApiProperty({ description: '盘点实存数量' })

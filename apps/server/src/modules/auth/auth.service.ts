@@ -7,7 +7,10 @@ import { UserLang, UserStatus } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { LoginLogService } from '../audit/login-log.service';
 import { RbacService } from '../rbac/rbac.service';
+import { LoginLockService } from '../security/login-lock.service';
+import { TurnstileService } from '../security/turnstile.service';
 import { AuthUser, JwtPayload } from './auth.types';
 import { LoginDto } from './dto/login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -17,6 +20,11 @@ const ACCESS_EXPIRES = '2h';
 const REFRESH_EXPIRES = '7d';
 const REFRESH_TTL_SEC = 7 * 24 * 3600;
 
+export type LoginMeta = {
+  ip?: string | null;
+  userAgent?: string | null;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -25,20 +33,76 @@ export class AuthService {
     private readonly redis: RedisService,
     private readonly rbac: RbacService,
     private readonly config: ConfigService,
+    private readonly loginLogs: LoginLogService,
+    private readonly turnstile: TurnstileService,
+    private readonly loginLock: LoginLockService,
   ) {}
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, meta: LoginMeta = {}) {
+    const username = dto.username.trim();
+    try {
+      await this.loginLock.assertNotLocked('staff', username, meta.ip);
+      await this.turnstile.assertValid(dto.cfTurnstileToken, meta.ip);
+    } catch (err) {
+      if (err instanceof BusinessError) {
+        if (err.errorCode !== 'AUTH_LOGIN_LOCKED') {
+          await this.loginLock.recordFailure('staff', username, meta.ip);
+        }
+        await this.loginLogs.write({
+          username,
+          result: 'fail',
+          failReason: err.errorCode,
+          ip: meta.ip,
+          userAgent: meta.userAgent,
+        });
+      }
+      throw err;
+    }
+
     const user = await this.prisma.user.findUnique({
-      where: { username: dto.username },
+      where: { username },
       include: { userRoles: { include: { role: true } } },
     });
-    if (!user || user.status !== UserStatus.active) {
+    if (!user) {
+      await this.loginLock.recordFailure('staff', username, meta.ip);
+      await this.loginLogs.write({
+        username,
+        result: 'fail',
+        failReason: 'USER_NOT_FOUND',
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
+      throw new BusinessError('AUTH_INVALID_CREDENTIALS');
+    }
+    if (user.status !== UserStatus.active) {
+      await this.loginLock.recordFailure('staff', username, meta.ip);
+      await this.loginLogs.write({
+        storeId: user.storeId?.toString() ?? null,
+        userId: user.id.toString(),
+        username: user.username,
+        result: 'fail',
+        failReason: 'DISABLED',
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
       throw new BusinessError('AUTH_INVALID_CREDENTIALS');
     }
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) {
+      await this.loginLock.recordFailure('staff', username, meta.ip);
+      await this.loginLogs.write({
+        storeId: user.storeId?.toString() ?? null,
+        userId: user.id.toString(),
+        username: user.username,
+        result: 'fail',
+        failReason: 'BAD_PASSWORD',
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+      });
       throw new BusinessError('AUTH_INVALID_CREDENTIALS');
     }
+
+    await this.loginLock.clearFailures('staff', username, meta.ip);
 
     const roles = user.userRoles.map((ur) => ur.role.code);
     const tokens = await this.issueTokens({
@@ -47,6 +111,15 @@ export class AuthService {
       storeId: user.storeId?.toString() ?? null,
       roles,
       isSuperAdmin: roles.includes('super_admin'),
+    });
+
+    await this.loginLogs.write({
+      storeId: user.storeId?.toString() ?? null,
+      userId: user.id.toString(),
+      username: user.username,
+      result: 'success',
+      ip: meta.ip,
+      userAgent: meta.userAgent,
     });
 
     return {
@@ -88,7 +161,7 @@ export class AuthService {
     return this.issueTokens(authUser);
   }
 
-  async logout(userId: string, refreshToken?: string) {
+  async logout(userId: string, refreshToken?: string, meta: LoginMeta = {}) {
     if (refreshToken) {
       try {
         const payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
@@ -104,6 +177,20 @@ export class AuthService {
     const keys = await this.redis.keys(`${REFRESH_PREFIX}${userId}:*`);
     if (keys.length) await this.redis.del(...keys);
     await this.rbac.clearUserPermCache(userId);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: BigInt(userId) },
+      select: { username: true, storeId: true },
+    });
+    await this.loginLogs.write({
+      storeId: user?.storeId?.toString() ?? null,
+      userId,
+      username: user?.username ?? '',
+      result: 'logout',
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    });
+
     return { ok: true };
   }
 

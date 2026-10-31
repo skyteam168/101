@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { ElMessage } from 'element-plus';
 import { reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
+import TurnstileWidget from '../components/TurnstileWidget.vue';
 import { useUserStore } from '../stores/user';
 import { addDynamicRoutes, resetDynamicRoutes } from '../router';
 
@@ -10,19 +12,28 @@ const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
 const loading = ref(false);
+const cfToken = ref('');
+const turnstileEnabled = ref(false);
+const turnstileReset = ref(0);
 const form = reactive({
   username: 'admin',
   password: 'Admin@123',
 });
 
 async function onSubmit() {
+  if (turnstileEnabled.value && !cfToken.value) {
+    ElMessage.warning(t('auth.turnstileRequired'));
+    return;
+  }
   loading.value = true;
   try {
     resetDynamicRoutes();
-    await userStore.login(form.username, form.password);
+    await userStore.login(form.username, form.password, cfToken.value || undefined);
     addDynamicRoutes(userStore.menus);
     const redirect = (route.query.redirect as string) || '/dashboard';
     await router.replace(redirect);
+  } catch {
+    turnstileReset.value += 1;
   } finally {
     loading.value = false;
   }
@@ -46,6 +57,11 @@ async function onSubmit() {
             autocomplete="current-password"
           />
         </el-form-item>
+        <TurnstileWidget
+          :reset-key="turnstileReset"
+          @update:token="(v) => (cfToken = v)"
+          @ready="(v) => (turnstileEnabled = v)"
+        />
         <el-button type="primary" native-type="submit" :loading="loading" style="width: 100%">
           {{ t('auth.login') }}
         </el-button>

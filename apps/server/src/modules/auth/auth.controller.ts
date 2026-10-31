@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { getClientMeta } from '../../common/utils/client-ip.util';
 import { AuthService } from './auth.service';
 import { AuthUser } from './auth.types';
 import { LoginDto } from './dto/login.dto';
@@ -15,8 +17,8 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  login(@Body() dto: LoginDto, @Req() req: Request) {
+    return this.authService.login(dto, getClientMeta(req));
   }
 
   @Public()
@@ -27,8 +29,8 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Post('logout')
-  logout(@CurrentUser() user: AuthUser, @Body() body: LogoutDto) {
-    return this.authService.logout(user.id, body?.refreshToken);
+  logout(@CurrentUser() user: AuthUser, @Body() body: LogoutDto, @Req() req: Request) {
+    return this.authService.logout(user.id, body?.refreshToken, getClientMeta(req));
   }
 
   @ApiBearerAuth()

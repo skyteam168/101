@@ -5,6 +5,7 @@ import { Events } from '@restaurant/shared';
 import { randomBytes, randomInt } from 'crypto';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MemberService } from '../member/member.service';
 import {
   CancelReservationDto,
   CreateReservationDto,
@@ -18,6 +19,7 @@ export class ReservationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
+    private readonly members: MemberService,
   ) {}
 
   // ========== 工具函数 ==========
@@ -52,6 +54,7 @@ export class ReservationService {
         ? { id: r.area.id.toString(), nameZh: r.area.nameZh, nameVi: r.area.nameVi }
         : null,
       customerId: r.customerId?.toString() ?? null,
+      memberPriority: r.memberPriority,
       status: r.status,
       deposit: Number(r.deposit),
       remark: r.remark,
@@ -67,6 +70,19 @@ export class ReservationService {
       table: { select: { id: true, code: true } },
       area: { select: { id: true, nameZh: true, nameVi: true } },
     } as const;
+  }
+
+  /** 待确认预定数量（菜单角标） */
+  async countPending(storeId: string): Promise<number> {
+    return this.prisma.reservation.count({
+      where: { storeId: BigInt(storeId), status: ReservationStatus.pending },
+    });
+  }
+
+  private async emitPendingCount(storeId: string) {
+    const count = await this.countPending(storeId);
+    this.events.emit(Events.RESERVATION_PENDING_CHANGED, { storeId, count });
+    return count;
   }
 
   // ========== CRUD ==========
@@ -89,6 +105,13 @@ export class ReservationService {
       if (!area) throw new BusinessError('AREA_NOT_FOUND');
     }
 
+    const perk = await this.members.reservationPerk(dto.phone);
+    const remark = [
+      dto.remark?.trim(),
+      perk.birthdayGift ? '生日到店赠菜（门店安排）' : '',
+    ]
+      .filter(Boolean)
+      .join('；');
     const r = await this.prisma.reservation.create({
       data: {
         storeId: sid,
@@ -98,9 +121,14 @@ export class ReservationService {
         reserveAt: new Date(dto.reserveAt),
         tableId: dto.tableId ? BigInt(dto.tableId) : null,
         areaId: dto.areaId ? BigInt(dto.areaId) : null,
-        customerId: dto.customerId ? BigInt(dto.customerId) : null,
+        customerId: dto.customerId
+          ? BigInt(dto.customerId)
+          : perk.customerId
+            ? BigInt(perk.customerId)
+            : null,
         deposit: BigInt(dto.deposit ?? 0),
-        remark: dto.remark,
+        remark: remark || null,
+        memberPriority: perk.priority,
         status: ReservationStatus.pending,
         createdBy: userId ? BigInt(userId) : null,
       },
@@ -108,7 +136,12 @@ export class ReservationService {
     });
 
     const mapped = this.mapReservation(r);
-    this.events.emit(Events.RESERVATION_CREATED, { storeId, reservation: mapped });
+    const pendingCount = await this.emitPendingCount(storeId);
+    this.events.emit(Events.RESERVATION_CREATED, {
+      storeId,
+      reservation: mapped,
+      pendingCount,
+    });
     return mapped;
   }
 
@@ -170,6 +203,7 @@ export class ReservationService {
       throw new BusinessError('RESERVATION_SEATED_CANNOT_DELETE');
     }
     await this.prisma.reservation.delete({ where: { id: rid } });
+    await this.emitPendingCount(storeId);
     return { success: true };
   }
 
@@ -208,7 +242,7 @@ export class ReservationService {
       this.prisma.reservation.findMany({
         where,
         include: this.listInclude,
-        orderBy: { reserveAt: 'asc' },
+        orderBy: [{ memberPriority: 'desc' }, { reserveAt: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
@@ -238,6 +272,7 @@ export class ReservationService {
       data: { status: ReservationStatus.confirmed },
       include: this.listInclude,
     });
+    await this.emitPendingCount(storeId);
     return this.mapReservation(updated);
   }
 
@@ -263,6 +298,7 @@ export class ReservationService {
       },
       include: this.listInclude,
     });
+    await this.emitPendingCount(storeId);
     return this.mapReservation(updated);
   }
 
@@ -285,6 +321,7 @@ export class ReservationService {
       data: { status: ReservationStatus.no_show },
       include: this.listInclude,
     });
+    await this.emitPendingCount(storeId);
     return this.mapReservation(updated);
   }
 
@@ -354,6 +391,7 @@ export class ReservationService {
       },
       include: this.listInclude,
     });
+    await this.emitPendingCount(storeId);
     return this.mapReservation(updated);
   }
 }

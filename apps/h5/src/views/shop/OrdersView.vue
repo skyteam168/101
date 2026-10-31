@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router';
 import { formatVND } from '@restaurant/shared';
 import { listMyOrders, type DeliveryOrder } from '../../api/delivery';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const router = useRouter();
 
 const orders = ref<DeliveryOrder[]>([]);
@@ -35,6 +35,20 @@ function statusColor(status: string): string {
   };
   return map[status] || '#969799';
 }
+
+function formatOrderTime(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const loc = String(locale.value).startsWith('vi') ? 'vi-VN' : 'zh-CN';
+  return new Intl.DateTimeFormat(loc, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(d);
+}
 </script>
 
 <template>
@@ -47,7 +61,7 @@ function statusColor(status: string): string {
         :key="o.id"
         is-link
         :title="o.orderNo"
-        :label="o.createdAt"
+        :label="formatOrderTime(o.createdAt)"
         @click="router.push({ name: 'shop-order-detail', params: { id: o.id } })"
       >
         <template #value>

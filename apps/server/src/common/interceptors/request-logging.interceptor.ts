@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { Observable, tap } from 'rxjs';
+import { getClientIp } from '../utils/client-ip.util';
 
 @Injectable()
 export class RequestLoggingInterceptor implements NestInterceptor {
@@ -15,11 +16,19 @@ export class RequestLoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest<Request>();
     const { method, originalUrl } = req;
+    const ip = getClientIp(req) ?? '-';
     const started = Date.now();
 
     return next.handle().pipe(
-      tap(() => {
-        this.logger.log(`${method} ${originalUrl} ${Date.now() - started}ms`);
+      tap({
+        next: () => {
+          this.logger.log(`${method} ${originalUrl} ${Date.now() - started}ms ip=${ip}`);
+        },
+        error: (err: Error) => {
+          this.logger.warn(
+            `${method} ${originalUrl} ${Date.now() - started}ms ip=${ip} err=${err.message}`,
+          );
+        },
       }),
     );
   }
