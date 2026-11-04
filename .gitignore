@@ -13,3 +13,7 @@ apps/server/uploads/
 apps/server/prisma/migrations/**/migration_lock.toml.bak
 .cursor/
 apps/server/scripts/seed-home-banners.mjs
+scripts/_*.txt
+scripts/_*.env
+scripts/**/remote_*.py
+scripts/**/deploy_*.py
