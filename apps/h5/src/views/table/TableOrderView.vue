@@ -110,8 +110,19 @@ function onDishListScroll() {
 const cartTotal = computed(() => cart.value.reduce((s, i) => s + i.amount, 0));
 const cartCount = computed(() => cart.value.reduce((s, i) => s + i.qty, 0));
 
+function syncDocTitle() {
+  if (peek.value) {
+    const store =
+      loc.value === 'vi' ? peek.value.storeNameVi : peek.value.storeNameZh;
+    document.title = `${store} · ${peek.value.code}`;
+  } else {
+    document.title = t('app.title');
+  }
+}
+
 async function loadPeek() {
   peek.value = await peekTableApi(qrToken.value);
+  syncDocTitle();
 }
 
 async function tryRestore() {
@@ -398,6 +409,8 @@ watch(qrToken, async () => {
   await loadPeek();
   phase.value = 'join';
 });
+
+watch(locale, () => syncDocTitle());
 </script>
 
 <template>

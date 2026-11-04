@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import type { MenuNode } from '../api/auth';
+import { i18n } from '../i18n';
 import { getAccessToken } from '../utils/auth-storage';
 import { constantRoutes, notFoundRoute, viewModules } from './routes';
 
@@ -95,4 +96,13 @@ router.beforeEach(async (to, _from, next) => {
     return;
   }
   next();
+});
+
+router.afterEach((to) => {
+  const brand = String(i18n.global.t('app.title'));
+  const page =
+    i18n.global.locale.value === 'vi-VN'
+      ? (to.meta.titleVi as string | undefined)
+      : (to.meta.titleZh as string | undefined);
+  document.title = page ? `${page} · ${brand}` : brand;
 });

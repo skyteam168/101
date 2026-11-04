@@ -4,7 +4,7 @@ import OSS from 'ali-oss';
 import { randomUUID } from 'crypto';
 import { BusinessError } from '../common/errors/business.error';
 import { StorageDriver, UploadedObject } from './storage.interface';
-import { assertAllowedImageUpload, safeImageExt } from './upload-image.util';
+import { assertAllowedMediaUpload, safeMediaExt } from './upload-image.util';
 
 /**
  * 阿里云 OSS 驱动。STORAGE_DRIVER=oss 且配齐 OSS_* 时启用。
@@ -46,11 +46,11 @@ export class OssStorageDriver implements StorageDriver {
   }
 
   async upload(file: Express.Multer.File, folder = 'dishes'): Promise<UploadedObject> {
-    assertAllowedImageUpload(file);
+    assertAllowedMediaUpload(file);
     if (!this.client || !this.publicBase) {
       throw new BusinessError('STORAGE_OSS_NOT_CONFIGURED');
     }
-    const ext = safeImageExt(file);
+    const ext = safeMediaExt(file);
     const key = `${folder.replace(/^\/+|\/+$/g, '')}/${randomUUID()}${ext}`;
     try {
       await this.client.put(key, file.buffer, {

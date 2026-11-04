@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { i18n } from '../i18n';
 import { getCustomerToken } from '../utils/customer-storage';
 
 export const router = createRouter({
@@ -113,4 +114,10 @@ router.beforeEach((to, _from, next) => {
   } else {
     next();
   }
+});
+
+router.afterEach((to) => {
+  // 桌台扫码页由 TableOrderView 按桌号动态设置；其余页面用品牌名
+  if (to.name === 'table') return;
+  document.title = String(i18n.global.t('app.title'));
 });

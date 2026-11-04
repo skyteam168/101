@@ -43,6 +43,11 @@ export function assertProductionRuntimeConfig(env: {
   turnstileSiteKey?: string;
   turnstileSecret?: string;
   smtpHost?: string;
+  storageDriver?: string;
+  ossRegion?: string;
+  ossAccessKey?: string;
+  ossSecretKey?: string;
+  ossBucket?: string;
 }): void {
   const isProd = (env.nodeEnv || '').toLowerCase() === 'production';
   const jwtOk = isStrongJwtSecret(env.jwtSecret);
@@ -61,6 +66,20 @@ export function assertProductionRuntimeConfig(env: {
       '生产环境必须配置 CF_TURNSTILE_SITE_KEY 与 CF_TURNSTILE_SECRET_KEY（防机器人）',
     );
   }
+
+  const driver = (env.storageDriver || '').trim().toLowerCase();
+  if (driver !== 'oss') {
+    throw new Error('生产环境必须 STORAGE_DRIVER=oss（禁止 local uploads）');
+  }
+  if (
+    !isConfiguredSecret(env.ossRegion) ||
+    !isConfiguredSecret(env.ossAccessKey) ||
+    !isConfiguredSecret(env.ossSecretKey) ||
+    !isConfiguredSecret(env.ossBucket)
+  ) {
+    throw new Error('生产环境必须配齐 OSS_REGION / OSS_ACCESS_KEY / OSS_SECRET_KEY / OSS_BUCKET');
+  }
+
   if (!(env.smtpHost || '').trim()) {
     // 门店设置里也可配 SMTP；此处仅警告，真正发信时生产无 transporter 会 EMAIL_NOT_CONFIGURED
     // eslint-disable-next-line no-console

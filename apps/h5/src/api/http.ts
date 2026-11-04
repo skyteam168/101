@@ -9,13 +9,18 @@ type ApiBody<T = unknown> = { code: number | string; data: T; message: string };
 const http = axios.create({ baseURL: '/api', timeout: 30000 });
 
 http.interceptors.request.use((config) => {
-  // customer token 优先；/t/ 路由回退到 guest token
+  const url = String(config.url || '');
+  // 桌台扫码会话接口必须用 guest token，避免同浏览器外卖登录态抢 Authorization
+  const isTableGuestApi =
+    url.includes('/public/table/') || url.startsWith('public/table/');
+  const guestToken = getGuestToken();
   const customerToken = getCustomerToken();
-  if (customerToken) {
+  if (isTableGuestApi && guestToken) {
+    config.headers.Authorization = `Bearer ${guestToken}`;
+  } else if (customerToken) {
     config.headers.Authorization = `Bearer ${customerToken}`;
-  } else {
-    const guestToken = getGuestToken();
-    if (guestToken) config.headers.Authorization = `Bearer ${guestToken}`;
+  } else if (guestToken) {
+    config.headers.Authorization = `Bearer ${guestToken}`;
   }
   return config;
 });

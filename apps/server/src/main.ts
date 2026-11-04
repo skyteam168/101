@@ -28,6 +28,11 @@ async function bootstrap() {
     turnstileSiteKey: config.get<string>('CF_TURNSTILE_SITE_KEY'),
     turnstileSecret: config.get<string>('CF_TURNSTILE_SECRET_KEY'),
     smtpHost: config.get<string>('SMTP_HOST'),
+    storageDriver: config.get<string>('STORAGE_DRIVER'),
+    ossRegion: config.get<string>('OSS_REGION'),
+    ossAccessKey: config.get<string>('OSS_ACCESS_KEY'),
+    ossSecretKey: config.get<string>('OSS_SECRET_KEY'),
+    ossBucket: config.get<string>('OSS_BUCKET'),
   });
 
   // 经 Cloudflare / Nginx 反代时信任 X-Forwarded-*，才能拿到真实客户端 IP

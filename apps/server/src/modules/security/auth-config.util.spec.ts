@@ -28,7 +28,7 @@ describe('auth-config.util', () => {
     ).toThrow(/TURNSTILE/);
   });
 
-  it('allows production boot with strong jwt + turnstile', () => {
+  it('allows production boot with strong jwt + turnstile + oss', () => {
     expect(() =>
       assertProductionRuntimeConfig({
         nodeEnv: 'production',
@@ -36,7 +36,24 @@ describe('auth-config.util', () => {
         turnstileSiteKey: '0x4AAAAAArealSiteKeyValue',
         turnstileSecret: '0x4AAAAAArealSecretValue',
         smtpHost: '',
+        storageDriver: 'oss',
+        ossRegion: 'oss-ap-southeast-1',
+        ossAccessKey: 'LTAI5tRealAccessKeyValue',
+        ossSecretKey: 'realOssSecretKeyValue123',
+        ossBucket: 'restaurants101',
       }),
     ).not.toThrow();
+  });
+
+  it('blocks production boot without oss', () => {
+    expect(() =>
+      assertProductionRuntimeConfig({
+        nodeEnv: 'production',
+        jwtSecret: 'a'.repeat(32),
+        turnstileSiteKey: '0x4AAAAAArealSiteKeyValue',
+        turnstileSecret: '0x4AAAAAArealSecretValue',
+        storageDriver: 'local',
+      }),
+    ).toThrow(/STORAGE_DRIVER=oss/);
   });
 });

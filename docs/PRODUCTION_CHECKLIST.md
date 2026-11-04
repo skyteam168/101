@@ -13,6 +13,7 @@
 - [ ] `H5_BASE_URL`：顾客扫码用的公网/局域网 H5 地址
 - [ ] `DEFAULT_STORE_ID`：公开外卖/首页/聊天默认门店（多店必改）；H5 可配 `VITE_STORE_ID` 或 URL `?storeId=`
 - [ ] `DATABASE_URL` / `REDIS_URL` 指向生产实例
+- [ ] **存储必须 OSS**：`STORAGE_DRIVER=oss`，并配齐 `OSS_REGION` / `OSS_ACCESS_KEY` / `OSS_SECRET_KEY` / `OSS_BUCKET`（建议 `STORAGE_PUBLIC_BASE_URL`）；生产启动会拒绝 `local`
 - [ ] （可选）`GOOGLE_CLIENT_ID`，且 Google 控制台 **Authorized JavaScript origins** 与 H5 Origin 一致
 - [ ] （可选云打印）`CLOUD_PRINT_WEBHOOK_SECRET`；管理端打印机选「云打印」并填可公网访问的 Webhook URL
 
@@ -61,7 +62,7 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 - [ ] HTTPS（Nginx / Cloudflare）
 - [ ] `prisma migrate deploy`（勿在生产用 `migrate dev`）
-- [ ] MySQL 日备；`uploads/` 持久化卷
+- [ ] MySQL 日备；生产媒体走 OSS（本地 `uploads/` 仅作开发兜底，勿依赖其作线上主存储）
 - [ ] 进程守护（systemd / pm2）；单实例部署（USB 打印认领与内存事件依赖单机）
 
 ## 5. 退款（P1 已落地）
