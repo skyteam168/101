@@ -207,6 +207,8 @@
     "announceLang": "播报语言",
     "clipUpload": "上传语音",
     "clipClear": "清除",
+    "clipPreview": "试听",
+    "clipPlayFailed": "无法播放，请检查文件格式或重新上传",
     "clipUploaded": "语音已上传，请点保存生效",
     "announce": {
       "dineInNew": "新堂食单",

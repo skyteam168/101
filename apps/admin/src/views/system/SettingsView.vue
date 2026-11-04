@@ -133,23 +133,54 @@ const keys: (keyof AnnounceSettings)[] = [
   'printFailed',
 ];
 
+/** 本地 blob 预览（上传后立即可听，不依赖跨域 OSS 元数据） */
+const previewBlobs = reactive<Record<string, string>>({});
+
+function clipKey(kind: keyof AnnounceSettings, lang: 'zh' | 'vi') {
+  return `${kind}:${lang}`;
+}
+
 function clipUrl(kind: keyof AnnounceSettings, lang: 'zh' | 'vi') {
-  return form.announceClips[kind]?.[lang] || '';
+  const k = clipKey(kind, lang);
+  return previewBlobs[k] || form.announceClips[kind]?.[lang] || '';
+}
+
+function revokePreview(kind: keyof AnnounceSettings, lang: 'zh' | 'vi') {
+  const k = clipKey(kind, lang);
+  const prev = previewBlobs[k];
+  if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev);
+  delete previewBlobs[k];
 }
 
 async function uploadClip(kind: keyof AnnounceSettings, lang: 'zh' | 'vi', file: File) {
   const res = await uploadStoreImageApi(file);
   if (!form.announceClips[kind]) form.announceClips[kind] = {};
   form.announceClips[kind]![lang] = res.url;
+  revokePreview(kind, lang);
+  // 立刻用本地文件试听，避免 OSS 尚未缓存 / 跨域时控件显示 0:00
+  previewBlobs[clipKey(kind, lang)] = URL.createObjectURL(file);
   ElMessage.success(t('settings.clipUploaded'));
   return false;
 }
 
 function clearClip(kind: keyof AnnounceSettings, lang: 'zh' | 'vi') {
+  revokePreview(kind, lang);
   if (!form.announceClips[kind]) return;
   delete form.announceClips[kind]![lang];
   if (!form.announceClips[kind]!.zh && !form.announceClips[kind]!.vi) {
     delete form.announceClips[kind];
+  }
+}
+
+async function previewClip(kind: keyof AnnounceSettings, lang: 'zh' | 'vi') {
+  const url = clipUrl(kind, lang);
+  if (!url) return;
+  try {
+    const audio = new Audio(url);
+    audio.preload = 'auto';
+    await audio.play();
+  } catch {
+    ElMessage.warning(t('settings.clipPlayFailed'));
   }
 }
 
@@ -720,7 +751,22 @@ onMounted(load);
             <div class="clip-pair">
               <div class="clip-line">
                 <span class="clip-lang">ZH</span>
-                <audio v-if="clipUrl(k, 'zh')" :src="clipUrl(k, 'zh')" controls preload="none" />
+                <audio
+                  v-if="clipUrl(k, 'zh')"
+                  :key="clipUrl(k, 'zh')"
+                  :src="clipUrl(k, 'zh')"
+                  controls
+                  preload="metadata"
+                />
+                <el-button
+                  v-if="clipUrl(k, 'zh')"
+                  size="small"
+                  type="success"
+                  plain
+                  @click="previewClip(k, 'zh')"
+                >
+                  {{ t('settings.clipPreview') }}
+                </el-button>
                 <el-upload
                   :show-file-list="false"
                   accept="audio/*,.mp3,.wav,.m4a,.ogg"
@@ -740,7 +786,22 @@ onMounted(load);
               </div>
               <div class="clip-line">
                 <span class="clip-lang">VI</span>
-                <audio v-if="clipUrl(k, 'vi')" :src="clipUrl(k, 'vi')" controls preload="none" />
+                <audio
+                  v-if="clipUrl(k, 'vi')"
+                  :key="clipUrl(k, 'vi')"
+                  :src="clipUrl(k, 'vi')"
+                  controls
+                  preload="metadata"
+                />
+                <el-button
+                  v-if="clipUrl(k, 'vi')"
+                  size="small"
+                  type="success"
+                  plain
+                  @click="previewClip(k, 'vi')"
+                >
+                  {{ t('settings.clipPreview') }}
+                </el-button>
                 <el-upload
                   :show-file-list="false"
                   accept="audio/*,.mp3,.wav,.m4a,.ogg"
@@ -1021,7 +1082,8 @@ onMounted(load);
   font-weight: 600;
 }
 .clip-line audio {
-  height: 32px;
-  max-width: 220px;
+  height: 36px;
+  min-width: 200px;
+  max-width: min(280px, 100%);
 }
 </style>

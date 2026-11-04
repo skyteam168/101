@@ -6,6 +6,26 @@ import { BusinessError } from '../common/errors/business.error';
 import { StorageDriver, UploadedObject } from './storage.interface';
 import { assertAllowedMediaUpload, safeMediaExt } from './upload-image.util';
 
+const EXT_CONTENT_TYPE: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.webm': 'audio/webm',
+};
+
+function resolveContentType(file: Express.Multer.File, ext: string): string {
+  const mime = (file.mimetype || '').toLowerCase().trim();
+  if (mime && mime !== 'application/octet-stream') return mime;
+  return EXT_CONTENT_TYPE[ext] || 'application/octet-stream';
+}
+
 /**
  * 阿里云 OSS 驱动。STORAGE_DRIVER=oss 且配齐 OSS_* 时启用。
  * 公网 URL 优先 STORAGE_PUBLIC_BASE_URL / CDN_BASE_URL，否则用 bucket 默认域名。
@@ -52,10 +72,12 @@ export class OssStorageDriver implements StorageDriver {
     }
     const ext = safeMediaExt(file);
     const key = `${folder.replace(/^\/+|\/+$/g, '')}/${randomUUID()}${ext}`;
+    const contentType = resolveContentType(file, ext);
     try {
       await this.client.put(key, file.buffer, {
         headers: {
-          'Content-Type': file.mimetype || 'application/octet-stream',
+          'Content-Type': contentType,
+          'Content-Disposition': 'inline',
           'Cache-Control': 'public, max-age=31536000',
         },
       });

@@ -138,6 +138,8 @@
     "announceLang": "Ngôn ngữ phát",
     "clipUpload": "Tải âm thanh",
     "clipClear": "Xóa",
+    "clipPreview": "Nghe thử",
+    "clipPlayFailed": "Không phát được, kiểm tra định dạng hoặc tải lại",
     "clipUploaded": "Đã tải lên, bấm Lưu để áp dụng",
     "announce": {
       "dineInNew": "Đơn tại chỗ mới",
