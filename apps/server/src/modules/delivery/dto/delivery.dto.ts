@@ -298,6 +298,12 @@ export class QuoteDto {
   @Min(0)
   subtotal?: number;
 
+  @ApiPropertyOptional({ description: '优惠券 ID，预估价时计入折扣' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  couponId?: string;
+
   @ApiPropertyOptional({ description: '门店 ID' })
   @IsOptional()
   @IsString()

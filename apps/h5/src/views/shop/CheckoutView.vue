@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { showToast } from 'vant';
@@ -31,6 +31,9 @@ const quote = ref<{
   deliveryFee: number;
   minOrderAmount: number;
   subtotalOk: boolean;
+  subtotal?: number;
+  discount?: number;
+  coupon?: { id: string; nameZh: string; amount: number } | null;
   total: number;
 } | null>(null);
 const quoting = ref(false);
@@ -75,13 +78,20 @@ async function doQuote(addr: CustomerAddress) {
       lat: addr.lat,
       lng: addr.lng,
       subtotal: cart.totalAmount,
+      couponId: couponId.value,
     });
   } catch {
-    // http 拦截器已 toast
+    // 券不可用时清空选择，避免带着无效券提交
+    if (couponId.value) couponId.value = undefined;
   } finally {
     quoting.value = false;
   }
 }
+
+watch(couponId, async () => {
+  const addr = selectedAddress.value;
+  if (addr) await doQuote(addr);
+});
 
 async function selectAddress(addr: CustomerAddress) {
   selectedAddressId.value = addr.id;
@@ -261,6 +271,11 @@ async function handleSubmit() {
       <!-- 费用汇总 -->
       <van-cell-group inset style="margin-top: 12px">
         <van-cell :title="t('shop.checkout.subtotal')" :value="formatVND(cart.totalAmount)" />
+        <van-cell
+          v-if="quote?.discount"
+          :title="t('shop.checkout.discount')"
+          :value="`- ${formatVND(quote.discount)}`"
+        />
         <van-cell
           :title="t('shop.checkout.deliveryFee')"
           :value="quoting ? t('shop.checkout.calculating') : quote ? formatVND(quote.deliveryFee) : '-'"

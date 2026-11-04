@@ -301,11 +301,15 @@ export function quoteOrder(dto: {
   lat: number;
   lng: number;
   subtotal?: number;
+  couponId?: string;
 }): Promise<{
   distanceKm: number;
   deliveryFee: number;
   minOrderAmount: number;
   subtotalOk: boolean;
+  subtotal?: number;
+  discount?: number;
+  coupon?: { id: string; nameZh: string; amount: number } | null;
   total: number;
 }> {
   return apiPost('/public/delivery/quote', { ...dto, storeId: getPublicStoreId() });

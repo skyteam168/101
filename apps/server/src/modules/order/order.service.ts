@@ -228,6 +228,11 @@ export class OrderService {
     return Math.max(0, Number(s.manualDiscount ?? 0));
   }
 
+  private readCouponSnap(snap: unknown): PromoSnap['coupon'] {
+    const s = (snap || {}) as PromoSnap;
+    return s.coupon ?? null;
+  }
+
   async recalculateOrder(tx: Tx, orderId: bigint) {
     const items = await tx.orderItem.findMany({ where: { orderId } });
     const order = await tx.order.findUniqueOrThrow({
@@ -813,7 +818,10 @@ export class OrderService {
         where: { id: oid },
         data: { customerId, couponId },
       });
-      await this.recalculateOrder(tx, oid);
+      const priced = await this.recalculateOrder(tx, oid);
+      if (couponId && !this.readCouponSnap(priced.promoSnapshot)) {
+        throw new BusinessError('COUPON_NOT_APPLICABLE');
+      }
     });
     await this.audit.log({
       userId,
@@ -872,7 +880,8 @@ export class OrderService {
       if (paySum !== amounts.total) {
         throw new BusinessError('PAYMENT_AMOUNT_MISMATCH');
       }
-      if (fresh.couponId) {
+      // 仅当计价实际吃到优惠券时才核销，避免渠道/门槛不符空核销
+      if (fresh.couponId && this.readCouponSnap(fresh.promoSnapshot)) {
         await this.marketing.markCouponUsed(tx, fresh.couponId.toString(), oid);
       }
 

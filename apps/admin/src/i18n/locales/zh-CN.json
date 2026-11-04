@@ -1138,6 +1138,7 @@
     "COUPON_TEMPLATE_NOT_FOUND": "优惠券模板不存在",
     "PROMO_RULE_NOT_FOUND": "优惠规则不存在",
     "COUPON_INVALID": "优惠券不可用",
+    "COUPON_NOT_APPLICABLE": "优惠券不适用（渠道或未满门槛）",
     "COMBO_NOT_FOUND": "套餐不存在",
     "RESERVATION_NOT_FOUND": "预定记录不存在",
     "RESERVATION_ITEM_NAME_REQUIRED": "预点菜缺少菜名",

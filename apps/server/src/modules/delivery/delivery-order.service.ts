@@ -112,6 +112,38 @@ export class DeliveryOrderService {
     const deliveryFee = perk.fee;
     const subtotal = Math.round(dto.subtotal || 0);
     const minOrder = this.money(store.minOrderAmount);
+
+    let discount = 0;
+    let total = subtotal + deliveryFee;
+    let coupon: { id: string; nameZh: string; amount: number } | null = null;
+    if (subtotal > 0) {
+      const customer = customerId
+        ? await this.prisma.customer.findUnique({
+            where: { id: BigInt(customerId) },
+            include: { memberLevel: true },
+          })
+        : null;
+      const promoRules = await this.marketing.activeRulesAsSpecs(storeId);
+      const couponSpec = dto.couponId
+        ? await this.marketing.couponAsSpec(dto.couponId, customerId)
+        : null;
+      if (dto.couponId && !couponSpec) throw new BusinessError('COUPON_INVALID');
+      const priced = computePricing({
+        lines: [{ dishId: null, amount: subtotal, status: 'pending' }],
+        channel: 'delivery',
+        rules: promoRules,
+        coupon: couponSpec,
+        deliveryFee: Number(deliveryFee),
+        memberPercent: customer?.memberLevel?.discountPercent ?? 0,
+      });
+      if (dto.couponId && !priced.snapshot.coupon) {
+        throw new BusinessError('COUPON_NOT_APPLICABLE');
+      }
+      discount = priced.discount;
+      total = priced.total;
+      coupon = priced.snapshot.coupon;
+    }
+
     return {
       distanceKm: Math.round(distanceKm * 100) / 100,
       deliveryFee,
@@ -119,7 +151,10 @@ export class DeliveryOrderService {
       memberPriority: perk.priority,
       minOrderAmount: minOrder,
       subtotalOk: subtotal <= 0 || subtotal >= minOrder,
-      total: subtotal + deliveryFee,
+      subtotal,
+      discount,
+      coupon,
+      total,
     };
   }
 
@@ -308,6 +343,10 @@ export class DeliveryOrderService {
       deliveryFee: Number(deliveryFee),
       memberPercent: customer?.memberLevel?.discountPercent ?? 0,
     });
+    // 渠道不符 / 未满门槛时不算优惠，禁止核销废券
+    if (dto.couponId && !priced.snapshot.coupon) {
+      throw new BusinessError('COUPON_NOT_APPLICABLE');
+    }
     const total = BigInt(priced.total);
 
     const timeline: TimelineEntry[] = [

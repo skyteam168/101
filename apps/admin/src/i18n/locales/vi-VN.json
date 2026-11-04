@@ -1067,6 +1067,7 @@
     "COUPON_TEMPLATE_NOT_FOUND": "Không tìm thấy mẫu coupon",
     "PROMO_RULE_NOT_FOUND": "Không tìm thấy quy tắc",
     "COUPON_INVALID": "Coupon không hợp lệ",
+    "COUPON_NOT_APPLICABLE": "Coupon không áp dụng (kênh hoặc chưa đủ điều kiện)",
     "COMBO_NOT_FOUND": "Không tìm thấy combo",
     "RESERVATION_NOT_FOUND": "Không tìm thấy đặt bàn",
     "RESERVATION_ITEM_NAME_REQUIRED": "Thiếu tên món đặt trước",
