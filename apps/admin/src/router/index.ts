@@ -4,7 +4,7 @@ import { getAccessToken } from '../utils/auth-storage';
 import { constantRoutes, notFoundRoute, viewModules } from './routes';
 
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: constantRoutes,
 });
 
