@@ -3,6 +3,7 @@
  */
 import { apiDelete, apiGet, apiPatch, apiPost } from './http';
 import http from './http';
+import { getPublicStoreId, persistPublicStoreId } from '../utils/store-id';
 
 export type StoreInfo = {
   id: string;
@@ -29,8 +30,12 @@ export type StoreInfo = {
   closedReason?: 'paused' | 'outside_hours' | null;
 };
 
-export function getStoreInfo(): Promise<StoreInfo> {
-  return apiGet('/public/delivery/store');
+export async function getStoreInfo(): Promise<StoreInfo> {
+  const data = await apiGet<StoreInfo>('/public/delivery/store', {
+    storeId: getPublicStoreId(),
+  });
+  if (data?.id) persistPublicStoreId(data.id);
+  return data;
 }
 
 export type DishOption = {
@@ -70,6 +75,7 @@ export type MenuCategory = {
 /** 公开菜单可能是分类数组或 { categories } */
 export async function getDeliveryMenu(): Promise<MenuCategory[]> {
   const data = await apiGet<MenuCategory[] | { categories: MenuCategory[] }>('/public/menu', {
+    storeId: getPublicStoreId(),
     channel: 'delivery',
   });
   if (Array.isArray(data)) return data;
@@ -228,11 +234,14 @@ export type CouponTemplatePublic = {
 };
 
 export function listCouponTemplates(): Promise<CouponTemplatePublic[]> {
-  return apiGet('/public/delivery/coupon-templates');
+  return apiGet('/public/delivery/coupon-templates', { storeId: getPublicStoreId() });
 }
 
 export function claimCoupon(templateId: string): Promise<MyCoupon> {
-  return apiPost('/public/delivery/coupons/claim', { templateId });
+  return apiPost('/public/delivery/coupons/claim', {
+    templateId,
+    storeId: getPublicStoreId(),
+  });
 }
 
 export type CustomerAddress = {
@@ -299,7 +308,7 @@ export function quoteOrder(dto: {
   subtotalOk: boolean;
   total: number;
 }> {
-  return apiPost('/public/delivery/quote', dto);
+  return apiPost('/public/delivery/quote', { ...dto, storeId: getPublicStoreId() });
 }
 
 export type DeliveryOrder = {
@@ -307,19 +316,30 @@ export type DeliveryOrder = {
   orderNo: string;
   status: string;
   subtotal: number;
+  discount?: number;
+  serviceCharge?: number;
   deliveryFee: number;
   total: number;
+  paidAmount?: number;
+  paymentStatus?: string;
+  tableCode?: string | null;
+  /** 库内类型：dine_in / takeaway / delivery */
+  type?: 'dine_in' | 'takeaway' | 'delivery' | string;
+  /** 展示分类：含 group_meal */
+  channel?: 'dine_in' | 'takeaway' | 'delivery' | 'group_meal' | string;
   payMethod?: string | null;
   remark?: string | null;
   addressSnapshot?: Record<string, unknown> | null;
+  payments?: { method: string; amount: number; received?: number }[];
   items: {
     id: string;
-    dishId: string;
+    dishId: string | null;
     nameZh: string;
     nameVi: string;
     unitPrice: number;
     qty: number;
     amount: number;
+    status?: string;
   }[];
   statusTimeline: { status: string; at: string; reason?: string }[];
   createdAt: string;
@@ -335,6 +355,7 @@ export function placeOrder(dto: {
 }): Promise<DeliveryOrder> {
   return apiPost('/public/delivery/orders', {
     ...dto,
+    storeId: getPublicStoreId(),
     addressId: String(dto.addressId),
     items: dto.items.map((i) => ({ ...i, dishId: String(i.dishId) })),
   });

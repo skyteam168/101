@@ -64,6 +64,12 @@ export class RealtimeGateway
   /** agentId → socket ids */
   private readonly agentSockets = new Map<string, Set<string>>();
 
+  /** storeId → 打印台员工 socket（收银电脑 USB） */
+  private readonly printStationByStore = new Map<
+    string,
+    { socketId: string; userId: string; printerIds: string[] }
+  >();
+
   async handleConnection(client: Socket) {
     try {
       // 打印代理：auth { typ:'agent', agentId, secret }
@@ -168,6 +174,17 @@ export class RealtimeGateway
 
   handleDisconnect(client: Socket) {
     const auth = client.data.auth as SocketAuth | undefined;
+    if (auth?.typ === 'staff' && auth.storeId) {
+      const claim = this.printStationByStore.get(auth.storeId);
+      if (claim?.socketId === client.id) {
+        this.printStationByStore.delete(auth.storeId);
+        this.emitToStore(auth.storeId, Events.PRINT_STATION_STATUS, {
+          storeId: auth.storeId,
+          online: false,
+        });
+        this.logger.log(`print station released (disconnect) store=${auth.storeId}`);
+      }
+    }
     if (auth?.typ !== 'agent' || !auth.agentId) return;
     const set = this.agentSockets.get(auth.agentId);
     if (set) {
@@ -199,14 +216,96 @@ export class RealtimeGateway
     @MessageBody() body: { jobId?: string; status?: string; error?: string },
   ) {
     const auth = client.data.auth as SocketAuth | undefined;
-    if (auth?.typ !== 'agent' || !body?.jobId) return { ok: false };
-    this.events.emit(Events.PRINT_ACK, {
-      agentId: auth.agentId,
-      jobId: String(body.jobId),
-      status: body.status === 'done' ? 'done' : 'failed',
-      error: body.error,
+    if (!body?.jobId) return { ok: false };
+    // 打印代理或已认领的打印台员工均可回执
+    if (auth?.typ === 'agent') {
+      this.events.emit(Events.PRINT_ACK, {
+        agentId: auth.agentId,
+        jobId: String(body.jobId),
+        status: body.status === 'done' ? 'done' : 'failed',
+        error: body.error,
+      });
+      return { ok: true };
+    }
+    if (auth?.typ === 'staff' && auth.storeId) {
+      const claim = this.printStationByStore.get(auth.storeId);
+      if (!claim || claim.socketId !== client.id) return { ok: false };
+      this.events.emit(Events.PRINT_ACK, {
+        storeId: auth.storeId,
+        jobId: String(body.jobId),
+        status: body.status === 'done' ? 'done' : 'failed',
+        error: body.error,
+      });
+      return { ok: true };
+    }
+    return { ok: false };
+  }
+
+  @SubscribeMessage(Events.PRINT_STATION_CLAIM)
+  async onPrintStationClaim(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { printerIds?: string[] },
+  ) {
+    const auth = client.data.auth as SocketAuth | undefined;
+    if (auth?.typ !== 'staff' || !auth.storeId || !auth.userId) {
+      return { ok: false, message: 'UNAUTHORIZED' };
+    }
+    const storeId = auth.storeId;
+    const printerIds = (body?.printerIds || []).map(String);
+    this.printStationByStore.set(storeId, {
+      socketId: client.id,
+      userId: auth.userId,
+      printerIds,
     });
+    await client.join(`store:${storeId}:print-station`);
+    this.emitToStore(storeId, Events.PRINT_STATION_STATUS, {
+      storeId,
+      online: true,
+      userId: auth.userId,
+      printerIds,
+    });
+    this.events.emit(Events.PRINT_STATION_CLAIM, { storeId, userId: auth.userId, printerIds });
+    this.logger.log(`print station claimed store=${storeId} user=${auth.userId}`);
+    return { ok: true, storeId };
+  }
+
+  @SubscribeMessage(Events.PRINT_STATION_RELEASE)
+  async onPrintStationRelease(@ConnectedSocket() client: Socket) {
+    const auth = client.data.auth as SocketAuth | undefined;
+    if (auth?.typ !== 'staff' || !auth.storeId) return { ok: false };
+    const claim = this.printStationByStore.get(auth.storeId);
+    if (claim?.socketId === client.id) {
+      this.printStationByStore.delete(auth.storeId);
+      this.emitToStore(auth.storeId, Events.PRINT_STATION_STATUS, {
+        storeId: auth.storeId,
+        online: false,
+      });
+      this.events.emit(Events.PRINT_STATION_RELEASE, { storeId: auth.storeId });
+    }
     return { ok: true };
+  }
+
+  isPrintStationOnline(storeId: string) {
+    const claim = this.printStationByStore.get(storeId);
+    if (!claim) return false;
+    // Nest/Socket.IO 下 sockets Map 取法因版本略有差异；认领表在 disconnect 时已清理
+    const byId =
+      this.server?.sockets?.sockets?.get?.(claim.socketId) ??
+      (this.server as { socket?: (id: string) => unknown } | undefined)?.socket?.(
+        claim.socketId,
+      );
+    if (byId) return true;
+    // Map 不可用时仍以认领为准（避免 flush/dispatch 整段抛错导致任务永久 queued）
+    return this.printStationByStore.has(storeId);
+  }
+
+  emitToPrintStation(storeId: string, event: string, payload: unknown) {
+    const claim = this.printStationByStore.get(storeId);
+    if (claim) {
+      this.server.to(claim.socketId).emit(event, payload);
+      return;
+    }
+    this.server.to(`store:${storeId}:print-station`).emit(event, payload);
   }
 
   /** 显式加入房间（兼容旧客户端；员工/顾客仍受 auth 校验） */

@@ -45,7 +45,13 @@ function handleEdit(addr: CustomerAddress) {
 
 <template>
   <div class="addr-list-page">
-    <van-nav-bar :title="t('shop.address.title')" left-arrow @click-left="router.back()">
+    <van-nav-bar
+      :title="t('shop.address.title')"
+      left-arrow
+      fixed
+      placeholder
+      @click-left="router.back()"
+    >
       <template #right>
         <van-icon name="plus" size="20" @click="router.push({ name: 'shop-address-edit' })" />
       </template>

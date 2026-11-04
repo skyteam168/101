@@ -16,6 +16,7 @@ export type ChatConversation = {
   lastPreview: string | null;
   unreadStaff: number;
   unreadCustomer: number;
+  mutedUntil?: string | null;
   customer?: ChatCustomer;
 };
 
@@ -58,8 +59,7 @@ export const markChatReadApi = (id: string) =>
   apiPost<{ ok: boolean }>(`/chat/conversations/${id}/read`, {});
 
 export const translateChatApi = (dto: {
-  text?: string;
-  messageId?: string;
+  messageId: string;
   targetLang: ChatTranslateLang;
   sourceLang?: ChatTranslateLang;
 }) =>
@@ -67,6 +67,12 @@ export const translateChatApi = (dto: {
     '/chat/translate',
     dto,
   );
+
+export const muteChatApi = (id: string, hours?: number) =>
+  apiPost<ChatConversation>(`/chat/conversations/${id}/mute`, hours ? { hours } : {});
+
+export const unmuteChatApi = (id: string) =>
+  apiPost<ChatConversation>(`/chat/conversations/${id}/unmute`, {});
 
 export async function uploadChatImageApi(file: File) {
   const form = new FormData();

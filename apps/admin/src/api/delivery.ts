@@ -18,6 +18,7 @@ export type DeliveryOrder = {
   subtotal: number;
   deliveryFee: number;
   total: number;
+  paidAmount?: number;
   remark?: string | null;
   memberPriority?: boolean;
   cancelReason?: string | null;

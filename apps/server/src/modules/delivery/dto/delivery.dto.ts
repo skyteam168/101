@@ -72,7 +72,7 @@ export class RegisterDto {
   @ApiPropertyOptional({ description: 'Cloudflare Turnstile token' })
   @IsOptional()
   @IsString()
-  @MaxLength(2048)
+  @MaxLength(8192)
   cfTurnstileToken?: string;
 }
 
@@ -88,7 +88,7 @@ export class CustomerLoginDto {
   @ApiPropertyOptional({ description: 'Cloudflare Turnstile token' })
   @IsOptional()
   @IsString()
-  @MaxLength(2048)
+  @MaxLength(8192)
   cfTurnstileToken?: string;
 }
 
@@ -105,7 +105,7 @@ export class LoginByCodeDto {
   @ApiPropertyOptional({ description: 'Cloudflare Turnstile token' })
   @IsOptional()
   @IsString()
-  @MaxLength(2048)
+  @MaxLength(8192)
   cfTurnstileToken?: string;
 }
 
@@ -272,6 +272,12 @@ export class PlaceOrderDto {
   @IsString()
   @MaxLength(32)
   couponId?: string;
+
+  @ApiPropertyOptional({ description: '门店 ID（多店公开下单）' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  storeId?: string;
 }
 
 export class QuoteDto {
@@ -291,6 +297,12 @@ export class QuoteDto {
   @IsNumber()
   @Min(0)
   subtotal?: number;
+
+  @ApiPropertyOptional({ description: '门店 ID' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  storeId?: string;
 }
 
 export class RejectOrderDto {

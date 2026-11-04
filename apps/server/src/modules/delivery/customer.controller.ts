@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UploadedFile,
   UseGuards,
@@ -22,6 +23,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentCustomer, CustomerUser } from '../../common/decorators/customer.decorator';
 import { BusinessError } from '../../common/errors/business.error';
 import { CustomerAuthGuard } from '../../common/guards/customer-auth.guard';
+import { resolvePublicStoreId } from '../../common/public-store.util';
 import { getClientMeta } from '../../common/utils/client-ip.util';
 import { STORAGE_DRIVER, StorageDriver } from '../../storage/storage.interface';
 import { MarketingService } from '../marketing/marketing.service';
@@ -46,11 +48,13 @@ import {
   UpdateCustomerProfileDto,
 } from './dto/delivery.dto';
 
-const STORE_ID = '1';
-
 @ApiTags('delivery-customer')
 @Controller()
 export class CustomerController {
+  private storeId(explicit?: string) {
+    return resolvePublicStoreId(explicit);
+  }
+
   constructor(
     private readonly auth: CustomerAuthService,
     private readonly addresses: AddressService,
@@ -76,21 +80,21 @@ export class CustomerController {
 
   @Public()
   @Get('public/delivery/store')
-  store() {
-    return this.orders.getPublicStore(STORE_ID);
+  store(@Query('storeId') storeId?: string) {
+    return this.orders.getPublicStore(this.storeId(storeId));
   }
 
   @Public()
   @Post('public/delivery/quote')
   async quote(@Headers('authorization') authorization: string | undefined, @Body() dto: QuoteDto) {
     const customerId = await this.optionalCustomerId(authorization);
-    return this.orders.quote(STORE_ID, dto, customerId);
+    return this.orders.quote(this.storeId(dto.storeId), dto, customerId);
   }
 
   @Public()
   @Get('public/member/benefits')
-  memberBenefits() {
-    return this.members.listBenefits(STORE_ID);
+  memberBenefits(@Query('storeId') storeId?: string) {
+    return this.members.listBenefits(this.storeId(storeId));
   }
 
   @Public()
@@ -214,8 +218,8 @@ export class CustomerController {
 
   @Public()
   @Get('public/delivery/coupon-templates')
-  couponTemplates() {
-    return this.marketing.listPublicTemplates(STORE_ID);
+  couponTemplates(@Query('storeId') storeId?: string) {
+    return this.marketing.listPublicTemplates(this.storeId(storeId));
   }
 
   @Public()
@@ -230,8 +234,11 @@ export class CustomerController {
   @UseGuards(CustomerAuthGuard)
   @ApiBearerAuth()
   @Post('public/delivery/coupons/claim')
-  claimCoupon(@CurrentCustomer() c: CustomerUser, @Body() body: { templateId: string }) {
-    return this.marketing.claimTemplate(STORE_ID, c.customerId, body.templateId);
+  claimCoupon(
+    @CurrentCustomer() c: CustomerUser,
+    @Body() body: { templateId: string; storeId?: string },
+  ) {
+    return this.marketing.claimTemplate(this.storeId(body.storeId), c.customerId, body.templateId);
   }
 
   @Public()
@@ -275,7 +282,7 @@ export class CustomerController {
   @ApiBearerAuth()
   @Post('public/delivery/orders')
   place(@CurrentCustomer() c: CustomerUser, @Body() dto: PlaceOrderDto) {
-    return this.orders.placeOrder(STORE_ID, c.customerId, dto);
+    return this.orders.placeOrder(this.storeId(dto.storeId), c.customerId, dto);
   }
 
   @Public()
@@ -283,7 +290,7 @@ export class CustomerController {
   @ApiBearerAuth()
   @Post('public/delivery/group-orders')
   placeGroup(@CurrentCustomer() c: CustomerUser, @Body() dto: PlaceGroupMealOrderDto) {
-    return this.orders.placeGroupComboOrder(STORE_ID, c.customerId, dto);
+    return this.orders.placeGroupComboOrder(this.storeId(dto.storeId), c.customerId, dto);
   }
 
   @Public()

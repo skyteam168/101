@@ -93,7 +93,7 @@ function rememberTranslation(m: ChatMessage, lang: ChatTranslateLang, text: stri
 
 /** 调 API：有 messageId 时服务端先查库缓存再决定是否调用模型 */
 async function ensureTranslated(m: ChatMessage) {
-  if (m.contentType !== 'text' || translations.value[m.id] || translatingIds.has(m.id)) return;
+  if (!isPeerText(m) || translations.value[m.id] || translatingIds.has(m.id)) return;
   const lang = translateTarget.value;
   const cached = m.translations?.[lang];
   if (cached) {
@@ -105,7 +105,6 @@ async function ensureTranslated(m: ChatMessage) {
   try {
     const res = await translateChatText({
       messageId: m.id,
-      text: m.content,
       targetLang: lang,
     });
     rememberTranslation(m, lang, res.translated);
@@ -286,7 +285,7 @@ async function onFileInputChange(e: Event) {
 }
 
 async function translate(m: ChatMessage) {
-  if (m.contentType !== 'text') return;
+  if (!isPeerText(m)) return;
   if (translations.value[m.id]) {
     delete translations.value[m.id];
     translations.value = { ...translations.value };
@@ -318,8 +317,8 @@ onUnmounted(() => {
 
 <template>
   <div class="chat-page">
-    <van-nav-bar :title="t('chat.title')" fixed />
-    <div class="chat-body" style="padding-top: 46px">
+    <van-nav-bar :title="t('chat.title')" fixed placeholder />
+    <div class="chat-body">
       <div class="lang-bar">
         <div class="lang-row">
           <span class="lang-label">{{ t('chat.autoTranslate') }}</span>
@@ -376,8 +375,11 @@ onUnmounted(() => {
               </button>
               <template v-else>
                 <div class="msg-text">{{ m.content }}</div>
-                <div v-if="translations[m.id]" class="msg-trans">{{ translations[m.id] }}</div>
+                <div v-if="isPeerText(m) && translations[m.id]" class="msg-trans">
+                  {{ translations[m.id] }}
+                </div>
                 <button
+                  v-if="isPeerText(m)"
                   type="button"
                   class="tr-btn"
                   :disabled="translatingId === m.id"

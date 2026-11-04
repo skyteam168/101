@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
 import { Public } from '../../common/decorators/public.decorator';
+import { resolvePublicStoreId } from '../../common/public-store.util';
 import { MenuService } from '../menu/menu.service';
 import { NoticeService } from './notice.service';
 import { StoreService } from './store.service';
@@ -24,7 +25,7 @@ export class PublicHomeController {
   @Public()
   @Get()
   async home(@Query() query: PublicHomeQuery) {
-    const storeId = query.storeId || '1';
+    const storeId = resolvePublicStoreId(query.storeId);
     const [store, notices, newDishes] = await Promise.all([
       this.storeService.getPublicHomeStore(storeId),
       this.noticeService.listPublic(storeId),

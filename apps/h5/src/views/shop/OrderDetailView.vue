@@ -4,9 +4,17 @@ import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { showConfirmDialog, showToast } from 'vant';
 import { io, type Socket } from 'socket.io-client';
-import { Events, formatVND, isSafeMediaUrl } from '@restaurant/shared';
-import { cancelOrder, getOrderDetail, type DeliveryOrder } from '../../api/delivery';
+import { Events, formatVND, isSafeMediaUrl, type PrintTicketPayload } from '@restaurant/shared';
+import {
+  cancelOrder,
+  getOrderDetail,
+  getStoreInfo,
+  type DeliveryOrder,
+  type StoreInfo,
+} from '../../api/delivery';
+import EReceiptTicket from '../../components/EReceiptTicket.vue';
 import { getCustomerToken } from '../../utils/customer-storage';
+import { buildEReceiptPayload, canShowEReceipt } from '../../utils/build-e-receipt';
 
 const { t } = useI18n();
 const router = useRouter();
@@ -14,19 +22,54 @@ const route = useRoute();
 
 const orderId = computed(() => String(route.params.id));
 const order = ref<DeliveryOrder | null>(null);
+const store = ref<StoreInfo | null>(null);
 const loading = ref(true);
 const cancelling = ref(false);
+const showReceipt = ref(false);
+const receiptPayload = ref<PrintTicketPayload | null>(null);
 let socket: Socket | null = null;
 
-const addr = computed(() => (order.value?.addressSnapshot || {}) as Record<string, string>);
+const addr = computed(() => (order.value?.addressSnapshot || {}) as Record<string, string | boolean | number>);
+
+const channel = computed(() => {
+  const o = order.value;
+  if (!o) return 'delivery';
+  if (o.channel === 'group_meal' || o.channel === 'dine_in' || o.channel === 'takeaway' || o.channel === 'delivery') {
+    return o.channel;
+  }
+  if (addr.value.groupMeal === true) return 'group_meal';
+  if (o.type === 'dine_in' || o.type === 'takeaway' || o.type === 'delivery') return o.type;
+  return 'delivery';
+});
+
+const showAddress = computed(() => channel.value === 'delivery' || channel.value === 'group_meal');
+
+const showEReceiptBtn = computed(() => (order.value ? canShowEReceipt(order.value) : false));
 
 async function loadOrder() {
   loading.value = true;
   try {
-    order.value = await getOrderDetail(orderId.value);
+    const [o, s] = await Promise.all([
+      getOrderDetail(orderId.value),
+      store.value ? Promise.resolve(store.value) : getStoreInfo().catch(() => null),
+    ]);
+    order.value = o;
+    if (s) store.value = s;
   } finally {
     loading.value = false;
   }
+}
+
+function openEReceipt() {
+  if (!order.value || !canShowEReceipt(order.value)) return;
+  const s = store.value || {
+    nameZh: t('home.title'),
+    nameVi: t('home.title'),
+    address: null,
+    phone: null,
+  };
+  receiptPayload.value = buildEReceiptPayload(order.value, s);
+  showReceipt.value = true;
 }
 
 function connectSocket() {
@@ -68,7 +111,12 @@ function statusColor(status: string): string {
   return map[status] ?? '#323233';
 }
 
-const canCancel = computed(() => order.value?.status === 'pending');
+/** 仅外卖/团餐 pending 可自助取消；堂食走店内流程 */
+const canCancel = computed(
+  () =>
+    order.value?.status === 'pending' &&
+    (channel.value === 'delivery' || channel.value === 'group_meal'),
+);
 
 async function handleCancel() {
   await showConfirmDialog({
@@ -92,23 +140,33 @@ function payMethodLabel(method?: string | null): string {
 
 <template>
   <div class="order-detail-page">
-    <van-nav-bar :title="t('shop.order.detail')" left-arrow @click-left="router.back()" />
+    <van-nav-bar
+      :title="t('shop.order.detail')"
+      left-arrow
+      fixed
+      placeholder
+      @click-left="router.back()"
+    />
     <div v-if="loading" style="padding: 24px"><van-skeleton title :row="8" /></div>
     <template v-else-if="order">
       <div class="status-head" :style="{ background: statusColor(order.status) }">
+        <div class="channel-pill">{{ t(`shop.order.channel.${channel}`) }}</div>
         <div class="status-text">{{ t(`shop.order.status.${order.status}`, order.status) }}</div>
         <div class="order-no-text"># {{ order.orderNo }}</div>
       </div>
-      <van-cell-group inset style="margin-top: 12px">
+      <van-cell-group v-if="showAddress" inset style="margin-top: 12px">
         <van-cell
           icon="location-o"
           :title="`${addr.contactName || ''}  ${addr.phone || ''}`"
           :label="`${addr.addressText || ''}${addr.detail ? ' ' + addr.detail : ''}`"
         />
-        <div v-if="addr.landmarkPhoto && isSafeMediaUrl(addr.landmarkPhoto)" class="landmark-box">
+        <div
+          v-if="addr.landmarkPhoto && typeof addr.landmarkPhoto === 'string' && isSafeMediaUrl(addr.landmarkPhoto)"
+          class="landmark-box"
+        >
           <div class="landmark-label">{{ t('shop.address.landmarkTitle') }}</div>
-          <a :href="addr.landmarkPhoto" target="_blank" rel="noopener noreferrer">
-            <img :src="addr.landmarkPhoto" class="landmark-img" alt="" />
+          <a :href="String(addr.landmarkPhoto)" target="_blank" rel="noopener noreferrer">
+            <img :src="String(addr.landmarkPhoto)" class="landmark-img" alt="" />
           </a>
         </div>
       </van-cell-group>
@@ -134,17 +192,51 @@ function payMethodLabel(method?: string | null): string {
       </van-cell-group>
       <van-cell-group inset style="margin-top: 12px">
         <van-cell :title="t('shop.checkout.subtotal')" :value="formatVND(order.subtotal)" />
-        <van-cell :title="t('shop.checkout.deliveryFee')" :value="formatVND(order.deliveryFee)" />
+        <van-cell
+          v-if="showAddress && order.deliveryFee > 0"
+          :title="t('shop.checkout.deliveryFee')"
+          :value="formatVND(order.deliveryFee)"
+        />
         <van-cell :title="t('shop.checkout.total')" :value="formatVND(order.total)" />
         <van-cell :title="t('shop.order.payMethod')" :value="payMethodLabel(order.payMethod)" />
         <van-cell v-if="order.remark" :title="t('shop.checkout.remark')" :value="order.remark" />
       </van-cell-group>
-      <div v-if="canCancel" style="padding: 16px">
-        <van-button block plain type="danger" round :loading="cancelling" @click="handleCancel">
+      <div class="action-stack">
+        <van-button
+          v-if="showEReceiptBtn"
+          block
+          round
+          type="primary"
+          @click="openEReceipt"
+        >
+          {{ t('shop.order.viewEReceipt') }}
+        </van-button>
+        <van-button
+          v-if="canCancel"
+          block
+          plain
+          type="danger"
+          round
+          :loading="cancelling"
+          @click="handleCancel"
+        >
           {{ t('shop.order.cancel') }}
         </van-button>
       </div>
     </template>
+
+    <van-popup
+      v-model:show="showReceipt"
+      position="bottom"
+      round
+      closeable
+      :style="{ maxHeight: '92%' }"
+    >
+      <div class="receipt-sheet">
+        <h3 class="receipt-title">{{ t('shop.order.eReceiptTitle') }}</h3>
+        <EReceiptTicket v-if="receiptPayload" :payload="receiptPayload" paid-stamp />
+      </div>
+    </van-popup>
   </div>
 </template>
 
@@ -158,6 +250,13 @@ function payMethodLabel(method?: string | null): string {
   color: #fff;
   padding: 24px 16px;
   text-align: center;
+}
+.channel-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 12px;
 }
 .status-text {
   font-size: 20px;
@@ -206,5 +305,21 @@ function payMethodLabel(method?: string | null): string {
   border-radius: 8px;
   border: 1px solid #eee;
   display: block;
+}
+.action-stack {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.receipt-sheet {
+  padding: 16px 12px 24px;
+  background: #f0f0f0;
+  overflow: auto;
+}
+.receipt-title {
+  margin: 0 0 8px;
+  text-align: center;
+  font-size: 16px;
 }
 </style>

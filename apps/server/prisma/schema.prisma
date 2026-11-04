@@ -93,6 +93,13 @@ enum PrinterRole {
   kitchen
 }
 
+/** network=网口 TCP；browser_usb=收银电脑浏览器 Web Serial */
+enum PrinterConnectionType {
+  network
+  browser_usb
+  cloud
+}
+
 enum PrintJobKind {
   order_front
   order_kitchen
@@ -102,6 +109,8 @@ enum PrintJobKind {
   cancel
   delivery
   shift
+  /** 退款小票（前台） */
+  refund
 }
 
 enum PrintJobStatus {
@@ -198,6 +207,26 @@ enum LedgerDirection {
   adjust
 }
 
+/** 原料库存流水：售卖扣料与进货/盘点分账，盘点不删售卖记录 */
+enum IngredientMovementType {
+  sale_deduct
+  sale_restore
+  purchase
+  stocktake_set
+}
+
+/** 人事：用工类型 */
+enum EmploymentType {
+  full_time
+  part_time
+}
+
+/** 人事：在职状态 */
+enum EmployeeStatus {
+  active
+  resigned
+}
+
 // ========== 权限 ==========
 
 model User {
@@ -218,6 +247,7 @@ model User {
   createdOrders  Order[]         @relation("OrderCreator")
   courierOrders  Order[]         @relation("OrderCourier")
   payments       Payment[]
+  orderRefunds   OrderRefund[]
   assetEvents    AssetEvent[]
   auditLogs      AuditLog[]
   loginLogs      LoginLog[]
@@ -228,6 +258,7 @@ model User {
   balanceLedgers    BalanceLedger[]
   issuedCoupons     Coupon[]         @relation("CouponIssuer")
   createdReservations Reservation[]  @relation("ReservationCreator")
+  employeeProfile     Employee?
 
   @@index([storeId])
   @@map("users")
@@ -370,6 +401,7 @@ model Store {
   dailySummaries   DailySummary[]
   cashierShifts    CashierShift[]
   ingredients      Ingredient[]
+  ingredientMovements IngredientMovement[]
   suppliers        Supplier[]
   purchases        Purchase[]
   stocktakes       Stocktake[]
@@ -381,6 +413,9 @@ model Store {
   notices              StoreNotice[]
   groupMealInquiries   GroupMealInquiry[]
   chatConversations    ChatConversation[]
+  employees            Employee[]
+  employeeAttendances  EmployeeAttendance[]
+  employeePayrollRuns  EmployeePayrollRun[]
 
   @@map("stores")
 }
@@ -394,6 +429,8 @@ model ChatConversation {
   lastPreview    String?   @map("last_preview") @db.VarChar(255)
   unreadStaff    Int       @default(0) @map("unread_staff")
   unreadCustomer Int       @default(0) @map("unread_customer")
+  /** 禁言截止时间；为空表示未禁言 */
+  mutedUntil     DateTime? @map("muted_until")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -519,11 +556,29 @@ model Dish {
   options        DishOption[]
   items          OrderItem[]
   comboGroupItems ComboGroupItem[]
+  recipes        DishRecipe[]
+  reservationItems ReservationItem[]
 
   @@index([storeId, status])
   @@index([categoryId])
   @@index([storeId, isNew])
   @@map("dishes")
+}
+
+/** 菜品原料配方（BOM）：每份菜消耗的原料数量 */
+model DishRecipe {
+  id           BigInt  @id @default(autoincrement())
+  dishId       BigInt  @map("dish_id")
+  ingredientId BigInt  @map("ingredient_id")
+  /** 每 1 份菜品消耗量（与原料 unit 一致） */
+  qty          Decimal @db.Decimal(14, 3)
+
+  dish       Dish       @relation(fields: [dishId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([dishId, ingredientId])
+  @@index([ingredientId])
+  @@map("dish_recipes")
 }
 
 model DishOption {
@@ -657,6 +712,7 @@ model Order {
   batches      OrderBatch[]
   items        OrderItem[]
   payments     Payment[]
+  refunds      OrderRefund[]
   printJobs    PrintJob[]
 
   @@index([storeId, status, createdAt])
@@ -666,6 +722,26 @@ model Order {
   @@index([type, status])
   @@index([courierId])
   @@map("orders")
+}
+
+/** 已收款退款记录（堂食已结账 / 外卖已完成）；金额为正，表示退给顾客 */
+model OrderRefund {
+  id         BigInt        @id @default(autoincrement())
+  orderId    BigInt        @map("order_id")
+  /** 退款金额（越南盾整数，正数） */
+  amount     BigInt
+  /** 退款方式：现金当面退 / 转账退回等 */
+  method     PaymentMethod
+  reason     String        @db.VarChar(512)
+  operatorId BigInt?       @map("operator_id")
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  order    Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  operator User? @relation(fields: [operatorId], references: [id])
+
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("order_refunds")
 }
 
 model OrderBatch {
@@ -969,18 +1045,22 @@ model PrintAgent {
 }
 
 model Printer {
-  id          BigInt      @id @default(autoincrement())
-  storeId     BigInt       @map("store_id")
-  name        String      @db.VarChar(128)
-  ip          String      @db.VarChar(64)
-  port        Int         @default(9100)
-  paperWidth  Int         @default(80) @map("paper_width")
-  role        PrinterRole
-  stationId   BigInt?     @map("station_id")
-  agentId     BigInt?     @map("agent_id")
-  isActive    Boolean     @default(true) @map("is_active")
-  createdAt   DateTime    @default(now()) @map("created_at")
-  updatedAt   DateTime    @updatedAt @map("updated_at")
+  id               BigInt                @id @default(autoincrement())
+  storeId          BigInt                @map("store_id")
+  name             String                @db.VarChar(128)
+  /** 网口为 IP；cloud 为 Webhook URL；browser_usb 可空 */
+  ip               String                @default("") @db.VarChar(512)
+  port             Int                   @default(9100)
+  paperWidth       Int                   @default(80) @map("paper_width")
+  role             PrinterRole
+  connectionType   PrinterConnectionType @default(network) @map("connection_type")
+  /** 小店单机：同时承接前台+厨房（及外卖）票据 */
+  acceptAllTickets Boolean               @default(false) @map("accept_all_tickets")
+  stationId        BigInt?               @map("station_id")
+  agentId          BigInt?               @map("agent_id")
+  isActive         Boolean               @default(true) @map("is_active")
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
 
   store   Store           @relation(fields: [storeId], references: [id])
   station KitchenStation? @relation(fields: [stationId], references: [id])
@@ -1127,9 +1207,32 @@ model Ingredient {
   store           Store            @relation(fields: [storeId], references: [id])
   purchaseItems   PurchaseItem[]
   stocktakeItems  StocktakeItem[]
+  recipes         DishRecipe[]
+  movements       IngredientMovement[]
 
   @@index([storeId, kind])
   @@map("ingredients")
+}
+
+model IngredientMovement {
+  id           BigInt                  @id @default(autoincrement())
+  storeId      BigInt                  @map("store_id")
+  ingredientId BigInt                  @map("ingredient_id")
+  type         IngredientMovementType
+  /** 变动数量（正数；方向由 type 表达） */
+  qty          Decimal                 @db.Decimal(14, 3)
+  refType      String?                 @map("ref_type") @db.VarChar(32)
+  refId        String?                 @map("ref_id") @db.VarChar(64)
+  note         String?                 @db.VarChar(256)
+  createdAt    DateTime                @default(now()) @map("created_at")
+
+  store      Store      @relation(fields: [storeId], references: [id])
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@index([ingredientId, createdAt])
+  @@index([refType, refId])
+  @@map("ingredient_movements")
 }
 
 model Purchase {
@@ -1411,12 +1514,35 @@ model Reservation {
   customer       Customer?    @relation(fields: [customerId], references: [id])
   creator        User?        @relation("ReservationCreator", fields: [createdBy], references: [id])
   seatedSession  TableSession? @relation(fields: [seatedSessionId], references: [id])
+  items          ReservationItem[]
 
   @@index([storeId, reserveAt])
   @@index([storeId, status])
   @@index([tableId])
   @@index([customerId])
   @@map("reservations")
+}
+
+/** 预定预点菜（确认后厨房可见；入座时转入堂食订单再扣库存） */
+model ReservationItem {
+  id               BigInt  @id @default(autoincrement())
+  reservationId    BigInt  @map("reservation_id")
+  dishId           BigInt? @map("dish_id")
+  nameZh           String  @map("name_zh") @db.VarChar(128)
+  nameVi           String  @map("name_vi") @db.VarChar(128)
+  qty              Int     @default(1)
+  unitPrice        BigInt  @map("unit_price")
+  optionsSnapshot  Json?   @map("options_snapshot")
+  remark           String? @db.VarChar(255)
+  sort             Int     @default(0)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  dish        Dish?       @relation(fields: [dishId], references: [id], onDelete: SetNull)
+
+  @@index([reservationId])
+  @@index([dishId])
+  @@map("reservation_items")
 }
 
 // ========== 审计 ==========
@@ -1496,4 +1622,75 @@ model AuditLog {
   @@index([action, createdAt])
   @@index([targetType, targetId])
   @@map("audit_logs")
+}
+
+// ========== 人事 / 人力成本 ==========
+
+model Employee {
+  id             BigInt         @id @default(autoincrement())
+  storeId        BigInt         @map("store_id")
+  /** 可选关联后台登录账号 */
+  userId         BigInt?        @unique @map("user_id")
+  nameZh         String         @map("name_zh") @db.VarChar(128)
+  nameVi         String         @map("name_vi") @db.VarChar(128)
+  phone          String?        @db.VarChar(32)
+  employmentType EmploymentType @default(full_time) @map("employment_type")
+  status         EmployeeStatus @default(active)
+  /** 长工=月薪；兼职=时薪（越南盾整数） */
+  baseSalary     BigInt         @default(0) @map("base_salary")
+  hiredAt        DateTime       @map("hired_at") @db.Date
+  resignedAt     DateTime?      @map("resigned_at") @db.Date
+  remark         String?        @db.VarChar(512)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  store        Store                @relation(fields: [storeId], references: [id])
+  user         User?                @relation(fields: [userId], references: [id])
+  attendances  EmployeeAttendance[]
+
+  @@index([storeId, status])
+  @@index([storeId, employmentType])
+  @@map("employees")
+}
+
+model EmployeeAttendance {
+  id           BigInt    @id @default(autoincrement())
+  storeId      BigInt    @map("store_id")
+  employeeId   BigInt    @map("employee_id")
+  /** 考勤所属日（HCM 日历日） */
+  workDate     DateTime  @map("work_date") @db.Date
+  clockInAt    DateTime  @map("clock_in_at")
+  clockOutAt   DateTime? @map("clock_out_at")
+  /** 工时分钟；有下班时间时服务端计算 */
+  workMinutes  Int       @default(0) @map("work_minutes")
+  remark       String?   @db.VarChar(255)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  store    Store    @relation(fields: [storeId], references: [id])
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, workDate])
+  @@index([employeeId, workDate])
+  @@map("employee_attendance")
+}
+
+/** 按月人力成本快照（可重算覆盖） */
+model EmployeePayrollRun {
+  id             BigInt   @id @default(autoincrement())
+  storeId        BigInt   @map("store_id")
+  /** YYYY-MM */
+  yearMonth      String   @map("year_month") @db.VarChar(7)
+  totalLaborCost BigInt   @default(0) @map("total_labor_cost")
+  /** 明细快照：员工分项、规则、工时等 */
+  snapshotJson   Json     @map("snapshot_json")
+  createdBy      BigInt?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, yearMonth])
+  @@index([storeId, yearMonth])
+  @@map("employee_payroll_runs")
 }

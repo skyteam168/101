@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'crypto';
 import { PrintAgentStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { BusinessError } from '../../common/errors/business.error';
+import { assertSafeExternalHttpUrl } from '../../common/safe-url.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateAgentDto,
@@ -37,6 +38,8 @@ export class PrintService {
       port: p.port,
       paperWidth: p.paperWidth,
       role: p.role,
+      connectionType: p.connectionType,
+      acceptAllTickets: p.acceptAllTickets,
       stationId: p.stationId?.toString() ?? null,
       agentId: p.agentId?.toString() ?? null,
       isActive: p.isActive,
@@ -127,16 +130,30 @@ export class PrintService {
   }
 
   async createPrinter(storeId: string, dto: CreatePrinterDto) {
+    const connectionType = dto.connectionType ?? 'network';
+    const isBrowser = connectionType === 'browser_usb';
+    const isCloud = connectionType === 'cloud';
+    if (!isBrowser && !dto.ip?.trim()) {
+      throw new BusinessError(isCloud ? 'PRINTER_WEBHOOK_REQUIRED' : 'PRINTER_IP_REQUIRED');
+    }
+    if (isCloud) {
+      assertSafeExternalHttpUrl(dto.ip!.trim());
+    }
+    if (!isBrowser && !isCloud && !dto.agentId) {
+      throw new BusinessError('PRINTER_AGENT_REQUIRED');
+    }
     const row = await this.prisma.printer.create({
       data: {
         storeId: BigInt(storeId),
         name: dto.name,
-        ip: dto.ip,
+        ip: isBrowser ? (dto.ip?.trim() || '') : dto.ip!.trim(),
         port: dto.port ?? 9100,
         paperWidth: dto.paperWidth,
         role: dto.role,
+        connectionType,
+        acceptAllTickets: dto.acceptAllTickets ?? false,
         stationId: dto.stationId ? BigInt(dto.stationId) : null,
-        agentId: dto.agentId ? BigInt(dto.agentId) : null,
+        agentId: isBrowser || isCloud ? null : dto.agentId ? BigInt(dto.agentId) : null,
         isActive: dto.isActive ?? true,
       },
       include: { station: true, agent: true },
@@ -149,14 +166,31 @@ export class PrintService {
       where: { id: BigInt(id), storeId: BigInt(storeId) },
     });
     if (!existing) throw new BusinessError('PRINTER_NOT_FOUND');
+    const nextType = dto.connectionType ?? existing.connectionType;
+    const isBrowser = nextType === 'browser_usb';
+    const isCloud = nextType === 'cloud';
+    const nextIp = dto.ip !== undefined ? dto.ip.trim() : existing.ip;
+    if (!isBrowser && !nextIp) {
+      throw new BusinessError(isCloud ? 'PRINTER_WEBHOOK_REQUIRED' : 'PRINTER_IP_REQUIRED');
+    }
+    if (isCloud) {
+      assertSafeExternalHttpUrl(nextIp);
+    }
+    if (!isBrowser && !isCloud) {
+      const nextAgent =
+        dto.agentId !== undefined ? dto.agentId : existing.agentId?.toString() ?? null;
+      if (!nextAgent) throw new BusinessError('PRINTER_AGENT_REQUIRED');
+    }
     const row = await this.prisma.printer.update({
       where: { id: existing.id },
       data: {
         name: dto.name,
-        ip: dto.ip,
+        ip: dto.ip !== undefined ? (isBrowser ? dto.ip.trim() : dto.ip.trim()) : undefined,
         port: dto.port,
         paperWidth: dto.paperWidth,
         role: dto.role,
+        connectionType: dto.connectionType,
+        acceptAllTickets: dto.acceptAllTickets,
         stationId:
           dto.stationId === undefined
             ? undefined
@@ -164,7 +198,13 @@ export class PrintService {
               ? BigInt(dto.stationId)
               : null,
         agentId:
-          dto.agentId === undefined ? undefined : dto.agentId ? BigInt(dto.agentId) : null,
+          isBrowser || isCloud
+            ? null
+            : dto.agentId === undefined
+              ? undefined
+              : dto.agentId
+                ? BigInt(dto.agentId)
+                : null,
         isActive: dto.isActive,
       },
       include: { station: true, agent: true },

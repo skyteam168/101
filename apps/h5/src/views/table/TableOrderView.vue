@@ -5,6 +5,7 @@ import { useRoute } from 'vue-router';
 import { showToast } from 'vant';
 import { Events, formatVND, localeField } from '@restaurant/shared';
 import { io, type Socket } from 'socket.io-client';
+import { getPublicStoreId } from '../../utils/store-id';
 import {
   addCartApi,
   callWaiterApi,
@@ -161,7 +162,7 @@ async function doJoin() {
 }
 
 async function loadMenu() {
-  const storeId = meta.value?.storeId || peek.value?.storeId || '1';
+  const storeId = meta.value?.storeId || peek.value?.storeId || getPublicStoreId();
   categories.value = await publicMenuApi(storeId);
 }
 
@@ -401,7 +402,11 @@ watch(qrToken, async () => {
 
 <template>
   <div class="page">
-    <van-nav-bar :title="peek ? t('join.table', { code: peek.code }) : t('app.title')">
+    <van-nav-bar
+      :title="peek ? t('join.table', { code: peek.code }) : t('app.title')"
+      fixed
+      placeholder
+    >
       <template #right>
         <span class="lang" @click="toggleLang">{{ t('app.switchLang') }}</span>
       </template>
@@ -437,7 +442,7 @@ watch(qrToken, async () => {
         <span class="pin">PIN {{ meta?.pin }}</span>
       </div>
 
-      <van-tabs v-model:active="tab" sticky>
+      <van-tabs v-model:active="tab" sticky offset-top="46">
         <van-tab :title="t('menu.title')">
           <div class="menu-layout">
             <van-sidebar v-model="activeCat" @change="selectCat">

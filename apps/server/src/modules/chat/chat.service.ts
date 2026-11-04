@@ -1,11 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { Events } from '@restaurant/shared';
+import { Events, OrderStatus } from '@restaurant/shared';
 import { BusinessError } from '../../common/errors/business.error';
 import { assertSafeMediaUrl, sanitizePlainText } from '../../common/safe-url.util';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RedisService } from '../../redis/redis.service';
 import { StoreService } from '../store/store.service';
 import { CUSTOMER_INBOX_MESSAGE, CustomerInboxPayload } from './customer-inbox.event';
+
+/** 无有效订单时，顾客最多可发条数 */
+const FREE_CUSTOMER_MSG_LIMIT = 2;
+/** 发送冷却：窗口内最多 1 条 */
+const SEND_COOLDOWN_SEC = 10;
+/** 发送分钟限额 */
+const SEND_PER_MINUTE = 5;
+const SEND_MINUTE_WINDOW_SEC = 60;
+/** 翻译日配额（仅未命中缓存） */
+const TRANSLATE_QUOTA_CUSTOMER = 20;
+const TRANSLATE_QUOTA_STORE = 200;
+const MUTE_DEFAULT_HOURS = 24 * 7;
 
 @Injectable()
 export class ChatService {
@@ -13,6 +26,7 @@ export class ChatService {
     private readonly prisma: PrismaService,
     private readonly events: EventEmitter2,
     private readonly storeService: StoreService,
+    private readonly redis: RedisService,
   ) {}
 
   private mapTranslations(raw: unknown): Partial<Record<'zh' | 'vi' | 'en', string>> {
@@ -58,6 +72,7 @@ export class ChatService {
       lastPreview: string | null;
       unreadStaff: number;
       unreadCustomer: number;
+      mutedUntil?: Date | null;
       createdAt: Date;
       updatedAt: Date;
       customer?: { id: bigint; name: string | null; email: string; phone: string | null } | null;
@@ -71,6 +86,7 @@ export class ChatService {
       lastPreview: c.lastPreview,
       unreadStaff: c.unreadStaff,
       unreadCustomer: c.unreadCustomer,
+      mutedUntil: c.mutedUntil?.toISOString() ?? null,
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
       customer: c.customer
@@ -172,6 +188,48 @@ export class ChatService {
     return { contentType: 'text', content };
   }
 
+  private assertNotMuted(mutedUntil: Date | null | undefined) {
+    if (mutedUntil && mutedUntil.getTime() > Date.now()) {
+      throw new BusinessError('CHAT_MUTED');
+    }
+  }
+
+  private async assertCustomerSendRate(customerId: string) {
+    const cool = await this.redis.incr(`chat:send:cd:${customerId}`, SEND_COOLDOWN_SEC);
+    if (cool > 1) throw new BusinessError('CHAT_RATE_LIMITED');
+    const perMin = await this.redis.incr(
+      `chat:send:min:${customerId}`,
+      SEND_MINUTE_WINDOW_SEC,
+    );
+    if (perMin > SEND_PER_MINUTE) throw new BusinessError('CHAT_RATE_LIMITED');
+  }
+
+  private async hasValidOrder(storeId: string, customerId: string): Promise<boolean> {
+    const row = await this.prisma.order.findFirst({
+      where: {
+        storeId: BigInt(storeId),
+        customerId: BigInt(customerId),
+        status: {
+          notIn: [OrderStatus.CANCELLED, OrderStatus.REJECTED],
+        },
+      },
+      select: { id: true },
+    });
+    return !!row;
+  }
+
+  private async assertCustomerCanSend(storeId: string, customerId: string, conversationId: bigint) {
+    const customerMsgCount = await this.prisma.chatMessage.count({
+      where: {
+        conversationId,
+        senderType: 'customer',
+      },
+    });
+    if (customerMsgCount < FREE_CUSTOMER_MSG_LIMIT) return;
+    const ok = await this.hasValidOrder(storeId, customerId);
+    if (!ok) throw new BusinessError('CHAT_NEED_ORDER');
+  }
+
   async sendFromCustomer(
     storeId: string,
     customerId: string,
@@ -179,6 +237,10 @@ export class ChatService {
   ) {
     const normalized = this.normalizeMessageContent(dto);
     const conv = await this.ensureConversation(storeId, customerId);
+    this.assertNotMuted(conv.mutedUntil);
+    await this.assertCustomerSendRate(customerId);
+    await this.assertCustomerCanSend(storeId, customerId, conv.id);
+
     const preview =
       normalized.contentType === 'image' ? '[image]' : normalized.content.slice(0, 120);
     const msg = await this.prisma.$transaction(async (tx) => {
@@ -330,6 +392,38 @@ export class ChatService {
     return { ok: true };
   }
 
+  async muteConversation(storeId: string, conversationId: string, hours?: number) {
+    const conv = await this.prisma.chatConversation.findFirst({
+      where: { id: BigInt(conversationId), storeId: BigInt(storeId) },
+    });
+    if (!conv) throw new BusinessError('CHAT_NOT_FOUND');
+    const h = hours && hours > 0 ? Math.min(hours, 24 * 30) : MUTE_DEFAULT_HOURS;
+    const mutedUntil = new Date(Date.now() + h * 3600 * 1000);
+    const updated = await this.prisma.chatConversation.update({
+      where: { id: conv.id },
+      data: { mutedUntil },
+      include: {
+        customer: { select: { id: true, name: true, email: true, phone: true } },
+      },
+    });
+    return this.mapConversation(updated);
+  }
+
+  async unmuteConversation(storeId: string, conversationId: string) {
+    const conv = await this.prisma.chatConversation.findFirst({
+      where: { id: BigInt(conversationId), storeId: BigInt(storeId) },
+    });
+    if (!conv) throw new BusinessError('CHAT_NOT_FOUND');
+    const updated = await this.prisma.chatConversation.update({
+      where: { id: conv.id },
+      data: { mutedUntil: null },
+      include: {
+        customer: { select: { id: true, name: true, email: true, phone: true } },
+      },
+    });
+    return this.mapConversation(updated);
+  }
+
   async listConversations(storeId: string) {
     const rows = await this.prisma.chatConversation.findMany({
       where: { storeId: BigInt(storeId) },
@@ -357,47 +451,72 @@ export class ChatService {
     return 'English';
   }
 
+  private dayKey() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  private async consumeTranslateQuota(opts: {
+    storeId: string;
+    customerId?: string;
+  }) {
+    const day = this.dayKey();
+    if (opts.customerId) {
+      const n = await this.redis.incr(
+        `chat:tr:cust:${opts.customerId}:${day}`,
+        86400,
+      );
+      if (n > TRANSLATE_QUOTA_CUSTOMER) throw new BusinessError('TRANSLATE_QUOTA');
+    }
+    const storeN = await this.redis.incr(`chat:tr:store:${opts.storeId}:${day}`, 86400);
+    if (storeN > TRANSLATE_QUOTA_STORE) throw new BusinessError('TRANSLATE_QUOTA');
+  }
+
   async translate(
     storeId: string,
     dto: {
-      text?: string;
-      messageId?: string;
+      messageId: string;
       targetLang: 'zh' | 'vi' | 'en';
       sourceLang?: 'zh' | 'vi' | 'en';
     },
     opts?: { customerId?: string },
   ) {
-    let text = (dto.text || '').trim();
-    let messageRow: {
-      id: bigint;
-      contentType: string;
-      content: string;
-      translations: unknown;
-    } | null = null;
-
-    if (dto.messageId) {
-      const row = await this.prisma.chatMessage.findUnique({
-        where: { id: BigInt(dto.messageId) },
-        include: { conversation: true },
-      });
-      if (!row) throw new BusinessError('CHAT_MESSAGE_NOT_FOUND');
-      if (row.conversation.storeId.toString() !== storeId) {
-        throw new BusinessError('FORBIDDEN', undefined, 403);
-      }
-      if (opts?.customerId && row.conversation.customerId.toString() !== opts.customerId) {
-        throw new BusinessError('FORBIDDEN', undefined, 403);
-      }
-      const cached = this.mapTranslations(row.translations);
-      const hit = cached[dto.targetLang];
-      if (hit) {
-        return { translated: hit, targetLang: dto.targetLang, cached: true };
-      }
-      if (row.contentType !== 'text') throw new BusinessError('CHAT_TRANSLATE_TEXT_ONLY');
-      messageRow = row;
-      if (!text) text = row.content.trim();
+    if (!dto.messageId?.trim()) {
+      throw new BusinessError('CHAT_TRANSLATE_MESSAGE_REQUIRED');
     }
 
+    const row = await this.prisma.chatMessage.findUnique({
+      where: { id: BigInt(dto.messageId) },
+      include: { conversation: true },
+    });
+    if (!row) throw new BusinessError('CHAT_MESSAGE_NOT_FOUND');
+    if (row.conversation.storeId.toString() !== storeId) {
+      throw new BusinessError('FORBIDDEN', undefined, 403);
+    }
+    if (opts?.customerId && row.conversation.customerId.toString() !== opts.customerId) {
+      throw new BusinessError('FORBIDDEN', undefined, 403);
+    }
+
+    // 只能翻译对方发来的消息
+    if (opts?.customerId) {
+      if (row.senderType !== 'staff') throw new BusinessError('CHAT_TRANSLATE_PEER_ONLY');
+    } else if (row.senderType !== 'customer') {
+      throw new BusinessError('CHAT_TRANSLATE_PEER_ONLY');
+    }
+
+    const cached = this.mapTranslations(row.translations);
+    const hit = cached[dto.targetLang];
+    if (hit) {
+      return { translated: hit, targetLang: dto.targetLang, cached: true };
+    }
+    if (row.contentType !== 'text') throw new BusinessError('CHAT_TRANSLATE_TEXT_ONLY');
+
+    const text = row.content.trim();
     if (!text) throw new BusinessError('CHAT_TRANSLATE_TEXT_REQUIRED');
+
+    await this.consumeTranslateQuota({
+      storeId,
+      customerId: opts?.customerId,
+    });
 
     const ai = await this.storeService.getAiSettingsRaw(storeId);
     if (!ai.enabled) throw new BusinessError('AI_TRANSLATE_DISABLED');
@@ -446,17 +565,14 @@ export class ChatService {
     const translated = data.choices?.[0]?.message?.content?.trim();
     if (!translated) throw new BusinessError('AI_TRANSLATE_FAILED');
 
-    // 写回消息译文缓存，后续打开会话直接展示
-    if (messageRow) {
-      const next = {
-        ...this.mapTranslations(messageRow.translations),
-        [dto.targetLang]: translated,
-      };
-      await this.prisma.chatMessage.update({
-        where: { id: messageRow.id },
-        data: { translations: next },
-      });
-    }
+    const next = {
+      ...this.mapTranslations(row.translations),
+      [dto.targetLang]: translated,
+    };
+    await this.prisma.chatMessage.update({
+      where: { id: row.id },
+      data: { translations: next },
+    });
 
     return { translated, targetLang: dto.targetLang, cached: false };
   }

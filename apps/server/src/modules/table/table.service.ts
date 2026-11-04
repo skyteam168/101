@@ -60,6 +60,7 @@ export class TableService {
     seats: number;
     status: TableStatus;
     qrToken: string;
+    storeId: bigint;
     currentSessionId: bigint | null;
     area?: { id: bigint; nameZh: string; nameVi: string };
     currentSession?: {
@@ -99,7 +100,7 @@ export class TableService {
       seats: t.seats,
       status,
       qrToken: t.qrToken,
-      qrUrl: `${this.h5Base()}/t/${t.qrToken}`,
+      qrUrl: `${this.h5Base()}/t/${t.qrToken}?storeId=${t.storeId.toString()}`,
       currentSessionId: t.currentSessionId?.toString() ?? null,
       session: t.currentSession
         ? {
@@ -630,7 +631,7 @@ export class TableService {
     for (let i = 0; i < tables.length; i++) {
       if (i > 0) doc.addPage();
       const t = tables[i];
-      const url = `${this.h5Base()}/t/${t.qrToken}`;
+      const url = `${this.h5Base()}/t/${t.qrToken}?storeId=${storeId}`;
       const qr = await QRCode.toBuffer(url, { type: 'png', width: 320, margin: 1, errorCorrectionLevel: 'M' });
 
       // 外框

@@ -1,4 +1,5 @@
 import { apiGet } from './http';
+import { getPublicStoreId, persistPublicStoreId } from '../utils/store-id';
 
 export type HomeNotice = {
   id: string;
@@ -54,5 +55,8 @@ export type HomeFeed = {
   newDishes: HomeNewDish[];
 };
 
-export const getHomeFeedApi = (storeId = '1') =>
-  apiGet<HomeFeed>('/public/home', { storeId });
+export async function getHomeFeedApi(storeId = getPublicStoreId()) {
+  const data = await apiGet<HomeFeed>('/public/home', { storeId });
+  if (data?.store?.id) persistPublicStoreId(data.store.id);
+  return data;
+}

@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { GroupMealInquiryStatus } from '@prisma/client';
 import { Events } from '@restaurant/shared';
 import { BusinessError } from '../../common/errors/business.error';
+import { resolvePublicStoreId } from '../../common/public-store.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateGroupMealInquiryDto,
@@ -59,7 +60,7 @@ export class GroupMealService {
   }
 
   async createInquiry(dto: CreateGroupMealInquiryDto, customerId?: string) {
-    const storeId = BigInt(dto.storeId || '1');
+    const storeId = BigInt(resolvePublicStoreId(dto.storeId));
     if (dto.comboId) {
       const combo = await this.prisma.combo.findFirst({
         where: {

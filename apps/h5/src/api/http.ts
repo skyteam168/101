@@ -33,9 +33,15 @@ http.interceptors.response.use(
   },
   (error: AxiosError<ApiBody>) => {
     const code = error.response?.data?.code || 'HTTP_ERROR';
+    const serverMsg = error.response?.data?.message;
     const key = `errors.${code}`;
     const translated = i18n.global.t(key);
-    showToast(translated === key ? error.response?.data?.message || error.message : String(translated));
+    // HTTP_ERROR 常是校验失败，优先展示服务端具体原因，避免误报成「网络异常」
+    if (code === 'HTTP_ERROR' && serverMsg && serverMsg !== 'HTTP_ERROR') {
+      showToast(String(serverMsg));
+    } else {
+      showToast(translated === key ? serverMsg || error.message : String(translated));
+    }
     return Promise.reject(error);
   },
 );

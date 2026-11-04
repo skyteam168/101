@@ -17,6 +17,7 @@ import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ComboService } from '../combo/combo.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { MarketingService } from '../marketing/marketing.service';
 import { computePricing } from '../marketing/pricing.util';
 import { AddComboItemDto } from '../combo/dto/combo.dto';
@@ -28,8 +29,10 @@ import {
   DiscountDto,
   LineDiscountDto,
   OrderQueryDto,
+  RefundDto,
   SubmitOrderDto,
   TempItemDto,
+  UpdateItemStatusDto,
   VoidItemDto,
 } from './dto/order.dto';
 
@@ -58,6 +61,7 @@ export class OrderService {
     private readonly audit: AuditService,
     private readonly marketing: MarketingService,
     private readonly comboService: ComboService,
+    private readonly inventory: InventoryService,
   ) {}
 
   /** 后端金额重算：不信任前端（兼容旧调用） */
@@ -137,11 +141,16 @@ export class OrderService {
         batches: { include: { items: true } };
         items: true;
         payments: true;
+        refunds: true;
         tableSession: { include: { table: true } };
       };
     }>,
   ) {
     const batches = [...o.batches].sort((a, b) => a.roundNo - b.roundNo);
+    const refunds = [...(o.refunds ?? [])].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+    );
+    const refundedAmount = refunds.reduce((s, r) => s + Number(r.amount), 0);
     return {
       id: o.id.toString(),
       orderNo: o.orderNo,
@@ -164,6 +173,7 @@ export class OrderService {
       deliveryFee: this.mapMoney(o.deliveryFee),
       total: this.mapMoney(o.total),
       paidAmount: this.mapMoney(o.paidAmount),
+      refundedAmount,
       promoSnapshot: o.promoSnapshot,
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
@@ -185,18 +195,31 @@ export class OrderService {
         change: this.mapMoney(p.change),
         createdAt: p.createdAt,
       })),
+      refunds: refunds.map((r) => ({
+        id: r.id.toString(),
+        method: r.method,
+        amount: this.mapMoney(r.amount),
+        reason: r.reason,
+        operatorId: r.operatorId?.toString() ?? null,
+        createdAt: r.createdAt,
+      })),
     };
+  }
+
+  private orderFullInclude() {
+    return {
+      batches: { include: { items: true } },
+      items: true,
+      payments: true,
+      refunds: true,
+      tableSession: { include: { table: true } },
+    } as const;
   }
 
   private async getOrderFull(orderId: bigint) {
     return this.prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        batches: { include: { items: true } },
-        items: true,
-        payments: true,
-        tableSession: { include: { table: true } },
-      },
+      include: this.orderFullInclude(),
     });
   }
 
@@ -429,6 +452,10 @@ export class OrderService {
             status: OrderItemStatus.pending,
           },
         });
+        await this.inventory.consumeRecipe(tx, sid, line.dishId, line.qty, {
+          refType: 'order',
+          refId: order.id.toString(),
+        });
       }
 
       return order.id;
@@ -481,6 +508,10 @@ export class OrderService {
       });
 
       for (const line of lines) {
+        await this.inventory.consumeRecipe(tx, sid, line.dishId, line.qty, {
+          refType: 'order',
+          refId: oid.toString(),
+        });
         await tx.orderItem.create({
           data: {
             orderId: oid,
@@ -536,6 +567,10 @@ export class OrderService {
         data: { status: OrderItemStatus.voided, voidReason: dto.reason },
       });
       await this.restoreStock(tx, item.dishId, item.qty);
+      await this.inventory.restoreRecipe(tx, item.order.storeId, item.dishId, item.qty, {
+        refType: 'order_item',
+        refId: itemId,
+      });
       await this.recalculateOrder(tx, item.orderId);
       return item.orderId;
     });
@@ -575,6 +610,10 @@ export class OrderService {
       for (const item of order.items) {
         if (item.status !== OrderItemStatus.voided) {
           await this.restoreStock(tx, item.dishId, item.qty);
+          await this.inventory.restoreRecipe(tx, order.storeId, item.dishId, item.qty, {
+            refType: 'order_item',
+            refId: item.id.toString(),
+          });
           await tx.orderItem.update({
             where: { id: item.id },
             data: { status: OrderItemStatus.voided, voidReason: dto.reason },
@@ -899,7 +938,7 @@ export class OrderService {
     return mapped;
   }
 
-  /** 反结账：需 order:checkout，写审计 */
+  /** 反结账：需 order:checkout，写审计；已有退款记录不可反结账 */
   async reverseCheckout(
     storeId: string,
     orderId: string,
@@ -912,6 +951,7 @@ export class OrderService {
       throw new BusinessError('ORDER_NOT_FOUND');
     }
     if (before.status !== OrderStatus.paid) throw new BusinessError('ORDER_NOT_PAID');
+    if (before.refunds.length > 0) throw new BusinessError('ORDER_HAS_REFUNDS');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.payment.deleteMany({ where: { orderId: oid } });
@@ -965,15 +1005,101 @@ export class OrderService {
     return mapped;
   }
 
+  /**
+   * 正式退款：堂食已结账 / 外卖已完成。
+   * 不改订单 status，扣减 paidAmount；全额退完 paymentStatus=refunded。
+   */
+  async refund(
+    storeId: string,
+    orderId: string,
+    dto: RefundDto,
+    userId: string,
+    ip?: string | null,
+  ) {
+    const oid = BigInt(orderId);
+    const amount = BigInt(dto.amount);
+    if (amount <= 0n) throw new BusinessError('REFUND_AMOUNT_INVALID');
+
+    let refundId = '';
+    await this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.findFirst({
+        where: { id: oid, storeId: BigInt(storeId) },
+      });
+      if (!order) throw new BusinessError('ORDER_NOT_FOUND');
+
+      const statusOk =
+        order.status === OrderStatus.paid || order.status === OrderStatus.completed;
+      const payOk =
+        order.paymentStatus === PaymentStatus.paid ||
+        order.paymentStatus === PaymentStatus.partial;
+      if (!statusOk || !payOk) throw new BusinessError('ORDER_NOT_REFUNDABLE');
+      if (order.paidAmount <= 0n) throw new BusinessError('ORDER_NOT_REFUNDABLE');
+      if (amount > order.paidAmount) throw new BusinessError('REFUND_EXCEEDS_PAID');
+
+      const created = await tx.orderRefund.create({
+        data: {
+          orderId: oid,
+          amount,
+          method: dto.method,
+          reason: dto.reason.trim(),
+          operatorId: BigInt(userId),
+        },
+      });
+      refundId = created.id.toString();
+
+      const newPaid = order.paidAmount - amount;
+      await tx.order.update({
+        where: { id: oid },
+        data: {
+          paidAmount: newPaid,
+          paymentStatus:
+            newPaid === 0n ? PaymentStatus.refunded : PaymentStatus.partial,
+        },
+      });
+    });
+
+    const after = await this.getOrderFull(oid);
+    const mapped = this.mapOrder(after!);
+    await this.audit.log({
+      userId,
+      storeId,
+      module: 'order',
+      action: 'order.refund',
+      targetType: 'order',
+      targetId: orderId,
+      after: {
+        refundId,
+        amount: Number(amount),
+        method: dto.method,
+        reason: dto.reason.trim(),
+        paidAmount: mapped.paidAmount,
+        paymentStatus: mapped.paymentStatus,
+      },
+      ip,
+    });
+    this.events.emit(Events.ORDER_STATUS_CHANGED, { storeId, order: mapped, userId });
+    const refundRow = mapped.refunds.find((r) => r.id === refundId) ?? mapped.refunds.at(-1);
+    if (refundRow) {
+      this.events.emit(Events.ORDER_REFUNDED, {
+        storeId,
+        order: mapped,
+        userId,
+        refund: {
+          id: refundRow.id,
+          amount: refundRow.amount,
+          method: refundRow.method,
+          reason: refundRow.reason,
+          createdAt: refundRow.createdAt,
+        },
+      });
+    }
+    return mapped;
+  }
+
   async detail(storeId: string, orderId: string) {
     const full = await this.prisma.order.findFirst({
       where: { id: BigInt(orderId), storeId: BigInt(storeId) },
-      include: {
-        batches: { include: { items: true } },
-        items: true,
-        payments: true,
-        tableSession: { include: { table: true } },
-      },
+      include: this.orderFullInclude(),
     });
     if (!full) throw new BusinessError('ORDER_NOT_FOUND');
     return this.mapOrder(full);
@@ -986,12 +1112,7 @@ export class OrderService {
         tableSessionId: BigInt(sessionId),
         status: OrderStatus.open,
       },
-      include: {
-        batches: { include: { items: true } },
-        items: true,
-        payments: true,
-        tableSession: { include: { table: true } },
-      },
+      include: this.orderFullInclude(),
     });
     return full ? this.mapOrder(full) : null;
   }
@@ -1133,10 +1254,15 @@ export class OrderService {
       if (!order) throw new BusinessError('ORDER_NOT_FOUND');
       if (order.status !== OrderStatus.open) throw new BusinessError('ORDER_NOT_OPEN');
 
-      // 按选中菜品扣减库存（复用现有 deductStock 逻辑）
+      // 按选中菜品扣减库存（复用现有 deductStock 逻辑）+ 原料配方
       for (const sel of dto.selections) {
         for (const did of sel.dishIds) {
-          await this.deductStock(tx, BigInt(did), qty);
+          const dishId = BigInt(did);
+          await this.deductStock(tx, dishId, qty);
+          await this.inventory.consumeRecipe(tx, sid, dishId, qty, {
+            refType: 'order',
+            refId: oid.toString(),
+          });
         }
       }
 
@@ -1206,12 +1332,7 @@ export class OrderService {
       this.prisma.order.count({ where }),
       this.prisma.order.findMany({
         where,
-        include: {
-          batches: { include: { items: true } },
-          items: true,
-          payments: true,
-          tableSession: { include: { table: true } },
-        },
+        include: this.orderFullInclude(),
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -1224,5 +1345,112 @@ export class OrderService {
       pageSize,
       list: rows.map((r) => this.mapOrder(r)),
     };
+  }
+
+  /** 厨房看板：未结堂食 / 制作中外卖的待做与制作中菜品 */
+  async kitchenBoard(storeId: string, stationId?: string) {
+    const items = await this.prisma.orderItem.findMany({
+      where: {
+        status: { in: [OrderItemStatus.pending, OrderItemStatus.cooking] },
+        order: {
+          storeId: BigInt(storeId),
+          status: {
+            in: [
+              OrderStatus.open,
+              OrderStatus.accepted,
+              OrderStatus.cooking,
+              OrderStatus.pending,
+            ],
+          },
+        },
+        ...(stationId
+          ? {
+              dish: {
+                category: { kitchenStationId: BigInt(stationId) },
+              },
+            }
+          : {}),
+      },
+      include: {
+        order: {
+          include: {
+            tableSession: { include: { table: true } },
+          },
+        },
+        batch: true,
+        dish: {
+          include: { category: { include: { kitchenStation: true } } },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 200,
+    });
+
+    return items.map((it) => ({
+      id: it.id.toString(),
+      orderId: it.orderId.toString(),
+      orderNo: it.order.orderNo,
+      orderType: it.order.type,
+      orderStatus: it.order.status,
+      tableCode: it.order.tableSession?.table?.code ?? null,
+      batchId: it.batchId?.toString() ?? null,
+      roundNo: it.batch?.roundNo ?? null,
+      dishId: it.dishId?.toString() ?? null,
+      nameZh: it.nameZh,
+      nameVi: it.nameVi,
+      qty: it.qty,
+      status: it.status,
+      guestNickname: it.guestNickname,
+      stationId: it.dish?.category?.kitchenStationId?.toString() ?? null,
+      stationNameZh: it.dish?.category?.kitchenStation?.nameZh ?? null,
+      stationNameVi: it.dish?.category?.kitchenStation?.nameVi ?? null,
+      createdAt: it.createdAt.toISOString(),
+    }));
+  }
+
+  async updateItemStatus(
+    storeId: string,
+    itemId: string,
+    dto: UpdateItemStatusDto,
+    operatorId?: string,
+  ) {
+    const item = await this.prisma.orderItem.findFirst({
+      where: { id: BigInt(itemId), order: { storeId: BigInt(storeId) } },
+      include: { order: true },
+    });
+    if (!item) throw new BusinessError('ORDER_ITEM_NOT_FOUND');
+    if (item.status === OrderItemStatus.voided) throw new BusinessError('ORDER_ITEM_VOIDED');
+
+    const next =
+      dto.status === 'cooking' ? OrderItemStatus.cooking : OrderItemStatus.served;
+    const allowed: Record<string, OrderItemStatus[]> = {
+      [OrderItemStatus.cooking]: [OrderItemStatus.pending],
+      [OrderItemStatus.served]: [OrderItemStatus.pending, OrderItemStatus.cooking],
+    };
+    if (!allowed[next]?.includes(item.status)) {
+      throw new BusinessError('ORDER_ITEM_STATUS_INVALID');
+    }
+
+    await this.prisma.orderItem.update({
+      where: { id: item.id },
+      data: { status: next },
+    });
+
+    const payload = {
+      storeId,
+      orderId: item.orderId.toString(),
+      itemId: item.id.toString(),
+      from: item.status,
+      to: next,
+      operatorId,
+    };
+    this.events.emit(Events.ORDER_ITEM_STATUS_CHANGED, payload);
+    this.events.emit(Events.ORDER_STATUS_CHANGED, {
+      storeId,
+      orderId: item.orderId.toString(),
+      status: item.order.status,
+      itemStatus: next,
+    });
+    return payload;
   }
 }

@@ -79,6 +79,14 @@ const PERMISSION_TREE: PermDef[] = [
         sort: 30,
       },
       {
+        code: 'menu:kitchen',
+        nameZh: '厨房看板',
+        nameVi: 'Bảng bếp',
+        type: PermissionType.menu,
+        path: '/kitchen',
+        sort: 32,
+      },
+      {
         code: 'menu:member',
         nameZh: '会员',
         nameVi: 'Hội viên',
@@ -125,6 +133,14 @@ const PERMISSION_TREE: PermDef[] = [
         type: PermissionType.menu,
         path: '/inventory',
         sort: 65,
+      },
+      {
+        code: 'menu:hr',
+        nameZh: '人事',
+        nameVi: 'Nhân sự',
+        type: PermissionType.menu,
+        path: '/hr',
+        sort: 68,
       },
       {
         code: 'menu:report',
@@ -250,53 +266,74 @@ const PERMISSION_TREE: PermDef[] = [
         sort: 8,
       },
       {
+        code: 'order:refund',
+        nameZh: '退款',
+        nameVi: 'Hoàn tiền',
+        type: PermissionType.button,
+        sort: 9,
+      },
+      {
         code: 'delivery:accept',
         nameZh: '接外卖单',
         nameVi: 'Nhận đơn giao',
         type: PermissionType.button,
-        sort: 9,
+        sort: 10,
       },
       {
         code: 'print:reprint',
         nameZh: '重打小票',
         nameVi: 'In lại',
         type: PermissionType.button,
-        sort: 10,
+        sort: 11,
       },
       {
         code: 'asset:scrap',
         nameZh: '资产报废',
         nameVi: 'Thanh lý tài sản',
         type: PermissionType.button,
-        sort: 11,
+        sort: 12,
       },
       {
         code: 'asset:sell',
         nameZh: '资产变卖',
         nameVi: 'Bán tài sản',
         type: PermissionType.button,
-        sort: 12,
+        sort: 13,
       },
       {
         code: 'report:view',
         nameZh: '查看报表',
         nameVi: 'Xem báo cáo',
         type: PermissionType.api,
-        sort: 13,
+        sort: 14,
+      },
+      {
+        code: 'hr:edit',
+        nameZh: '编辑人事',
+        nameVi: 'Sửa nhân sự',
+        type: PermissionType.button,
+        sort: 17,
+      },
+      {
+        code: 'hr:payroll',
+        nameZh: '人力月结',
+        nameVi: 'Chốt lương',
+        type: PermissionType.button,
+        sort: 18,
       },
       {
         code: 'system:role',
         nameZh: '角色权限配置',
         nameVi: 'Cấu hình vai trò',
         type: PermissionType.api,
-        sort: 14,
+        sort: 15,
       },
       {
         code: 'member:edit',
         nameZh: '编辑会员',
         nameVi: 'Sửa hội viên',
         type: PermissionType.button,
-        sort: 15,
+        sort: 16,
       },
       {
         code: 'marketing:edit',
@@ -355,11 +392,18 @@ const PERMISSION_TREE: PermDef[] = [
         sort: 23,
       },
       {
+        code: 'chat:mute',
+        nameZh: '禁言顾客会话',
+        nameVi: 'Tắt tiếng hội thoại',
+        type: PermissionType.button,
+        sort: 24,
+      },
+      {
         code: 'audit:view',
         nameZh: '查看审计日志',
         nameVi: 'Xem nhật ký kiểm toán',
         type: PermissionType.button,
-        sort: 24,
+        sort: 25,
       },
     ],
   },
@@ -375,6 +419,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:reservation',
     'menu:group-meal',
     'menu:order',
+    'menu:kitchen',
     'menu:member',
     'menu:marketing',
     'menu:delivery',
@@ -382,12 +427,14 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:print',
     'menu:asset',
     'menu:inventory',
+    'menu:hr',
     'menu:report',
     'menu:system',
     'menu:system:user',
     'menu:system:settings',
     'menu:dish:edit',
     'chat:reply',
+    'chat:mute',
     'table:open',
     'order:create',
     'order:add-item',
@@ -395,11 +442,14 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'order:cancel',
     'order:discount',
     'order:checkout',
+    'order:refund',
     'delivery:accept',
     'print:reprint',
     'asset:scrap',
     'asset:sell',
     'report:view',
+    'hr:edit',
+    'hr:payroll',
     'member:edit',
     'marketing:edit',
     'combo:view',
@@ -417,12 +467,16 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:reservation',
     'menu:group-meal',
     'menu:order',
+    'menu:kitchen',
     'menu:member',
     'menu:delivery',
     'menu:print',
     'table:open',
     'order:create',
     'order:add-item',
+    // 一线收银需能退错菜 / 取消未结账订单，避免卡台找店长
+    'order:void-item',
+    'order:cancel',
     'order:discount',
     'order:checkout',
     'delivery:accept',
@@ -442,6 +496,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:reservation',
     'menu:group-meal',
     'menu:order',
+    'menu:kitchen',
     'table:open',
     'order:create',
     'order:add-item',
@@ -449,7 +504,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'reservation:view',
     'group_meal:view',
   ],
-  kitchen: ['menu:order', 'menu:dish', 'menu:dish:edit'],
+  kitchen: ['menu:kitchen', 'menu:order', 'menu:dish', 'menu:dish:edit'],
 };
 
 const DISHES: Array<{
@@ -921,7 +976,18 @@ async function main() {
     });
   }
 
-  const agentSecret = 'dev-agent-secret';
+  // 生产 seed 必须用 PRINT_AGENT_SEED_SECRET；本地默认仅便于联调
+  const agentSecret =
+    (process.env.PRINT_AGENT_SEED_SECRET || '').trim() ||
+    (process.env.NODE_ENV === 'production' ? '' : 'dev-agent-secret');
+  if (!agentSecret || agentSecret.length < 16) {
+    throw new Error(
+      'PRINT_AGENT_SEED_SECRET 未配置或过短（≥16）。生产禁止使用默认 dev-agent-secret。',
+    );
+  }
+  if (process.env.NODE_ENV === 'production' && agentSecret === 'dev-agent-secret') {
+    throw new Error('生产环境禁止使用 PRINT_AGENT_SEED_SECRET=dev-agent-secret');
+  }
   const agent = await prisma.printAgent.upsert({
     where: { id: 1 },
     update: {
@@ -1013,6 +1079,37 @@ async function main() {
       stationId: drink.id,
       agentId: agent.id,
       isActive: true,
+    },
+  });
+
+  // 小店推荐：收银电脑 Xprinter 58mm USB（默认停用，避免与网口演示机抢单）
+  await prisma.printer.upsert({
+    where: { id: 4 },
+    update: {
+      name: 'Xprinter 58 USB',
+      ip: '',
+      port: 9100,
+      paperWidth: 58,
+      role: 'front',
+      connectionType: 'browser_usb',
+      acceptAllTickets: true,
+      agentId: null,
+      stationId: null,
+      storeId: store.id,
+      isActive: false,
+    },
+    create: {
+      id: 4,
+      storeId: store.id,
+      name: 'Xprinter 58 USB',
+      ip: '',
+      port: 9100,
+      paperWidth: 58,
+      role: 'front',
+      connectionType: 'browser_usb',
+      acceptAllTickets: true,
+      agentId: null,
+      isActive: false,
     },
   });
 
@@ -1226,6 +1323,71 @@ async function main() {
     });
   }
 
+  // 宫保鸡丁演示配方：猪肉 0.2kg + 食用油 0.05L（按名称匹配菜品）
+  const kungPao = await prisma.dish.findFirst({
+    where: { storeId: store.id, nameZh: '宫保鸡丁' },
+  });
+  if (kungPao) {
+    await prisma.dishRecipe.deleteMany({ where: { dishId: kungPao.id } });
+    await prisma.dishRecipe.createMany({
+      data: [
+        { dishId: kungPao.id, ingredientId: 2n, qty: 0.2 },
+        { dishId: kungPao.id, ingredientId: 3n, qty: 0.05 },
+      ],
+    });
+  }
+
+  // 预定 + 预点菜样例（今晚确认后厨房可见）
+  const rice = await prisma.dish.findFirst({
+    where: { storeId: store.id, nameZh: '白米饭' },
+  });
+  const demoTable = await prisma.table.findFirst({
+    where: { storeId: store.id, code: 'A01' },
+  });
+  if (kungPao && rice) {
+    const reserveAt = new Date();
+    reserveAt.setHours(reserveAt.getHours() + 4);
+    const existingPreorder = await prisma.reservation.findFirst({
+      where: { storeId: store.id, phone: '0909888777', status: 'confirmed' },
+    });
+    if (!existingPreorder) {
+      const resv = await prisma.reservation.create({
+        data: {
+          storeId: store.id,
+          customerName: '预点演示客人',
+          phone: '0909888777',
+          guestCount: 4,
+          reserveAt,
+          tableId: demoTable?.id ?? null,
+          status: 'confirmed',
+          deposit: 100000n,
+          remark: 'seed 预点菜演示',
+          items: {
+            create: [
+              {
+                dishId: kungPao.id,
+                nameZh: kungPao.nameZh,
+                nameVi: kungPao.nameVi,
+                qty: 2,
+                unitPrice: kungPao.price,
+                sort: 0,
+              },
+              {
+                dishId: rice.id,
+                nameZh: rice.nameZh,
+                nameVi: rice.nameVi,
+                qty: 4,
+                unitPrice: rice.price,
+                sort: 1,
+              },
+            ],
+          },
+        },
+      });
+      console.log(`Seed reservation preorder id=${resv.id}`);
+    }
+  }
+
   // ---- 资产演示数据 ----
   const ac1 = await prisma.assetCategory.upsert({
     where: { id: 1 },
@@ -1409,8 +1571,96 @@ async function main() {
     ],
   });
 
+  // 人事样例：1 长工 + 1 兼职
+  const ft = await prisma.employee.upsert({
+    where: { id: 1 },
+    update: {
+      storeId: store.id,
+      nameZh: '王全职',
+      nameVi: 'Wang Fulltime',
+      phone: '0901111222',
+      employmentType: 'full_time',
+      status: 'active',
+      baseSalary: 12_000_000n,
+      hiredAt: new Date('2026-01-01T00:00:00.000Z'),
+      resignedAt: null,
+      remark: 'seed 长工样例（月薪）',
+    },
+    create: {
+      id: 1,
+      storeId: store.id,
+      nameZh: '王全职',
+      nameVi: 'Wang Fulltime',
+      phone: '0901111222',
+      employmentType: 'full_time',
+      status: 'active',
+      baseSalary: 12_000_000n,
+      hiredAt: new Date('2026-01-01T00:00:00.000Z'),
+      remark: 'seed 长工样例（月薪）',
+    },
+  });
+  const pt = await prisma.employee.upsert({
+    where: { id: 2 },
+    update: {
+      storeId: store.id,
+      nameZh: '陈兼职',
+      nameVi: 'Chen Parttime',
+      phone: '0903333444',
+      employmentType: 'part_time',
+      status: 'active',
+      baseSalary: 50_000n,
+      hiredAt: new Date('2026-06-01T00:00:00.000Z'),
+      resignedAt: null,
+      remark: 'seed 兼职样例（时薪）',
+    },
+    create: {
+      id: 2,
+      storeId: store.id,
+      nameZh: '陈兼职',
+      nameVi: 'Chen Parttime',
+      phone: '0903333444',
+      employmentType: 'part_time',
+      status: 'active',
+      baseSalary: 50_000n,
+      hiredAt: new Date('2026-06-01T00:00:00.000Z'),
+      remark: 'seed 兼职样例（时薪）',
+    },
+  });
+  const attDay = new Date();
+  attDay.setUTCHours(0, 0, 0, 0);
+  const clockIn = new Date(attDay);
+  clockIn.setUTCHours(2, 0, 0, 0);
+  const clockOut = new Date(attDay);
+  clockOut.setUTCHours(10, 0, 0, 0);
+  const existingAtt = await prisma.employeeAttendance.findFirst({
+    where: { employeeId: pt.id, workDate: attDay },
+  });
+  if (!existingAtt) {
+    await prisma.employeeAttendance.create({
+      data: {
+        storeId: store.id,
+        employeeId: pt.id,
+        workDate: attDay,
+        clockInAt: clockIn,
+        clockOutAt: clockOut,
+        workMinutes: 480,
+        remark: 'seed 兼职今日班次',
+      },
+    });
+  }
+  void ft;
+
   // eslint-disable-next-line no-console
   console.log('Seed completed: admin/Admin@123 , cashier/Cashier@123');
+  console.log(
+    'Print agent id=1 secret:',
+    agentSecret === 'dev-agent-secret'
+      ? 'dev-agent-secret (仅本地；生产请设 PRINT_AGENT_SEED_SECRET)'
+      : '(来自 PRINT_AGENT_SEED_SECRET，请写入 print-agent config.json)',
+  );
+  console.log(
+    '上线前请修改默认账号密码，并完成 docs/PRODUCTION_CHECKLIST.md',
+  );
   // eslint-disable-next-line no-console
   console.log(`Print agent id=1 secret=${agentSecret}`);
 }

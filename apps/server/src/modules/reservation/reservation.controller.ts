@@ -48,6 +48,14 @@ export class ReservationController {
     return { count };
   }
 
+  /** 厨房预点清单（已确认且含菜） */
+  @Get('kitchen-preorders')
+  @RequirePerm('menu:kitchen')
+  @ApiOperation({ summary: '厨房预点备料清单' })
+  kitchenPreorders(@CurrentUser() user: AuthUser) {
+    return this.reservationService.listKitchenPreorders(this.storeId(user));
+  }
+
   /** 预定详情 */
   @Get(':id')
   @RequirePerm('reservation:view')

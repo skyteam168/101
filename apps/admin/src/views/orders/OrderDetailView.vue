@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { formatVND, localeField } from '@restaurant/shared';
-import { getOrderApi, reverseCheckoutApi, type Order } from '../../api/order';
+import {
+  getOrderApi,
+  refundOrderApi,
+  reverseCheckoutApi,
+  type Order,
+} from '../../api/order';
+import { printRefundTicketApi } from '../../api/print';
 import { useUserStore } from '../../stores/user';
 
 const { t, locale } = useI18n();
@@ -13,10 +19,48 @@ const router = useRouter();
 const userStore = useUserStore();
 const order = ref<Order | null>(null);
 const loading = ref(false);
+const refundVisible = ref(false);
+const refundSubmitting = ref(false);
+const refundForm = reactive({
+  amount: 0,
+  method: 'cash',
+  reason: '',
+});
+
+const payMethods = ['cash', 'card', 'bank_transfer', 'momo', 'vnpay'] as const;
+
+const canRefund = computed(() => {
+  const o = order.value;
+  if (!o || !userStore.hasPerm('order:refund')) return false;
+  const statusOk = o.status === 'paid' || o.status === 'completed';
+  const payOk = o.paymentStatus === 'paid' || o.paymentStatus === 'partial';
+  return statusOk && payOk && o.paidAmount > 0;
+});
+
+const canReverse = computed(() => {
+  const o = order.value;
+  if (!o || !userStore.hasPerm('order:checkout')) return false;
+  return o.status === 'paid' && !(o.refunds && o.refunds.length > 0);
+});
+
+const canPrintRefund = computed(() => {
+  const o = order.value;
+  if (!o || !userStore.hasPerm('order:refund')) return false;
+  return !!(o.refunds && o.refunds.length > 0);
+});
 
 function nameOf(row: { nameZh: string; nameVi: string }) {
   const loc = locale.value === 'vi-VN' ? 'vi' : 'zh';
   return localeField(row as unknown as Record<string, unknown>, 'name', loc);
+}
+
+function methodLabel(method: string) {
+  if (method === 'bank_transfer') return t('order.bank');
+  if (method === 'cash') return t('order.cash');
+  if (method === 'card') return t('order.card');
+  if (method === 'momo') return 'MoMo';
+  if (method === 'vnpay') return 'VNPay';
+  return method;
 }
 
 async function load() {
@@ -34,6 +78,47 @@ async function reverse() {
   ElMessage.success(t('order.reversed'));
 }
 
+function openRefund() {
+  const o = order.value;
+  if (!o) return;
+  refundForm.amount = o.paidAmount;
+  refundForm.method = o.payments?.[0]?.method || 'cash';
+  refundForm.reason = '';
+  refundVisible.value = true;
+}
+
+async function submitRefund() {
+  const o = order.value;
+  if (!o) return;
+  if (!refundForm.reason.trim()) {
+    ElMessage.warning(t('order.reasonRequired'));
+    return;
+  }
+  if (refundForm.amount < 1 || refundForm.amount > o.paidAmount) {
+    ElMessage.warning(t('order.refundAmountInvalid'));
+    return;
+  }
+  refundSubmitting.value = true;
+  try {
+    order.value = await refundOrderApi(o.id, {
+      amount: Math.floor(refundForm.amount),
+      method: refundForm.method,
+      reason: refundForm.reason.trim(),
+    });
+    refundVisible.value = false;
+    ElMessage.success(t('order.refunded'));
+  } finally {
+    refundSubmitting.value = false;
+  }
+}
+
+async function printRefundTicket(refundId?: string) {
+  const o = order.value;
+  if (!o) return;
+  await printRefundTicketApi(o.id, refundId);
+  ElMessage.success(t('order.refundTicketQueued'));
+}
+
 onMounted(load);
 </script>
 
@@ -41,13 +126,17 @@ onMounted(load);
   <div class="page" v-loading="loading">
     <div class="head">
       <el-button text @click="router.push('/orders')">← {{ t('order.backList') }}</el-button>
-      <el-button
-        v-if="order?.status === 'paid' && userStore.hasPerm('order:checkout')"
-        type="warning"
-        @click="reverse"
-      >
-        {{ t('order.reverseCheckout') }}
-      </el-button>
+      <div class="head-actions">
+        <el-button v-if="canPrintRefund" @click="printRefundTicket()">
+          {{ t('order.printRefundTicket') }}
+        </el-button>
+        <el-button v-if="canRefund" type="danger" plain @click="openRefund">
+          {{ t('order.refund') }}
+        </el-button>
+        <el-button v-if="canReverse" type="warning" @click="reverse">
+          {{ t('order.reverseCheckout') }}
+        </el-button>
+      </div>
     </div>
 
     <template v-if="order">
@@ -61,11 +150,17 @@ onMounted(load);
         <el-descriptions-item :label="t('order.filterTable')">
           {{ order.tableCode || '-' }}
         </el-descriptions-item>
+        <el-descriptions-item :label="t('order.paymentStatus')">
+          {{ t(`order.paymentStatusMap.${order.paymentStatus}`, order.paymentStatus) }}
+        </el-descriptions-item>
         <el-descriptions-item :label="t('order.subtotal')">{{ formatVND(order.subtotal) }}</el-descriptions-item>
         <el-descriptions-item :label="t('order.discountAmount')">{{ formatVND(order.discount) }}</el-descriptions-item>
         <el-descriptions-item :label="t('order.serviceCharge')">{{ formatVND(order.serviceCharge) }}</el-descriptions-item>
         <el-descriptions-item :label="t('order.billTotal')">{{ formatVND(order.total) }}</el-descriptions-item>
         <el-descriptions-item :label="t('order.paidAmount')">{{ formatVND(order.paidAmount) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('order.refundedAmount')">
+          {{ formatVND(order.refundedAmount || 0) }}
+        </el-descriptions-item>
         <el-descriptions-item :label="t('order.createdAt')">
           {{ new Date(order.createdAt).toLocaleString() }}
         </el-descriptions-item>
@@ -92,7 +187,9 @@ onMounted(load);
 
       <h3 v-if="order.payments.length">{{ t('order.payments') }}</h3>
       <el-table v-if="order.payments.length" :data="order.payments" size="small">
-        <el-table-column prop="method" :label="t('order.payMethod')" />
+        <el-table-column :label="t('order.payMethod')">
+          <template #default="{ row }">{{ methodLabel(row.method) }}</template>
+        </el-table-column>
         <el-table-column :label="t('order.amount')">
           <template #default="{ row }">{{ formatVND(row.amount) }}</template>
         </el-table-column>
@@ -103,7 +200,73 @@ onMounted(load);
           <template #default="{ row }">{{ formatVND(row.change) }}</template>
         </el-table-column>
       </el-table>
+
+      <h3 v-if="order.refunds?.length">{{ t('order.refunds') }}</h3>
+      <el-table v-if="order.refunds?.length" :data="order.refunds" size="small">
+        <el-table-column :label="t('order.payMethod')">
+          <template #default="{ row }">{{ methodLabel(row.method) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('order.amount')">
+          <template #default="{ row }">{{ formatVND(row.amount) }}</template>
+        </el-table-column>
+        <el-table-column prop="reason" :label="t('order.refundReason')" min-width="160" />
+        <el-table-column :label="t('order.createdAt')" width="180">
+          <template #default="{ row }">{{ new Date(row.createdAt).toLocaleString() }}</template>
+        </el-table-column>
+        <el-table-column :label="t('common.actions')" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="userStore.hasPerm('order:refund')"
+              link
+              type="primary"
+              @click="printRefundTicket(row.id)"
+            >
+              {{ t('order.printTicket') }}
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </template>
+
+    <el-dialog v-model="refundVisible" :title="t('order.refund')" width="420px" destroy-on-close>
+      <el-form label-width="96px">
+        <el-form-item :label="t('order.refundAmount')">
+          <el-input-number
+            v-model="refundForm.amount"
+            :min="1"
+            :max="order?.paidAmount || 1"
+            :step="1000"
+            controls-position="right"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item :label="t('order.payMethod')">
+          <el-select v-model="refundForm.method" style="width: 100%">
+            <el-option
+              v-for="m in payMethods"
+              :key="m"
+              :label="methodLabel(m)"
+              :value="m"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('order.refundReason')">
+          <el-input
+            v-model="refundForm.reason"
+            type="textarea"
+            :rows="3"
+            maxlength="512"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="refundVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="danger" :loading="refundSubmitting" @click="submitRefund">
+          {{ t('order.confirmRefund') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -115,6 +278,10 @@ onMounted(load);
   display: flex;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+.head-actions {
+  display: flex;
+  gap: 8px;
 }
 .batch {
   margin-bottom: 16px;

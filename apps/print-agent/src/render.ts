@@ -16,6 +16,7 @@ export type PrintTemplate =
   | 'void'
   | 'cancel'
   | 'receipt'
+  | 'refund'
   | 'delivery'
   | 'shift'
   | 'test';
@@ -484,6 +485,51 @@ function renderCancel(r: TicketRenderer, data: CancelData): void {
   r.gap(24);
 }
 
+function renderRefund(
+  r: TicketRenderer,
+  data: ReceiptData & {
+    refundAmount?: number;
+    refundMethod?: string;
+    refundReason?: string;
+    refundedAt?: string;
+    refundedAmount?: number;
+    titleZh?: string;
+    titleVi?: string;
+  },
+): void {
+  const storeName = data.storeName || data.storeNameZh || data.storeNameVi;
+  if (storeName) r.centerText(storeName, r.sz.medium, true);
+  if (data.address) r.centerText(data.address, r.sz.small);
+  if (data.phone) r.centerText(data.phone, r.sz.small);
+  r.invertedBanner('退款 / HOÀN TIỀN', r.sz.large);
+  r.separator();
+  if (data.tableCode) {
+    const guests =
+      data.guestCount != null && data.guestCount > 0 ? `${data.guestCount} 位` : '';
+    r.rowText(`桌台: ${data.tableCode}`, guests, r.sz.small);
+  }
+  r.leftText(`单号: ${data.orderNo}`, r.sz.small);
+  if (data.createdAt) r.leftText(`下单: ${fmtDateTime(data.createdAt)}`, r.sz.small);
+  if (data.refundedAt) r.leftText(`退款: ${fmtDateTime(data.refundedAt)}`, r.sz.small);
+  r.separator();
+  if (data.refundAmount != null) {
+    r.rowText('退款金额:', fmtVND(data.refundAmount), r.sz.medium, true);
+  }
+  if (data.refundMethod) r.rowText('退回方式:', data.refundMethod, r.sz.normal);
+  if (data.refundReason) r.leftText(`原因: ${data.refundReason}`, r.sz.normal);
+  r.separator();
+  if (data.total != null) r.rowText('原账单:', fmtVND(data.total), r.sz.normal);
+  if (data.refundedAmount != null) r.rowText('累计已退:', fmtVND(data.refundedAmount), r.sz.normal);
+  if (data.paidAmount != null) r.rowText('剩余已付:', fmtVND(data.paidAmount), r.sz.normal);
+  r.gap(16);
+  const footer =
+    data.footerZh || data.footerVi
+      ? [data.footerZh, data.footerVi].filter(Boolean).join('  ')
+      : '退款凭证请妥善保管';
+  r.centerText(footer, r.sz.normal);
+  r.gap(24);
+}
+
 function renderReceipt(r: TicketRenderer, data: ReceiptData): void {
   const storeName = data.storeName || data.storeNameZh || data.storeNameVi;
   if (storeName) r.centerText(storeName, r.sz.medium, true);
@@ -606,6 +652,9 @@ export function renderTicket(msg: PrintJobMessage, agentId = ''): RenderResult {
       break;
     case 'receipt':
       renderReceipt(r, data as unknown as ReceiptData);
+      break;
+    case 'refund':
+      renderRefund(r, data as unknown as ReceiptData);
       break;
     case 'delivery':
       renderDelivery(r, data as unknown as DeliveryData);

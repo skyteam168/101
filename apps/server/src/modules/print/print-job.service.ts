@@ -4,6 +4,7 @@ import {
   BatchPrintStatus,
   PrintJobKind,
   PrintJobStatus,
+  PrinterConnectionType,
   PrinterRole,
   Prisma,
 } from '@prisma/client';
@@ -16,6 +17,8 @@ import {
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentDriver } from './drivers/agent.driver';
+import { BrowserDriver } from './drivers/browser.driver';
+import { CloudPrinterDriver } from './drivers/cloud-printer.driver';
 
 type OrderMapped = {
   id: string;
@@ -60,6 +63,15 @@ type OrderMapped = {
     status: string;
   }[];
   payments?: { method: string; amount: number }[];
+  refundedAmount?: number;
+};
+
+export type RefundPrintInfo = {
+  id: string;
+  amount: number;
+  method: string;
+  reason: string;
+  createdAt?: string | Date;
 };
 
 type PrinterRow = Prisma.PrinterGetPayload<{
@@ -75,8 +87,28 @@ export class PrintJobService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly driver: AgentDriver,
+    private readonly browserDriver: BrowserDriver,
+    private readonly cloudDriver: CloudPrinterDriver,
     private readonly events: EventEmitter2,
   ) {}
+
+  private printersForRole(printers: PrinterRow[], role: PrinterRole) {
+    return printers.filter((p) => p.role === role || p.acceptAllTickets);
+  }
+
+  private dedupePrinters(list: PrinterRow[]) {
+    const map = new Map<string, PrinterRow>();
+    for (const p of list) map.set(p.id.toString(), p);
+    return [...map.values()];
+  }
+
+  private isBrowserPrinter(p: { connectionType: PrinterConnectionType }) {
+    return p.connectionType === PrinterConnectionType.browser_usb;
+  }
+
+  private isCloudPrinter(p: { connectionType: PrinterConnectionType }) {
+    return p.connectionType === PrinterConnectionType.cloud;
+  }
 
   private paperWidth(w: number): 58 | 80 {
     return w === 58 ? 58 : 80;
@@ -175,6 +207,8 @@ export class PrintJobService {
         return 'cancel';
       case PrintJobKind.receipt:
         return 'receipt';
+      case PrintJobKind.refund:
+        return 'refund';
       case PrintJobKind.delivery:
         return 'delivery';
       case PrintJobKind.shift:
@@ -204,20 +238,23 @@ export class PrintJobService {
     stationNameZh?: string;
     stationNameVi?: string;
     shift?: PrintTicketPayload['data']['shift'];
+    refund?: RefundPrintInfo;
   }): PrintTicketPayload {
     const template = this.kindToTemplate(opts.kind, opts.roundNo);
     const titleMap: Record<string, { zh: string; vi: string }> = {
-      front: { zh: '前台总单', vi: 'Phiếu tổng' },
-      kitchen: { zh: '厨房单', vi: 'Phiếu bếp' },
-      add: { zh: '加菜', vi: 'THÊM MÓN' },
-      void: { zh: '退菜', vi: 'HỦY MÓN' },
-      cancel: { zh: '取消单', vi: 'Hủy đơn' },
-      receipt: { zh: '结账小票', vi: 'Hóa đơn' },
-      delivery: { zh: '外卖单', vi: 'Đơn giao hàng' },
-      shift: { zh: '交班单', vi: 'Bàn giao ca' },
+      front: { zh: '【堂食】前台总单', vi: '【Tại chỗ】Phiếu tổng' },
+      kitchen: { zh: '【后厨】厨房单', vi: '【Bếp】Phiếu bếp' },
+      add: { zh: '【堂食】加菜', vi: '【Tại chỗ】THÊM MÓN' },
+      void: { zh: '【后厨】退菜', vi: '【Bếp】HỦY MÓN' },
+      cancel: { zh: '【取消】取消单', vi: '【Hủy】Hủy đơn' },
+      receipt: { zh: '【结账】结账小票', vi: '【TT】Hóa đơn' },
+      refund: { zh: '【退款】退款小票', vi: '【Hoàn】Phiếu hoàn tiền' },
+      delivery: { zh: '【外卖】外卖单', vi: '【Giao】Đơn giao hàng' },
+      shift: { zh: '【交班】交班单', vi: '【Ca】Bàn giao ca' },
     };
     const titles = titleMap[template] || titleMap.front;
     const isReceipt = template === 'receipt';
+    const isRefund = template === 'refund';
     return {
       template,
       paperWidth: opts.paperWidth,
@@ -245,8 +282,18 @@ export class PrintJobService {
           ? new Date(opts.order.createdAt).toISOString()
           : new Date().toISOString(),
         paidAt: isReceipt ? new Date().toISOString() : undefined,
-        footerZh: isReceipt ? '欢迎下次光临' : undefined,
-        footerVi: isReceipt ? 'Hẹn gặp lại' : undefined,
+        refundId: opts.refund?.id,
+        refundAmount: opts.refund?.amount,
+        refundMethod: opts.refund?.method,
+        refundReason: opts.refund?.reason,
+        refundedAt: opts.refund?.createdAt
+          ? new Date(opts.refund.createdAt).toISOString()
+          : isRefund
+            ? new Date().toISOString()
+            : undefined,
+        refundedAmount: opts.order?.refundedAmount,
+        footerZh: isReceipt ? '欢迎下次光临' : isRefund ? '退款凭证请妥善保管' : undefined,
+        footerVi: isReceipt ? 'Hẹn gặp lại' : isRefund ? 'Vui lòng giữ phiếu hoàn tiền' : undefined,
         stationNameZh: opts.stationNameZh,
         stationNameVi: opts.stationNameVi,
         shift: opts.shift,
@@ -261,7 +308,9 @@ export class PrintJobService {
     orderId?: string;
     batchId?: string;
   }) {
-    if (!opts.printer.agentId) {
+    const browser = this.isBrowserPrinter(opts.printer);
+    const cloud = this.isCloudPrinter(opts.printer);
+    if (!browser && !cloud && !opts.printer.agentId) {
       this.logger.warn(`printer ${opts.printer.id} has no agent, skip`);
       return null;
     }
@@ -284,12 +333,62 @@ export class PrintJobService {
       where: { id: BigInt(jobId) },
       include: { printer: { include: { agent: true } } },
     });
-    if (!job || !job.printer.agentId) return;
+    if (!job) return;
     if (job.status === PrintJobStatus.done) return;
 
     const paperWidth = this.paperWidth(job.printer.paperWidth);
     const payload = job.payload as PrintTicketPayload;
     payload.paperWidth = paperWidth;
+    const browser = this.isBrowserPrinter(job.printer);
+
+    if (browser) {
+      const msg: PrintJobMessage = {
+        jobId: job.id.toString(),
+        printer: {
+          id: job.printer.id.toString(),
+          name: job.printer.name,
+          paperWidth,
+          connectionType: 'browser_usb',
+        },
+        payload,
+      };
+      const sent = await this.browserDriver.push(job.printer.storeId.toString(), msg);
+      if (sent) {
+        await this.prisma.printJob.update({
+          where: { id: job.id },
+          data: { status: PrintJobStatus.sent },
+        });
+      }
+      return;
+    }
+
+    if (this.isCloudPrinter(job.printer)) {
+      const msg: PrintJobMessage = {
+        jobId: job.id.toString(),
+        printer: {
+          id: job.printer.id.toString(),
+          name: job.printer.name,
+          ip: job.printer.ip,
+          port: job.printer.port,
+          paperWidth,
+          connectionType: 'cloud',
+        },
+        payload,
+      };
+      const sent = await this.cloudDriver.push(msg);
+      if (sent) {
+        // Webhook 无回执通道：2xx 即视为完成
+        await this.prisma.printJob.update({
+          where: { id: job.id },
+          data: { status: PrintJobStatus.done, error: null },
+        });
+      } else {
+        await this.handleAck(job.id.toString(), 'failed', 'CLOUD_WEBHOOK_FAILED');
+      }
+      return;
+    }
+
+    if (!job.printer.agentId) return;
 
     const msg: PrintJobMessage & { agentId: string } = {
       jobId: job.id.toString(),
@@ -300,6 +399,7 @@ export class PrintJobService {
         ip: job.printer.ip,
         port: job.printer.port,
         paperWidth,
+        connectionType: 'network',
       },
       payload,
     };
@@ -318,6 +418,24 @@ export class PrintJobService {
     const jobs = await this.prisma.printJob.findMany({
       where: {
         printer: { agentId: BigInt(agentId) },
+        status: { in: [PrintJobStatus.queued, PrintJobStatus.sent] },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+    for (const job of jobs) {
+      await this.dispatchJob(job.id.toString());
+    }
+  }
+
+  /** 打印台上线后补发浏览器 USB 队列 */
+  async flushBrowserQueue(storeId: string) {
+    const jobs = await this.prisma.printJob.findMany({
+      where: {
+        printer: {
+          storeId: BigInt(storeId),
+          connectionType: PrinterConnectionType.browser_usb,
+        },
         status: { in: [PrintJobStatus.queued, PrintJobStatus.sent] },
       },
       orderBy: { createdAt: 'asc' },
@@ -446,7 +564,7 @@ export class PrintJobService {
 
     // 外卖走 delivery 模板
     if (order.type === 'delivery' || order.type === 'takeaway') {
-      const frontPrinters = printers.filter((p) => p.role === PrinterRole.front);
+      const frontPrinters = this.printersForRole(printers, PrinterRole.front);
       for (const printer of frontPrinters) {
         const payload = this.buildPayload({
           kind: PrintJobKind.delivery,
@@ -467,7 +585,7 @@ export class PrintJobService {
       return;
     }
 
-    const frontPrinters = printers.filter((p) => p.role === PrinterRole.front);
+    const frontPrinters = this.printersForRole(printers, PrinterRole.front);
     for (const printer of frontPrinters) {
       const payload = this.buildPayload({
         kind: frontKind,
@@ -494,12 +612,14 @@ export class PrintJobService {
       byStation.get(sid)!.push(item);
     }
 
-    const kitchenPrinters = printers.filter((p) => p.role === PrinterRole.kitchen);
+    const kitchenPrinters = this.printersForRole(printers, PrinterRole.kitchen);
     for (const [stationId, items] of byStation) {
       const targets =
         stationId === '_default'
           ? kitchenPrinters
-          : kitchenPrinters.filter((p) => p.stationId?.toString() === stationId);
+          : kitchenPrinters.filter(
+              (p) => p.acceptAllTickets || p.stationId?.toString() === stationId,
+            );
       const fallback = targets.length ? targets : kitchenPrinters;
       for (const printer of fallback) {
         if (store.printSplitItem) {
@@ -565,9 +685,11 @@ export class PrintJobService {
     const printers = await this.loadPrinters(storeId);
     const stationMap = await this.dishStationMap([item.dishId]);
     const stationId = stationMap.get(item.dishId);
-    const kitchenPrinters = printers.filter((p) => p.role === PrinterRole.kitchen);
+    const kitchenPrinters = this.printersForRole(printers, PrinterRole.kitchen);
     const targets = stationId
-      ? kitchenPrinters.filter((p) => p.stationId?.toString() === stationId)
+      ? kitchenPrinters.filter(
+          (p) => p.acceptAllTickets || p.stationId?.toString() === stationId,
+        )
       : kitchenPrinters;
     const list = targets.length ? targets : kitchenPrinters;
     for (const printer of list) {
@@ -593,7 +715,11 @@ export class PrintJobService {
     const store = await this.loadStore(storeId);
     const printers = await this.loadPrinters(storeId);
     const items = (order.items || []).filter((i) => i.status !== 'voided');
-    for (const printer of printers.filter((p) => p.role === PrinterRole.front || p.role === PrinterRole.kitchen)) {
+    const cancelPrinters = this.dedupePrinters([
+      ...this.printersForRole(printers, PrinterRole.front),
+      ...this.printersForRole(printers, PrinterRole.kitchen),
+    ]);
+    for (const printer of cancelPrinters) {
       const payload = this.buildPayload({
         kind: PrintJobKind.cancel,
         paperWidth: this.paperWidth(printer.paperWidth),
@@ -616,7 +742,7 @@ export class PrintJobService {
     const items = (order.items || order.batches.flatMap((b) => b.items)).filter(
       (i) => i.status !== 'voided',
     );
-    for (const printer of printers.filter((p) => p.role === PrinterRole.front)) {
+    for (const printer of this.printersForRole(printers, PrinterRole.front)) {
       const payload = this.buildPayload({
         kind: PrintJobKind.receipt,
         paperWidth: this.paperWidth(printer.paperWidth),
@@ -633,13 +759,117 @@ export class PrintJobService {
     }
   }
 
+  /** 退款小票 → 前台打印机（网口 agent / 浏览器 USB） */
+  async printRefund(storeId: string, order: OrderMapped, refund: RefundPrintInfo) {
+    const store = await this.loadStore(storeId);
+    const printers = await this.loadPrinters(storeId);
+    const items = (order.items || order.batches?.flatMap((b) => b.items) || []).filter(
+      (i) => i.status !== 'voided',
+    );
+    for (const printer of this.printersForRole(printers, PrinterRole.front)) {
+      const payload = this.buildPayload({
+        kind: PrintJobKind.refund,
+        paperWidth: this.paperWidth(printer.paperWidth),
+        store,
+        order,
+        items,
+        refund,
+      });
+      await this.createAndPush({
+        printer,
+        kind: PrintJobKind.refund,
+        payload,
+        orderId: order.id,
+      });
+    }
+  }
+
+  /**
+   * 按退款记录重打退款小票；未传 refundId 则打最近一笔。
+   */
+  async printRefundByOrder(storeId: string, orderId: string, refundId?: string) {
+    const oid = BigInt(orderId);
+    const order = await this.prisma.order.findFirst({
+      where: { id: oid, storeId: BigInt(storeId) },
+      include: {
+        batches: { include: { items: true } },
+        items: true,
+        payments: true,
+        refunds: { orderBy: { createdAt: 'desc' } },
+        tableSession: { include: { table: true } },
+      },
+    });
+    if (!order) throw new BusinessError('ORDER_NOT_FOUND');
+    if (!order.refunds.length) throw new BusinessError('REFUND_NOT_FOUND');
+
+    const refundRow = refundId
+      ? order.refunds.find((r) => r.id.toString() === refundId)
+      : order.refunds[0];
+    if (!refundRow) throw new BusinessError('REFUND_NOT_FOUND');
+
+    const refundedAmount = order.refunds.reduce((s, r) => s + Number(r.amount), 0);
+    const mapped: OrderMapped = {
+      id: order.id.toString(),
+      orderNo: order.orderNo,
+      type: order.type,
+      tableCode: order.tableSession?.table?.code ?? null,
+      guestCount: order.tableSession?.guestCount ?? null,
+      remark: order.remark,
+      subtotal: Number(order.subtotal),
+      discount: Number(order.discount),
+      serviceCharge: Number(order.serviceCharge),
+      deliveryFee: Number(order.deliveryFee),
+      total: Number(order.total),
+      paidAmount: Number(order.paidAmount),
+      refundedAmount,
+      createdAt: order.createdAt,
+      batches: order.batches.map((b) => ({
+        id: b.id.toString(),
+        roundNo: b.roundNo,
+        items: b.items.map((it) => ({
+          id: it.id.toString(),
+          dishId: it.dishId?.toString() ?? '',
+          nameZh: it.nameZh,
+          nameVi: it.nameVi,
+          qty: it.qty,
+          unitPrice: Number(it.unitPrice),
+          amount: Number(it.amount),
+          status: it.status,
+        })),
+      })),
+      items: order.items.map((it) => ({
+        id: it.id.toString(),
+        dishId: it.dishId?.toString() ?? '',
+        nameZh: it.nameZh,
+        nameVi: it.nameVi,
+        qty: it.qty,
+        unitPrice: Number(it.unitPrice),
+        amount: Number(it.amount),
+        status: it.status,
+      })),
+      payments: order.payments.map((p) => ({
+        method: p.method,
+        amount: Number(p.amount),
+      })),
+    };
+
+    await this.printRefund(storeId, mapped, {
+      id: refundRow.id.toString(),
+      amount: Number(refundRow.amount),
+      method: refundRow.method,
+      reason: refundRow.reason,
+      createdAt: refundRow.createdAt,
+    });
+    return { ok: true, refundId: refundRow.id.toString() };
+  }
+
   async printShift(
     storeId: string,
     shift: { cashierName?: string; from?: string; to?: string; orderCount?: number; totalSales?: number },
   ) {
     const store = await this.loadStore(storeId);
     const printers = await this.loadPrinters(storeId);
-    for (const printer of printers.filter((p) => p.role === PrinterRole.front)) {
+    for (const printer of this.printersForRole(printers, PrinterRole.front)) {
       const payload = this.buildPayload({
         kind: PrintJobKind.shift,
         paperWidth: this.paperWidth(printer.paperWidth),

@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from './http';
+import { getPublicStoreId } from '../utils/store-id';
 
 export type MemberBenefitLevel = {
   id: string;
@@ -23,7 +24,9 @@ export type Membership = {
 };
 
 export function getMemberBenefits() {
-  return apiGet<{ levels: MemberBenefitLevel[] }>('/public/member/benefits');
+  return apiGet<{ levels: MemberBenefitLevel[] }>('/public/member/benefits', {
+    storeId: getPublicStoreId(),
+  });
 }
 
 export function getMyMembership() {

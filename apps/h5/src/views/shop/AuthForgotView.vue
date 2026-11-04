@@ -65,7 +65,13 @@ async function handleReset() {
 
 <template>
   <div class="auth-page">
-    <van-nav-bar :title="t('shop.auth.forgotPassword')" left-arrow @click-left="router.back()" />
+    <van-nav-bar
+      :title="t('shop.auth.forgotPassword')"
+      left-arrow
+      fixed
+      placeholder
+      @click-left="router.back()"
+    />
 
     <div class="auth-body">
       <div class="auth-logo">

@@ -164,4 +164,10 @@ export class PlaceGroupMealOrderDto {
   @IsString()
   @MaxLength(512)
   remark?: string;
+
+  @ApiPropertyOptional({ description: '门店 ID' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  storeId?: string;
 }

@@ -52,6 +52,8 @@ async function handleSubmit() {
     <van-nav-bar
       :title="hasPassword ? t('shop.auth.changePassword') : t('shop.auth.setPassword')"
       left-arrow
+      fixed
+      placeholder
       @click-left="router.back()"
     />
     <div class="auth-body">

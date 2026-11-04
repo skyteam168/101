@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { Events, formatVND, isSafeMediaUrl, localeField } from '@restaurant/shared';
 import { io, type Socket } from 'socket.io-client';
@@ -22,6 +23,7 @@ import { getAccessToken } from '../../utils/auth-storage';
 import { useUserStore } from '../../stores/user';
 
 const { t, locale } = useI18n();
+const router = useRouter();
 const userStore = useUserStore();
 const tab = ref('board');
 const loading = ref(false);
@@ -210,6 +212,20 @@ onUnmounted(() => {
                   @click="act(o, 'cancel')"
                 >
                   {{ t('common.cancel') }}
+                </el-button>
+                <el-button
+                  v-if="
+                    o.status === 'completed' &&
+                    (o.paidAmount ?? 0) > 0 &&
+                    (o.paymentStatus === 'paid' || o.paymentStatus === 'partial') &&
+                    userStore.hasPerm('order:refund')
+                  "
+                  size="small"
+                  type="danger"
+                  plain
+                  @click="router.push(`/orders/${o.id}`)"
+                >
+                  {{ t('order.refund') }}
                 </el-button>
               </div>
             </div>

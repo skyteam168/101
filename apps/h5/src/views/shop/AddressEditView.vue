@@ -412,6 +412,8 @@ async function handleSave() {
     <van-nav-bar
       :title="editId ? t('shop.address.edit') : t('shop.address.add')"
       left-arrow
+      fixed
+      placeholder
       @click-left="router.back()"
     />
 

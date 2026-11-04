@@ -1,5 +1,10 @@
 import { apiGet, apiPost } from './http';
 import http from './http';
+import { getPublicStoreId } from '../utils/store-id';
+
+function chatStoreParams(extra?: Record<string, string | number | undefined>) {
+  return { storeId: getPublicStoreId(), ...extra };
+}
 
 export type ChatConversation = {
   id: string;
@@ -31,29 +36,34 @@ export type ChatMessagePage = {
 };
 
 export function getChatConversation() {
-  return apiGet<ChatConversation>('/public/delivery/chat');
+  return apiGet<ChatConversation>('/public/delivery/chat', chatStoreParams());
 }
 
 export function listChatMessages(params?: { beforeId?: string; limit?: number }) {
-  return apiGet<ChatMessagePage>('/public/delivery/chat/messages', params);
+  return apiGet<ChatMessagePage>('/public/delivery/chat/messages', chatStoreParams(params));
 }
 
 export function sendChatMessage(dto: { contentType: 'text' | 'image'; content: string }) {
-  return apiPost<ChatMessage>('/public/delivery/chat/messages', dto);
+  return apiPost<ChatMessage>(
+    `/public/delivery/chat/messages?storeId=${encodeURIComponent(getPublicStoreId())}`,
+    dto,
+  );
 }
 
 export function markChatRead() {
-  return apiPost<{ ok: boolean }>('/public/delivery/chat/read', {});
+  return apiPost<{ ok: boolean }>(
+    `/public/delivery/chat/read?storeId=${encodeURIComponent(getPublicStoreId())}`,
+    {},
+  );
 }
 
 export function translateChatText(dto: {
-  text?: string;
-  messageId?: string;
+  messageId: string;
   targetLang: ChatTranslateLang;
   sourceLang?: ChatTranslateLang;
 }) {
   return apiPost<{ translated: string; targetLang: string; cached?: boolean }>(
-    '/public/delivery/chat/translate',
+    `/public/delivery/chat/translate?storeId=${encodeURIComponent(getPublicStoreId())}`,
     dto,
   );
 }

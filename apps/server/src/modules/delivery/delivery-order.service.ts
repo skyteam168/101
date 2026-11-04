@@ -15,6 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ComboService } from '../combo/combo.service';
 import { PlaceGroupMealOrderDto } from '../group-meal/dto/group-meal.dto';
+import { InventoryService } from '../inventory/inventory.service';
 import { MarketingService } from '../marketing/marketing.service';
 import { MemberService } from '../member/member.service';
 import { computePricing } from '../marketing/pricing.util';
@@ -40,6 +41,7 @@ export class DeliveryOrderService {
     private readonly comboService: ComboService,
     private readonly members: MemberService,
     private readonly audit: AuditService,
+    private readonly inventory: InventoryService,
   ) {}
 
   private money(n: bigint | number) {
@@ -59,7 +61,7 @@ export class DeliveryOrderService {
     return list;
   }
 
-  async getPublicStore(storeId = '1') {
+  async getPublicStore(storeId: string) {
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!store) throw new BusinessError('STORE_REQUIRED');
     const envGallery = Array.isArray(store.envGallery)
@@ -132,10 +134,19 @@ export class DeliveryOrderService {
       };
     }>,
   ) {
+    const snap =
+      o.addressSnapshot && typeof o.addressSnapshot === 'object'
+        ? (o.addressSnapshot as Record<string, unknown>)
+        : null;
+    /** H5 分类：团餐仍存 delivery，用 snapshot.groupMeal 区分 */
+    const channel =
+      snap?.groupMeal === true ? 'group_meal' : o.type;
+
     return {
       id: o.id.toString(),
       orderNo: o.orderNo,
       type: o.type,
+      channel,
       source: o.source,
       status: o.status,
       paymentStatus: o.paymentStatus,
@@ -150,9 +161,13 @@ export class DeliveryOrderService {
       cancelReason: o.cancelReason,
       subtotal: this.money(o.subtotal),
       discount: this.money(o.discount),
+      serviceCharge: this.money(o.serviceCharge),
       deliveryFee: this.money(o.deliveryFee),
       total: this.money(o.total),
       paidAmount: this.money(o.paidAmount),
+      tableCode:
+        (o as { tableSession?: { table?: { code?: string } | null } | null }).tableSession?.table
+          ?.code ?? null,
       courierId: o.courierId?.toString() ?? null,
       courierName: o.courier?.displayName ?? null,
       statusTimeline: o.statusTimeline || [],
@@ -200,6 +215,7 @@ export class DeliveryOrderService {
         payments: true,
         customer: true,
         courier: true,
+        tableSession: { include: { table: { select: { code: true } } } },
       },
     });
   }
@@ -369,6 +385,10 @@ export class DeliveryOrderService {
             optionsSnapshot: line.optionsSnapshot,
             status: OrderItemStatus.pending,
           },
+        });
+        await this.inventory.consumeRecipe(tx, store.id, line.dishId, line.qty, {
+          refType: 'order',
+          refId: order.id.toString(),
         });
       }
       if (dto.couponId) {
@@ -580,6 +600,14 @@ export class DeliveryOrderService {
           status: OrderItemStatus.pending,
         },
       });
+      for (const sel of dto.selections) {
+        for (const did of sel.dishIds) {
+          await this.inventory.consumeRecipe(tx, store.id, BigInt(did), qty, {
+            refType: 'order',
+            refId: order.id.toString(),
+          });
+        }
+      }
       await tx.payment.create({
         data: {
           orderId: order.id,
@@ -609,14 +637,16 @@ export class DeliveryOrderService {
   }
 
   async listMine(customerId: string) {
+    // 含堂食/外卖/自取；团餐落在 delivery + addressSnapshot.groupMeal
     const rows = await this.prisma.order.findMany({
-      where: { customerId: BigInt(customerId), type: OrderType.delivery },
+      where: { customerId: BigInt(customerId) },
       include: {
         batches: { include: { items: true } },
         items: true,
         payments: true,
         customer: true,
         courier: true,
+        tableSession: { include: { table: { select: { code: true } } } },
       },
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -656,6 +686,10 @@ export class DeliveryOrderService {
               data: { soldToday: { decrement: item.qty } },
             });
           }
+          await this.inventory.restoreRecipe(tx, order.storeId, item.dishId, item.qty, {
+            refType: 'order_item',
+            refId: item.id.toString(),
+          });
         }
         await tx.orderItem.update({
           where: { id: item.id },
@@ -738,6 +772,10 @@ export class DeliveryOrderService {
                 data: { soldToday: { decrement: item.qty } },
               });
             }
+            await this.inventory.restoreRecipe(tx, order.storeId, item.dishId, item.qty, {
+              refType: 'order_item',
+              refId: item.id.toString(),
+            });
           }
           await tx.orderItem.update({
             where: { id: item.id },

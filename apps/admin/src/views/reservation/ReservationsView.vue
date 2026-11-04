@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { formatVND } from '@restaurant/shared';
+import { formatVND, localeField } from '@restaurant/shared';
 import {
   cancelReservationApi,
   confirmReservationApi,
@@ -13,29 +13,32 @@ import {
   seatReservationApi,
   updateReservationApi,
   type Reservation,
+  type ReservationItem,
   type ReservationStatus,
 } from '../../api/reservation';
+import { listDishesApi, type Dish } from '../../api/menu';
 import { listFloorApi, type FloorTable } from '../../api/table';
 import { formatDateTimeLocal, toDatetimeLocalValue } from '../../utils/datetime';
 import { formatThousands, parseThousands } from '../../utils/vnd-input';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const loading = ref(false);
 const reservations = ref<Reservation[]>([]);
 const allTables = ref<FloorTable[]>([]);
+const dishes = ref<Dish[]>([]);
 
-// ─── 筛选 ───
 const filterDate = ref('');
 const filterStatus = ref('');
 const filterKeyword = ref('');
 
-// ─── 对话框 ───
 const dialog = ref(false);
 const saving = ref(false);
 const seatDialog = ref(false);
 const seatId = ref('');
 const seatTableId = ref('');
+
+type FormItem = { dishId: string; qty: number };
 
 const form = reactive({
   id: '',
@@ -47,9 +50,17 @@ const form = reactive({
   status: 'pending' as ReservationStatus,
   depositText: '',
   remark: '',
+  items: [] as FormItem[],
 });
 
-// ─── 刷新 ───
+function dishName(d: Dish) {
+  return localeField(
+    d as unknown as Record<string, unknown>,
+    'name',
+    locale.value === 'vi-VN' ? 'vi' : 'zh',
+  );
+}
+
 async function refresh() {
   loading.value = true;
   try {
@@ -70,11 +81,16 @@ async function loadTables() {
   }
 }
 
+async function loadDishes() {
+  if (!dishes.value.length) {
+    dishes.value = await listDishesApi({ status: 'on' });
+  }
+}
+
 onMounted(async () => {
-  await Promise.all([refresh(), loadTables()]);
+  await Promise.all([refresh(), loadTables(), loadDishes()]);
 });
 
-// ─── 状态翻译 ───
 function statusTag(status: ReservationStatus) {
   const map: Record<string, 'info' | 'success' | 'warning' | 'danger'> = {
     pending: 'info',
@@ -86,8 +102,7 @@ function statusTag(status: ReservationStatus) {
   return map[status] || 'info';
 }
 
-// ─── 新建 ───
-function openCreate() {
+function resetForm() {
   form.id = '';
   form.customerName = '';
   form.phone = '';
@@ -97,25 +112,43 @@ function openCreate() {
   form.status = 'pending';
   form.depositText = '';
   form.remark = '';
+  form.items = [];
+}
+
+function openCreate() {
+  resetForm();
   dialog.value = true;
 }
 
-// ─── 编辑 ───
 function openEdit(row: Reservation) {
   form.id = row.id;
   form.customerName = row.customerName;
   form.phone = row.phone;
   form.guestCount = row.guestCount;
-  // reserveAt ISO → 本地 datetime-local，避免按 UTC 截断
   form.reserveAt = toDatetimeLocalValue(row.reserveAt);
   form.tableId = row.tableId || '';
   form.status = row.status;
   form.depositText = formatThousands(row.deposit);
   form.remark = row.remark || '';
+  form.items = (row.items || [])
+    .filter((it: ReservationItem) => it.dishId)
+    .map((it) => ({ dishId: it.dishId!, qty: it.qty }));
   dialog.value = true;
 }
 
-// ─── 保存 ───
+function addItemRow() {
+  const first = dishes.value[0];
+  if (!first) {
+    ElMessage.warning(t('reservation.noDish'));
+    return;
+  }
+  form.items.push({ dishId: first.id, qty: 1 });
+}
+
+function removeItemRow(idx: number) {
+  form.items.splice(idx, 1);
+}
+
 async function save() {
   if (!form.customerName || !form.phone) {
     ElMessage.warning(t('reservation.guestRequired'));
@@ -135,9 +168,12 @@ async function save() {
       tableId: form.tableId || null,
       deposit: parseThousands(form.depositText),
       remark: form.remark || null,
+      items: form.items
+        .filter((it) => it.dishId && it.qty > 0)
+        .map((it) => ({ dishId: it.dishId, qty: it.qty })),
     };
     if (form.id) {
-      await updateReservationApi(form.id, { ...payload, status: form.status });
+      await updateReservationApi(form.id, payload);
     } else {
       await createReservationApi(payload);
     }
@@ -149,14 +185,12 @@ async function save() {
   }
 }
 
-// ─── 确认 ───
 async function doConfirm(row: Reservation) {
   await confirmReservationApi(row.id);
   ElMessage.success(t('common.saved'));
   await refresh();
 }
 
-// ─── 取消 ───
 async function doCancel(row: Reservation) {
   const { value: reason } = await ElMessageBox.prompt(
     t('reservation.cancelReason'),
@@ -168,7 +202,6 @@ async function doCancel(row: Reservation) {
   await refresh();
 }
 
-// ─── 爽约 ───
 async function doNoShow(row: Reservation) {
   await ElMessageBox.confirm(t('reservation.confirmNoShow'), { type: 'warning' });
   await noShowReservationApi(row.id);
@@ -176,7 +209,6 @@ async function doNoShow(row: Reservation) {
   await refresh();
 }
 
-// ─── 入座 ───
 function openSeat(row: Reservation) {
   seatId.value = row.id;
   seatTableId.value = row.tableId || '';
@@ -188,13 +220,14 @@ async function doSeat() {
     ElMessage.warning(t('reservation.tableRequired'));
     return;
   }
-  await seatReservationApi(seatId.value, seatTableId.value);
-  ElMessage.success(t('common.saved'));
+  const res = await seatReservationApi(seatId.value, seatTableId.value);
+  ElMessage.success(
+    res.orderId ? t('reservation.seatWithOrder') : t('common.saved'),
+  );
   seatDialog.value = false;
   await refresh();
 }
 
-// ─── 删除 ───
 async function remove(row: Reservation) {
   await ElMessageBox.confirm(t('common.confirmDelete'), { type: 'warning' });
   await deleteReservationApi(row.id);
@@ -208,7 +241,13 @@ function formatDateTime(iso: string) {
 
 function tableCode(tableId: string | null) {
   if (!tableId) return '—';
-  return allTables.value.find((t) => t.id === tableId)?.code || tableId;
+  return allTables.value.find((tb) => tb.id === tableId)?.code || tableId;
+}
+
+function itemLabel(it: ReservationItem) {
+  const name =
+    locale.value === 'vi-VN' ? it.nameVi || it.nameZh : it.nameZh || it.nameVi;
+  return `${name} ×${it.qty}`;
 }
 </script>
 
@@ -224,7 +263,6 @@ function tableCode(tableId: string | null) {
       </el-button>
     </div>
 
-    <!-- 筛选栏 -->
     <div class="filters">
       <el-date-picker
         v-model="filterDate"
@@ -240,11 +278,11 @@ function tableCode(tableId: string | null) {
         clearable
         style="width: 140px"
       >
-        <el-option label="Pending" value="pending" />
-        <el-option value="confirmed">{{ t('reservation.status.confirmed') }}</el-option>
-        <el-option value="seated">{{ t('reservation.status.seated') }}</el-option>
-        <el-option value="cancelled">{{ t('reservation.status.cancelled') }}</el-option>
-        <el-option value="no_show">{{ t('reservation.status.no_show') }}</el-option>
+        <el-option :label="t('reservation.status.pending')" value="pending" />
+        <el-option :label="t('reservation.status.confirmed')" value="confirmed" />
+        <el-option :label="t('reservation.status.seated')" value="seated" />
+        <el-option :label="t('reservation.status.cancelled')" value="cancelled" />
+        <el-option :label="t('reservation.status.no_show')" value="no_show" />
       </el-select>
       <el-input
         v-model="filterKeyword"
@@ -256,7 +294,6 @@ function tableCode(tableId: string | null) {
       <el-button type="primary" @click="refresh">{{ t('common.search') }}</el-button>
     </div>
 
-    <!-- 列表 -->
     <el-table :data="reservations" border>
       <el-table-column :label="t('reservation.guest')" width="140">
         <template #default="{ row }">
@@ -273,6 +310,19 @@ function tableCode(tableId: string | null) {
       </el-table-column>
       <el-table-column :label="t('reservation.table')" width="90">
         <template #default="{ row }">{{ tableCode(row.tableId) }}</template>
+      </el-table-column>
+      <el-table-column :label="t('reservation.preorder')" min-width="200" class-name="preorder-col">
+        <template #default="{ row }">
+          <template v-if="row.preorderCount">
+            <el-tag size="small" type="warning">
+              {{ t('reservation.preorderCount', { n: row.preorderCount }) }}
+            </el-tag>
+            <div class="preorder-lines">
+              <span v-for="(it, i) in row.items || []" :key="i">{{ itemLabel(it) }}</span>
+            </div>
+          </template>
+          <span v-else class="muted">—</span>
+        </template>
       </el-table-column>
       <el-table-column :label="t('common.status')" width="100">
         <template #default="{ row }">
@@ -330,11 +380,10 @@ function tableCode(tableId: string | null) {
       </el-table-column>
     </el-table>
 
-    <!-- 新建/编辑对话框 -->
     <el-dialog
       v-model="dialog"
       :title="form.id ? t('reservation.edit') : t('reservation.add')"
-      width="520px"
+      width="640px"
     >
       <el-form label-width="100px">
         <el-form-item :label="t('reservation.guest')">
@@ -364,12 +413,6 @@ function tableCode(tableId: string | null) {
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="form.id" :label="t('common.status')">
-          <el-select v-model="form.status" style="width: 100%">
-            <el-option v-for="s in ['pending','confirmed','seated','cancelled','no_show']"
-              :key="s" :label="t(`reservation.status.${s}`)" :value="s" />
-          </el-select>
-        </el-form-item>
         <el-form-item :label="t('reservation.deposit')">
           <el-input
             :model-value="form.depositText"
@@ -379,6 +422,24 @@ function tableCode(tableId: string | null) {
         <el-form-item :label="t('inventory.note')">
           <el-input v-model="form.remark" type="textarea" :rows="2" />
         </el-form-item>
+        <el-form-item :label="t('reservation.preorder')">
+          <div class="items-editor">
+            <p class="hint">{{ t('reservation.preorderHint') }}</p>
+            <div v-for="(it, idx) in form.items" :key="idx" class="item-row">
+              <el-select v-model="it.dishId" filterable style="flex: 1">
+                <el-option
+                  v-for="d in dishes"
+                  :key="d.id"
+                  :label="`${dishName(d)} · ${formatVND(d.price)}`"
+                  :value="d.id"
+                />
+              </el-select>
+              <el-input-number v-model="it.qty" :min="1" :max="99" style="width: 110px" />
+              <el-button link type="danger" @click="removeItemRow(idx)">{{ t('common.delete') }}</el-button>
+            </div>
+            <el-button size="small" @click="addItemRow">+ {{ t('reservation.addDish') }}</el-button>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialog = false">{{ t('common.cancel') }}</el-button>
@@ -386,13 +447,12 @@ function tableCode(tableId: string | null) {
       </template>
     </el-dialog>
 
-    <!-- 入座选桌对话框 -->
     <el-dialog v-model="seatDialog" :title="t('reservation.seat')" width="360px">
       <el-form label-width="80px">
         <el-form-item :label="t('reservation.table')">
           <el-select v-model="seatTableId" style="width: 100%">
             <el-option
-              v-for="tb in allTables.filter(t => t.status === 'idle')"
+              v-for="tb in allTables.filter((x) => x.status === 'idle')"
               :key="tb.id"
               :label="`${tb.code} (${t('tables.statusIdle')})`"
               :value="tb.id"
@@ -414,4 +474,25 @@ function tableCode(tableId: string | null) {
 .head h3 { margin: 0; }
 .sub { margin: 4px 0 0; color: #888; font-size: 13px; }
 .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.preorder-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #606266;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
+}
+:deep(.preorder-col .cell) {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  line-height: 1.4;
+}
+.muted { color: #c0c4cc; }
+.items-editor { width: 100%; }
+.item-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.hint { margin: 0 0 8px; color: #909399; font-size: 12px; }
 </style>

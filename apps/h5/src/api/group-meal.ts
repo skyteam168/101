@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from './http';
+import { getPublicStoreId } from '../utils/store-id';
 
 export type GroupComboItem = {
   id: string;
@@ -31,7 +32,7 @@ export type GroupCombo = {
   groups: GroupComboGroup[];
 };
 
-export function listGroupCombos(storeId = '1') {
+export function listGroupCombos(storeId = getPublicStoreId()) {
   return apiGet<GroupCombo[]>('/public/combos', { storeId });
 }
 
@@ -59,5 +60,5 @@ export function placeGroupOrder(dto: {
   payMethod: 'cash' | 'bank_transfer';
   remark?: string;
 }) {
-  return apiPost('/public/delivery/group-orders', dto);
+  return apiPost('/public/delivery/group-orders', { ...dto, storeId: getPublicStoreId() });
 }

@@ -102,7 +102,13 @@ async function onGoogleCredential(idToken: string) {
 
 <template>
   <div class="auth-page">
-    <van-nav-bar :title="t('shop.auth.register')" left-arrow @click-left="router.back()" />
+    <van-nav-bar
+      :title="t('shop.auth.register')"
+      left-arrow
+      fixed
+      placeholder
+      @click-left="router.back()"
+    />
 
     <div class="auth-body">
       <div class="auth-logo">

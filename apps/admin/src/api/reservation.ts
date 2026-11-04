@@ -8,6 +8,17 @@ export type ReservationStatus =
   | 'no_show'
   | 'seated';
 
+export type ReservationItem = {
+  id?: string;
+  dishId: string | null;
+  nameZh: string;
+  nameVi: string;
+  qty: number;
+  unitPrice: number;
+  optionsSnapshot?: unknown;
+  remark?: string | null;
+};
+
 /** 预定记录 */
 export type Reservation = {
   id: string;
@@ -21,6 +32,9 @@ export type Reservation = {
   deposit: number;
   remark: string | null;
   memberPriority?: boolean;
+  items?: ReservationItem[];
+  preorderCount?: number;
+  orderId?: string | null;
   createdAt: string;
 };
 
@@ -44,6 +58,10 @@ export const listReservationsApi = async (params?: {
 /** 待确认预定数量（菜单角标） */
 export const getPendingReservationCountApi = () =>
   apiGet<{ count: number }>('/reservations/pending-count');
+
+/** 厨房预点备料 */
+export const listKitchenPreordersApi = () =>
+  apiGet<Reservation[]>('/reservations/kitchen-preorders');
 
 /** 新建 */
 export const createReservationApi = (data: Record<string, unknown>) =>

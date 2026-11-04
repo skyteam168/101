@@ -16,6 +16,8 @@ export type Printer = {
   port: number;
   paperWidth: number;
   role: 'front' | 'kitchen';
+  connectionType?: 'network' | 'browser_usb' | 'cloud';
+  acceptAllTickets?: boolean;
   stationId: string | null;
   agentId: string | null;
   isActive: boolean;
@@ -70,6 +72,12 @@ export const listPrintJobsApi = (params?: { status?: string; page?: number; page
 
 export const reprintJobApi = (id: string, printerId?: string) =>
   apiPost<PrintJob>(`/print/jobs/${id}/reprint`, { printerId });
+
+/** 按订单退款记录出退款小票（缺省最近一笔） */
+export const printRefundTicketApi = (orderId: string, refundId?: string) =>
+  apiPost<{ ok: boolean; refundId: string }>(`/print/orders/${orderId}/refund-ticket`, {
+    refundId,
+  });
 
 export const printShiftApi = (data?: { cashierName?: string; from?: string; to?: string }) =>
   apiPost('/print/shift', data || {});

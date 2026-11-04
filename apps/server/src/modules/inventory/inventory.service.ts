@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, StocktakeStatus } from '@prisma/client';
+import { IngredientMovementType, Prisma, StocktakeStatus } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -9,9 +9,12 @@ import {
   CreatePurchaseDto,
   CreateStocktakeDto,
   CreateSupplierDto,
+  SetDishRecipesDto,
   UpdateIngredientDto,
   UpdateSupplierDto,
 } from './dto/inventory.dto';
+
+type Tx = Prisma.TransactionClient;
 
 @Injectable()
 export class InventoryService {
@@ -276,6 +279,16 @@ export class InventoryService {
             lastCost: l.unitPrice,
           },
         });
+        await tx.ingredientMovement.create({
+          data: {
+            storeId: BigInt(storeId),
+            ingredientId: l.ingredientId,
+            type: IngredientMovementType.purchase,
+            qty: l.qty,
+            refType: 'purchase',
+            refId: purchase.id.toString(),
+          },
+        });
       }
 
       return {
@@ -407,9 +420,25 @@ export class InventoryService {
       });
 
       for (const l of lines) {
+        const before = await tx.ingredient.findUnique({
+          where: { id: l.ingredientId },
+          select: { stockQty: true },
+        });
         await tx.ingredient.update({
           where: { id: l.ingredientId },
           data: { stockQty: l.countedQty },
+        });
+        // 盘点只改账面库存，不删除历史 sale_deduct 流水
+        await tx.ingredientMovement.create({
+          data: {
+            storeId: BigInt(storeId),
+            ingredientId: l.ingredientId,
+            type: IngredientMovementType.stocktake_set,
+            qty: l.countedQty,
+            refType: 'stocktake',
+            refId: row.id.toString(),
+            note: `from ${Number(before?.stockQty ?? 0)}`,
+          },
         });
       }
 
@@ -500,5 +529,168 @@ export class InventoryService {
       purchases: purchases.list,
       purchaseTotal: purchases.list.reduce((s, p) => s + p.totalAmount, 0),
     };
+  }
+
+  async listDishRecipes(storeId: string, dishId: string) {
+    const dish = await this.prisma.dish.findFirst({
+      where: { id: BigInt(dishId), storeId: BigInt(storeId) },
+    });
+    if (!dish) throw new BusinessError('DISH_NOT_FOUND');
+    const rows = await this.prisma.dishRecipe.findMany({
+      where: { dishId: dish.id },
+      include: { ingredient: true },
+      orderBy: { id: 'asc' },
+    });
+    return rows.map((r) => ({
+      id: r.id.toString(),
+      dishId: r.dishId.toString(),
+      ingredientId: r.ingredientId.toString(),
+      qty: Number(r.qty),
+      unit: r.ingredient.unit,
+      nameZh: r.ingredient.nameZh,
+      nameVi: r.ingredient.nameVi,
+    }));
+  }
+
+  async setDishRecipes(storeId: string, dishId: string, dto: SetDishRecipesDto) {
+    const dish = await this.prisma.dish.findFirst({
+      where: { id: BigInt(dishId), storeId: BigInt(storeId) },
+    });
+    if (!dish) throw new BusinessError('DISH_NOT_FOUND');
+
+    const ingredientIds = dto.items.map((i) => BigInt(i.ingredientId));
+    const uniq = new Set(ingredientIds.map((x) => x.toString()));
+    if (uniq.size !== ingredientIds.length) {
+      throw new BusinessError('RECIPE_DUPLICATE_INGREDIENT');
+    }
+    if (ingredientIds.length) {
+      const ings = await this.prisma.ingredient.findMany({
+        where: { storeId: BigInt(storeId), id: { in: ingredientIds }, isActive: true },
+      });
+      if (ings.length !== ingredientIds.length) {
+        throw new BusinessError('INGREDIENT_NOT_FOUND');
+      }
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dishRecipe.deleteMany({ where: { dishId: dish.id } });
+      if (dto.items.length) {
+        await tx.dishRecipe.createMany({
+          data: dto.items.map((i) => ({
+            dishId: dish.id,
+            ingredientId: BigInt(i.ingredientId),
+            qty: i.qty,
+          })),
+        });
+      }
+    });
+
+    return this.listDishRecipes(storeId, dishId);
+  }
+
+  /**
+   * 按菜品配方扣减原料（允许库存为负，不阻断售卖；流水 type=sale_deduct）。
+   * 无配方则 no-op。
+   */
+  async consumeRecipe(
+    tx: Tx,
+    storeId: bigint,
+    dishId: bigint | null | undefined,
+    dishQty: number,
+    ref: { refType: string; refId: string },
+  ) {
+    if (!dishId || dishQty <= 0) return;
+    const recipes = await tx.dishRecipe.findMany({
+      where: { dishId, ingredient: { storeId } },
+    });
+    for (const r of recipes) {
+      const need = Number((Number(r.qty) * dishQty).toFixed(3));
+      if (need <= 0) continue;
+      await tx.ingredient.update({
+        where: { id: r.ingredientId },
+        data: { stockQty: { decrement: need } },
+      });
+      await tx.ingredientMovement.create({
+        data: {
+          storeId,
+          ingredientId: r.ingredientId,
+          type: IngredientMovementType.sale_deduct,
+          qty: need,
+          refType: ref.refType,
+          refId: ref.refId,
+        },
+      });
+    }
+  }
+
+  /** 退菜/取消：按配方回滚原料，写 sale_restore 流水 */
+  async restoreRecipe(
+    tx: Tx,
+    storeId: bigint,
+    dishId: bigint | null | undefined,
+    dishQty: number,
+    ref: { refType: string; refId: string },
+  ) {
+    if (!dishId || dishQty <= 0) return;
+    const recipes = await tx.dishRecipe.findMany({
+      where: { dishId, ingredient: { storeId } },
+    });
+    for (const r of recipes) {
+      const need = Number((Number(r.qty) * dishQty).toFixed(3));
+      if (need <= 0) continue;
+      await tx.ingredient.update({
+        where: { id: r.ingredientId },
+        data: { stockQty: { increment: need } },
+      });
+      await tx.ingredientMovement.create({
+        data: {
+          storeId,
+          ingredientId: r.ingredientId,
+          type: IngredientMovementType.sale_restore,
+          qty: need,
+          refType: ref.refType,
+          refId: ref.refId,
+        },
+      });
+    }
+  }
+
+  listMovements(
+    storeId: string,
+    opts: { ingredientId?: string; page?: number; pageSize?: number },
+  ) {
+    const page = Math.max(1, opts.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 50));
+    const where: Prisma.IngredientMovementWhereInput = {
+      storeId: BigInt(storeId),
+      ...(opts.ingredientId ? { ingredientId: BigInt(opts.ingredientId) } : {}),
+    };
+    return Promise.all([
+      this.prisma.ingredientMovement.count({ where }),
+      this.prisma.ingredientMovement.findMany({
+        where,
+        include: { ingredient: { select: { nameZh: true, nameVi: true, unit: true } } },
+        orderBy: { id: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]).then(([total, list]) => ({
+      total,
+      page,
+      pageSize,
+      list: list.map((m) => ({
+        id: m.id.toString(),
+        ingredientId: m.ingredientId.toString(),
+        nameZh: m.ingredient.nameZh,
+        nameVi: m.ingredient.nameVi,
+        unit: m.ingredient.unit,
+        type: m.type,
+        qty: Number(m.qty),
+        refType: m.refType,
+        refId: m.refId,
+        note: m.note,
+        createdAt: m.createdAt.toISOString(),
+      })),
+    }));
   }
 }

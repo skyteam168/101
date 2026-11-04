@@ -122,6 +122,29 @@ export class PrintListenerService {
     }
   }
 
+  @OnEvent(Events.ORDER_REFUNDED)
+  async onRefunded(payload: {
+    storeId?: string;
+    order?: Record<string, unknown>;
+    refund?: {
+      id: string;
+      amount: number;
+      method: string;
+      reason: string;
+      createdAt?: string;
+    };
+  }) {
+    try {
+      const storeId = payload.storeId ? String(payload.storeId) : null;
+      const order = payload.order as Parameters<PrintJobService['printRefund']>[1] | undefined;
+      const refund = payload.refund;
+      if (!storeId || !order || !refund) return;
+      await this.jobs.printRefund(storeId, order, refund);
+    } catch (e) {
+      this.logger.error(`print refund ticket failed: ${(e as Error).message}`);
+    }
+  }
+
   @OnEvent('print.agent.online')
   async onAgentOnline(payload: { agentId?: string }) {
     if (!payload.agentId) return;
@@ -129,6 +152,16 @@ export class PrintListenerService {
       await this.jobs.flushAgentQueue(payload.agentId);
     } catch (e) {
       this.logger.error(`flush agent queue failed: ${(e as Error).message}`);
+    }
+  }
+
+  @OnEvent(Events.PRINT_STATION_CLAIM)
+  async onPrintStationClaim(payload: { storeId?: string }) {
+    if (!payload.storeId) return;
+    try {
+      await this.jobs.flushBrowserQueue(payload.storeId);
+    } catch (e) {
+      this.logger.error(`flush browser print queue failed: ${(e as Error).message}`);
     }
   }
 

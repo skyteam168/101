@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { getPublicStoreId } from './utils/store-id';
 import { applyVantLocale } from './utils/vant-locale';
+
+// 启动时解析 ?storeId= 并写入 sessionStorage，供后续公开 API 使用
+getPublicStoreId();
 
 const { locale } = useI18n();
 watch(

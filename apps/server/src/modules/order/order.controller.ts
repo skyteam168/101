@@ -24,8 +24,10 @@ import {
   DiscountDto,
   LineDiscountDto,
   OrderQueryDto,
+  RefundDto,
   SubmitOrderDto,
   TempItemDto,
+  UpdateItemStatusDto,
   VoidItemDto,
 } from './dto/order.dto';
 import { OrderService } from './order.service';
@@ -53,6 +55,16 @@ export class OrderController {
   async pendingConfirmCount(@CurrentUser() user: AuthUser) {
     const count = await this.orderService.countNeedConfirm(this.storeId(user));
     return { count };
+  }
+
+  /** 厨房看板（待制作 / 制作中） */
+  @Get('kitchen-board')
+  @RequirePerm('menu:kitchen')
+  kitchenBoard(
+    @CurrentUser() user: AuthUser,
+    @Query('stationId') stationId?: string,
+  ) {
+    return this.orderService.kitchenBoard(this.storeId(user), stationId);
   }
 
   @Get('by-table/:tableId')
@@ -97,6 +109,16 @@ export class OrderController {
     @Body() dto: VoidItemDto,
   ) {
     return this.orderService.voidItem(this.storeId(user), itemId, dto, user.id);
+  }
+
+  @Patch('items/:itemId/status')
+  @RequirePerm('menu:kitchen')
+  updateItemStatus(
+    @CurrentUser() user: AuthUser,
+    @Param('itemId') itemId: string,
+    @Body() dto: UpdateItemStatusDto,
+  ) {
+    return this.orderService.updateItemStatus(this.storeId(user), itemId, dto, user.id);
   }
 
   @Post(':id/cancel')
@@ -184,5 +206,17 @@ export class OrderController {
     @Req() req: Request,
   ) {
     return this.orderService.reverseCheckout(this.storeId(user), id, user.id, getClientIp(req));
+  }
+
+  /** 正式退款：保留订单状态，扣减 paidAmount，写审计 */
+  @Post(':id/refund')
+  @RequirePerm('order:refund')
+  refund(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: RefundDto,
+    @Req() req: Request,
+  ) {
+    return this.orderService.refund(this.storeId(user), id, dto, user.id, getClientIp(req));
   }
 }

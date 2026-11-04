@@ -43,8 +43,6 @@ function renderParts(t: TFn, parts: ChatTimeParts): string {
           time: parts.hm,
         }),
       );
-    default:
-      return parts.hm;
   }
 }
 

@@ -46,10 +46,11 @@ export class CreatePrinterDto {
   @MaxLength(128)
   name!: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional({ description: '网口 IP；cloud 为 Webhook URL；browser_usb 可省略' })
+  @IsOptional()
   @IsString()
-  @MaxLength(64)
-  ip!: string;
+  @MaxLength(512)
+  ip?: string;
 
   @ApiPropertyOptional({ default: 9100 })
   @IsOptional()
@@ -67,6 +68,16 @@ export class CreatePrinterDto {
   @ApiProperty({ enum: ['front', 'kitchen'] })
   @IsIn(['front', 'kitchen'])
   role!: 'front' | 'kitchen';
+
+  @ApiPropertyOptional({ enum: ['network', 'browser_usb', 'cloud'], default: 'network' })
+  @IsOptional()
+  @IsIn(['network', 'browser_usb', 'cloud'])
+  connectionType?: 'network' | 'browser_usb' | 'cloud';
+
+  @ApiPropertyOptional({ description: '单机承接全部票据（堂食/外卖/后厨）' })
+  @IsOptional()
+  @IsBoolean()
+  acceptAllTickets?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -96,7 +107,7 @@ export class UpdatePrinterDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MaxLength(64)
+  @MaxLength(512)
   ip?: string;
 
   @ApiPropertyOptional()
@@ -117,6 +128,16 @@ export class UpdatePrinterDto {
   @IsOptional()
   @IsIn(['front', 'kitchen'])
   role?: 'front' | 'kitchen';
+
+  @ApiPropertyOptional({ enum: ['network', 'browser_usb', 'cloud'] })
+  @IsOptional()
+  @IsIn(['network', 'browser_usb', 'cloud'])
+  connectionType?: 'network' | 'browser_usb' | 'cloud';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  acceptAllTickets?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -150,6 +171,14 @@ export class UpdateAgentDto {
   @IsString()
   @MaxLength(128)
   name?: string;
+}
+
+export class PrintRefundTicketDto {
+  @ApiPropertyOptional({ description: '退款记录 ID，缺省为最近一笔' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  refundId?: string;
 }
 
 export class ReprintDto {

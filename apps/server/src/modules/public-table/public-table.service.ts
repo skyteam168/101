@@ -18,6 +18,7 @@ import { BusinessError } from '../../common/errors/business.error';
 import { GuestUser } from '../../common/decorators/guest.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import { InventoryService } from '../inventory/inventory.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { AddCartItemsDto, JoinTableDto, PatchCartItemDto } from './dto/public-table.dto';
 
@@ -43,6 +44,7 @@ export class PublicTableService {
     private readonly config: ConfigService,
     private readonly events: EventEmitter2,
     private readonly realtime: RealtimeGateway,
+    private readonly inventory: InventoryService,
   ) {}
 
   private cartKey(sessionId: string) {
@@ -512,6 +514,13 @@ export class PublicTableService {
               status: OrderItemStatus.pending,
             },
           });
+          await this.inventory.consumeRecipe(
+            tx,
+            BigInt(guest.storeId),
+            BigInt(line.dishId),
+            line.qty,
+            { refType: 'order', refId: order.id.toString() },
+          );
         }
 
         const items = await tx.orderItem.findMany({ where: { orderId: order.id } });

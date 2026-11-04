@@ -1,4 +1,4 @@
-import { OrderItemStatus, OrderStatus, PaymentMethod } from '@prisma/client';
+import { OrderItemStatus, OrderStatus, PaymentMethod, PaymentStatus } from '@prisma/client';
 import { Events } from '@restaurant/shared';
 import { BusinessError } from '../../common/errors/business.error';
 import { OrderService } from './order.service';
@@ -12,7 +12,7 @@ function makeAudit() {
 }
 
 describe('OrderService.calculateAmounts', () => {
-  const service = new OrderService({} as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+  const service = new OrderService({} as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
 
   it('sums non-voided items and applies discount/service', () => {
     const result = service.calculateAmounts({
@@ -57,7 +57,7 @@ describe('OrderService.deductStock', () => {
         update: jest.fn(),
       },
     };
-    const service = new OrderService({} as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    const service = new OrderService({} as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
     await expect(service.deductStock(tx as never, 1n, 2)).rejects.toMatchObject({
       errorCode: 'DISH_SOLD_OUT',
     });
@@ -78,7 +78,7 @@ describe('OrderService.deductStock', () => {
         update: jest.fn(),
       },
     };
-    const service = new OrderService({} as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    const service = new OrderService({} as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
     await service.deductStock(tx as never, 1n, 2);
     expect(tx.dish.updateMany).toHaveBeenCalledWith({
       where: { id: 1n, stock: { gte: 2 } },
@@ -101,7 +101,7 @@ describe('OrderService.deductStock', () => {
         update: jest.fn(),
       },
     };
-    const service = new OrderService({} as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    const service = new OrderService({} as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
     await expect(service.deductStock(tx as never, 1n, 2)).rejects.toBeInstanceOf(BusinessError);
     await expect(service.deductStock(tx as never, 1n, 2)).rejects.toMatchObject({
       errorCode: 'DISH_SOLD_OUT',
@@ -187,6 +187,7 @@ describe('OrderService.submit / addItems / voidItem', () => {
         },
       ],
       payments: [],
+      refunds: [],
       tableSession: {
         id: 50n,
         status: 'open',
@@ -282,7 +283,7 @@ describe('OrderService.submit / addItems / voidItem', () => {
   it('submit creates order + batch and emits ORDER_CREATED', async () => {
     const prisma = basePrisma();
     const events = makeEvents();
-    const service = new OrderService(prisma as never, events as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    const service = new OrderService(prisma as never, events as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
     const result = await service.submit(
       '1',
       { tableId: '7', items: [{ dishId: '10', qty: 1 }] },
@@ -297,7 +298,7 @@ describe('OrderService.submit / addItems / voidItem', () => {
   it('addItems creates next round batch', async () => {
     const prisma = basePrisma();
     const events = makeEvents();
-    const service = new OrderService(prisma as never, events as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    const service = new OrderService(prisma as never, events as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
     await service.addItems('1', '100', { items: [{ dishId: '10', qty: 1 }] }, '9');
     expect(events.emit).toHaveBeenCalledWith(Events.ORDER_BATCH_ADDED, expect.any(Object));
   });
@@ -305,7 +306,7 @@ describe('OrderService.submit / addItems / voidItem', () => {
   it('voidItem restores stock and emits ORDER_ITEM_VOIDED', async () => {
     const prisma = basePrisma();
     const events = makeEvents();
-    const service = new OrderService(prisma as never, events as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    const service = new OrderService(prisma as never, events as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
     await service.voidItem('1', '300', { reason: 'guest cancel' }, '9');
     expect(events.emit).toHaveBeenCalledWith(
       Events.ORDER_ITEM_VOIDED,
@@ -315,7 +316,7 @@ describe('OrderService.submit / addItems / voidItem', () => {
 
   it('checkout rejects mismatched non-cash payment total', async () => {
     const prisma = basePrisma();
-    const service = new OrderService(prisma as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    const service = new OrderService(prisma as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
     await expect(
       service.checkout(
         '1',
@@ -328,7 +329,7 @@ describe('OrderService.submit / addItems / voidItem', () => {
 
   it('checkout cash rejects when received less than due', async () => {
     const prisma = basePrisma();
-    const service = new OrderService(prisma as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never);
+    const service = new OrderService(prisma as never, makeEvents() as never, makeAudit() as never, { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never, {} as never, { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never);
     await expect(
       service.checkout(
         '1',
@@ -337,5 +338,197 @@ describe('OrderService.submit / addItems / voidItem', () => {
         '9',
       ),
     ).rejects.toMatchObject({ errorCode: 'CASH_RECEIVED_INSUFFICIENT' });
+  });
+});
+
+describe('OrderService.refund', () => {
+  function paidPrisma(overrides: Partial<{
+    status: OrderStatus;
+    paymentStatus: PaymentStatus;
+    paidAmount: bigint;
+    type: string;
+  }> = {}) {
+    const orderRow = {
+      id: 100n,
+      storeId: 1n,
+      orderNo: 'D1',
+      type: overrides.type ?? 'dine_in',
+      source: 'waiter',
+      tableSessionId: 50n,
+      status: overrides.status ?? OrderStatus.paid,
+      subtotal: 89000n,
+      discount: 0n,
+      roundOff: 0n,
+      serviceCharge: 0n,
+      deliveryFee: 0n,
+      total: 89000n,
+      paidAmount: overrides.paidAmount ?? 89000n,
+      paymentStatus: overrides.paymentStatus ?? PaymentStatus.paid,
+      remark: null,
+      cancelReason: null,
+      customerId: null,
+      couponId: null,
+      promoSnapshot: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      batches: [],
+      items: [],
+      payments: [
+        {
+          id: 1n,
+          method: PaymentMethod.cash,
+          amount: 89000n,
+          received: 89000n,
+          change: 0n,
+          createdAt: new Date(),
+        },
+      ],
+      refunds: [] as {
+        id: bigint;
+        method: PaymentMethod;
+        amount: bigint;
+        reason: string;
+        operatorId: bigint | null;
+        createdAt: Date;
+      }[],
+      tableSession: {
+        id: 50n,
+        status: 'closed',
+        guestCount: 2,
+        table: { id: 7n, code: 'A01' },
+      },
+    };
+
+    const state = { order: orderRow };
+
+    const prisma: Record<string, unknown> = {
+      order: {
+        findUnique: jest.fn(async () => ({ ...state.order })),
+        findFirst: jest.fn(async () => ({ ...state.order })),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          Object.assign(state.order, data);
+          return { ...state.order };
+        }),
+      },
+      orderRefund: {
+        create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          const row = {
+            id: 900n,
+            method: data.method as PaymentMethod,
+            amount: data.amount as bigint,
+            reason: data.reason as string,
+            operatorId: data.operatorId as bigint,
+            createdAt: new Date(),
+          };
+          state.order.refunds = [...state.order.refunds, row];
+          return row;
+        }),
+      },
+    };
+    prisma.$transaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
+    return { prisma, state };
+  }
+
+  it('full refund sets paymentStatus refunded and paidAmount 0', async () => {
+    const { prisma, state } = paidPrisma();
+    const audit = makeAudit();
+    const events = makeEvents();
+    const service = new OrderService(
+      prisma as never,
+      events as never,
+      audit as never,
+      { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never,
+      {} as never,
+      { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never,
+    );
+    const result = await service.refund(
+      '1',
+      '100',
+      { amount: 89000, method: PaymentMethod.cash, reason: 'customer request' },
+      '9',
+    );
+    expect(state.order.paidAmount).toBe(0n);
+    expect(state.order.paymentStatus).toBe(PaymentStatus.refunded);
+    expect(result.paymentStatus).toBe(PaymentStatus.refunded);
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'order.refund' }),
+    );
+    expect(events.emit).toHaveBeenCalledWith(Events.ORDER_STATUS_CHANGED, expect.any(Object));
+  });
+
+  it('partial refund leaves paymentStatus partial', async () => {
+    const { prisma, state } = paidPrisma();
+    const service = new OrderService(
+      prisma as never,
+      makeEvents() as never,
+      makeAudit() as never,
+      { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never,
+      {} as never,
+      { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never,
+    );
+    await service.refund(
+      '1',
+      '100',
+      { amount: 20000, method: PaymentMethod.bank_transfer, reason: 'partial' },
+      '9',
+    );
+    expect(state.order.paidAmount).toBe(69000n);
+    expect(state.order.paymentStatus).toBe(PaymentStatus.partial);
+  });
+
+  it('rejects open unpaid order', async () => {
+    const { prisma } = paidPrisma({
+      status: OrderStatus.open,
+      paymentStatus: PaymentStatus.unpaid,
+      paidAmount: 0n,
+    });
+    const service = new OrderService(
+      prisma as never,
+      makeEvents() as never,
+      makeAudit() as never,
+      { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never,
+      {} as never,
+      { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never,
+    );
+    await expect(
+      service.refund('1', '100', { amount: 1000, method: PaymentMethod.cash, reason: 'x' }, '9'),
+    ).rejects.toMatchObject({ errorCode: 'ORDER_NOT_REFUNDABLE' });
+  });
+
+  it('rejects amount over remaining paid', async () => {
+    const { prisma } = paidPrisma({ paidAmount: 10000n, paymentStatus: PaymentStatus.partial });
+    const service = new OrderService(
+      prisma as never,
+      makeEvents() as never,
+      makeAudit() as never,
+      { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never,
+      {} as never,
+      { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never,
+    );
+    await expect(
+      service.refund('1', '100', { amount: 20000, method: PaymentMethod.cash, reason: 'x' }, '9'),
+    ).rejects.toMatchObject({ errorCode: 'REFUND_EXCEEDS_PAID' });
+  });
+
+  it('allows refund on completed delivery', async () => {
+    const { prisma, state } = paidPrisma({
+      status: OrderStatus.completed,
+      type: 'delivery',
+    });
+    const service = new OrderService(
+      prisma as never,
+      makeEvents() as never,
+      makeAudit() as never,
+      { activeRulesAsSpecs: async () => [], couponAsSpec: async () => null, markCouponUsed: async () => undefined } as never,
+      {} as never,
+      { consumeRecipe: async () => undefined, restoreRecipe: async () => undefined } as never,
+    );
+    await service.refund(
+      '1',
+      '100',
+      { amount: 89000, method: PaymentMethod.bank_transfer, reason: 'wrong dish' },
+      '9',
+    );
+    expect(state.order.paymentStatus).toBe(PaymentStatus.refunded);
   });
 });

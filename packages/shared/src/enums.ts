@@ -109,6 +109,7 @@ export enum PrintJobKind {
   CANCEL = 'cancel',
   DELIVERY = 'delivery',
   SHIFT = 'shift',
+  REFUND = 'refund',
 }
 
 /** 打印任务状态 */

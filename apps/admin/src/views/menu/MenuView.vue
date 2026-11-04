@@ -24,6 +24,12 @@ import {
   type DishOption,
   type Station,
 } from '../../api/menu';
+import {
+  listDishRecipesApi,
+  listIngredientsApi,
+  setDishRecipesApi,
+  type Ingredient,
+} from '../../api/inventory';
 import { useUserStore } from '../../stores/user';
 import { formatThousands, parseThousands } from '../../utils/vnd-input';
 
@@ -74,6 +80,8 @@ const dishForm = reactive({
 
 const priceText = ref('');
 const takeawayText = ref('');
+const ingredients = ref<Ingredient[]>([]);
+const recipeLines = ref<{ ingredientId: string; qty: number }[]>([]);
 let socket: Socket | null = null;
 
 function nameOf(row: { nameZh: string; nameVi: string }) {
@@ -83,6 +91,11 @@ function nameOf(row: { nameZh: string; nameVi: string }) {
 async function loadMeta() {
   stations.value = await listStationsApi();
   categories.value = await listCategoriesApi();
+  try {
+    ingredients.value = await listIngredientsApi();
+  } catch {
+    ingredients.value = [];
+  }
   if (!selectedCategoryId.value && categories.value.length) {
     selectedCategoryId.value = categories.value[0].id;
   }
@@ -176,10 +189,11 @@ function resetDishForm() {
 function openCreateDish() {
   editingId.value = null;
   resetDishForm();
+  recipeLines.value = [];
   drawer.value = true;
 }
 
-function openEditDish(d: Dish) {
+async function openEditDish(d: Dish) {
   editingId.value = d.id;
   Object.assign(dishForm, {
     categoryId: d.categoryId,
@@ -202,7 +216,21 @@ function openEditDish(d: Dish) {
   });
   priceText.value = formatThousands(d.price);
   takeawayText.value = formatThousands(d.takeawayPrice);
+  recipeLines.value = [];
   drawer.value = true;
+  try {
+    const rows = await listDishRecipesApi(d.id);
+    recipeLines.value = rows.map((r) => ({ ingredientId: r.ingredientId, qty: r.qty }));
+  } catch {
+    recipeLines.value = [];
+  }
+}
+
+function addRecipeLine() {
+  const first = ingredients.value.find(
+    (i) => i.isActive && !recipeLines.value.some((r) => r.ingredientId === i.id),
+  );
+  recipeLines.value.push({ ingredientId: first?.id || '', qty: 0.1 });
 }
 
 function addOption() {
@@ -228,8 +256,18 @@ async function saveDish() {
   dishForm.price = parseThousands(priceText.value);
   dishForm.takeawayPrice = parseThousands(takeawayText.value);
   const payload = { ...dishForm };
-  if (editingId.value) await updateDishApi(editingId.value, payload);
-  else await createDishApi(payload);
+  let dishId = editingId.value;
+  if (dishId) await updateDishApi(dishId, payload);
+  else {
+    const created = await createDishApi(payload);
+    dishId = created.id;
+  }
+  if (dishId) {
+    const items = recipeLines.value
+      .filter((r) => r.ingredientId && r.qty > 0)
+      .map((r) => ({ ingredientId: r.ingredientId, qty: Number(r.qty) }));
+    await setDishRecipesApi(dishId, items);
+  }
   ElMessage.success(t('common.saved'));
   drawer.value = false;
   await loadDishes();
@@ -473,6 +511,28 @@ onUnmounted(() => {
         </div>
       </el-form-item>
     </el-form>
+
+    <div class="opt-head">
+      <strong>{{ t('menuMgmt.recipe') }}</strong>
+      <el-button link type="primary" @click="addRecipeLine">{{ t('common.create') }}</el-button>
+    </div>
+    <p class="hint mb">{{ t('menuMgmt.recipeHint') }}</p>
+    <div v-for="(line, idx) in recipeLines" :key="idx" class="opt-card">
+      <div class="opt-flags">
+        <el-select v-model="line.ingredientId" filterable style="flex: 1">
+          <el-option
+            v-for="ing in ingredients"
+            :key="ing.id"
+            :label="`${nameOf(ing)} (${ing.unit})`"
+            :value="ing.id"
+          />
+        </el-select>
+        <el-input-number v-model="line.qty" :min="0.001" :step="0.1" :precision="3" />
+        <el-button link type="danger" @click="recipeLines.splice(idx, 1)">
+          {{ t('common.delete') }}
+        </el-button>
+      </div>
+    </div>
 
     <div class="opt-head">
       <strong>{{ t('menuMgmt.options') }}</strong>

@@ -25,6 +25,6 @@ export class LoginDto {
   @ApiPropertyOptional({ description: 'Cloudflare Turnstile token' })
   @IsOptional()
   @IsString()
-  @MaxLength(4096)
+  @MaxLength(8192)
   cfTurnstileToken?: string;
 }

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
+import { resolvePublicStoreId } from '../../common/public-store.util';
 import { ComboService } from '../combo/combo.service';
 import { CreateGroupMealInquiryDto } from './dto/group-meal.dto';
 import { GroupMealService } from './group-meal.service';
@@ -16,7 +17,7 @@ export class PublicGroupMealController {
   @Public()
   @Get('public/combos')
   listCombos(@Query('storeId') storeId?: string) {
-    return this.comboService.listPublicGroupMeals(storeId || '1');
+    return this.comboService.listPublicGroupMeals(resolvePublicStoreId(storeId));
   }
 
   @Public()

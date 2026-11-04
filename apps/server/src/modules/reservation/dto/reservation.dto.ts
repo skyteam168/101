@@ -4,9 +4,10 @@ import {
 import { ReservationStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsEnum,
-  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -14,7 +15,53 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+/** 预定预点菜行 */
+export class ReservationItemInputDto {
+  @ApiPropertyOptional({ description: '菜品 ID；有则入座时转入订单' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  dishId?: string;
+
+  @ApiPropertyOptional({ description: '缺 dishId 时必填中文名' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  nameZh?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  nameVi?: string;
+
+  @ApiProperty({ minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  qty!: number;
+
+  @ApiPropertyOptional({ description: '缺 dishId 时单价（VND）' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  unitPrice?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  optionsSnapshot?: unknown;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  remark?: string;
+}
 
 /** 创建预定 DTO */
 export class CreateReservationDto {
@@ -70,6 +117,14 @@ export class CreateReservationDto {
   @IsString()
   @MaxLength(512)
   remark?: string;
+
+  @ApiPropertyOptional({ type: [ReservationItemInputDto], description: '预点菜' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ReservationItemInputDto)
+  items?: ReservationItemInputDto[];
 }
 
 /** 更新预定 DTO */
@@ -128,6 +183,14 @@ export class UpdateReservationDto {
   @IsString()
   @MaxLength(512)
   remark?: string;
+
+  @ApiPropertyOptional({ type: [ReservationItemInputDto], description: '整表替换预点菜；传空数组清空' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ReservationItemInputDto)
+  items?: ReservationItemInputDto[];
 }
 
 /** 预定列表查询 DTO */
@@ -188,4 +251,75 @@ export class CancelReservationDto {
   @IsString()
   @MaxLength(512)
   reason?: string;
+}
+
+/** H5 按手机号查询自己的预定 */
+export class PublicReservationLookupQuery {
+  @ApiPropertyOptional({ description: '门店 ID' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  storeId?: string;
+
+  @ApiProperty({ description: '预定时填写的手机号' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(32)
+  phone!: string;
+}
+
+/** H5 顾客自助取消 */
+export class PublicCancelReservationDto {
+  @ApiProperty({ description: '预定手机号（核验）' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(32)
+  phone!: string;
+
+  @ApiPropertyOptional({ description: '取消原因' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  reason?: string;
+}
+
+/** H5 顾客自助修改（手机号核验，不可改手机号本身） */
+export class PublicUpdateReservationDto {
+  @ApiProperty({ description: '预定手机号（核验）' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(32)
+  phone!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  customerName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  guestCount?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  reserveAt?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  remark?: string;
+
+  @ApiPropertyOptional({ type: [ReservationItemInputDto], description: '整表替换预点菜；传空数组清空' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ReservationItemInputDto)
+  items?: ReservationItemInputDto[];
 }

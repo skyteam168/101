@@ -8,6 +8,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -200,6 +201,25 @@ export class CheckoutDto {
   payments!: PaymentLineDto[];
 }
 
+/** 已收款退款（堂食已结账 / 外卖已完成） */
+export class RefundDto {
+  @ApiProperty({ description: '退款金额（VND 整数，正数，不超过剩余已付）' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  amount!: number;
+
+  @ApiProperty({ enum: PaymentMethod, description: '退回方式（当面现金 / 转账等）' })
+  @IsEnum(PaymentMethod)
+  method!: PaymentMethod;
+
+  @ApiProperty({ description: '退款原因' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
+  reason!: string;
+}
+
 export class OrderQueryDto {
   @ApiPropertyOptional({ description: 'YYYY-MM-DD' })
   @IsOptional()
@@ -238,4 +258,10 @@ export class OrderQueryDto {
   @IsInt()
   @Min(1)
   pageSize?: number;
+}
+
+export class UpdateItemStatusDto {
+  @ApiProperty({ enum: ['cooking', 'served'] })
+  @IsIn(['cooking', 'served'])
+  status!: 'cooking' | 'served';
 }

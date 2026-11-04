@@ -18,6 +18,7 @@ import {
   CreatePrinterDto,
   CreateStationDto,
   JobQueryDto,
+  PrintRefundTicketDto,
   ReprintDto,
   ShiftPrintDto,
   UpdateAgentDto,
@@ -149,6 +150,17 @@ export class PrintController {
     @Body() dto: ReprintDto,
   ) {
     return this.jobs.reprint(this.storeId(user), id, dto.printerId);
+  }
+
+  /** 按订单退款记录出退款小票（重打） */
+  @Post('orders/:orderId/refund-ticket')
+  @RequirePerm('order:refund')
+  printRefundTicket(
+    @CurrentUser() user: AuthUser,
+    @Param('orderId') orderId: string,
+    @Body() dto: PrintRefundTicketDto,
+  ) {
+    return this.jobs.printRefundByOrder(this.storeId(user), orderId, dto.refundId);
   }
 
   @Post('shift')

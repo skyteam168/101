@@ -37,6 +37,15 @@ export type Payment = {
   createdAt: string;
 };
 
+export type OrderRefund = {
+  id: string;
+  method: string;
+  amount: number;
+  reason: string;
+  operatorId: string | null;
+  createdAt: string;
+};
+
 export type Order = {
   id: string;
   orderNo: string;
@@ -59,6 +68,7 @@ export type Order = {
   deliveryFee: number;
   total: number;
   paidAmount: number;
+  refundedAmount?: number;
   promoSnapshot?: {
     rules?: { id: string; nameZh: string; amount: number }[];
     coupon?: { id: string; nameZh: string; amount: number } | null;
@@ -70,6 +80,7 @@ export type Order = {
   batches: OrderBatch[];
   items: OrderItem[];
   payments: Payment[];
+  refunds?: OrderRefund[];
 };
 
 export type OrderListResult = {
@@ -133,6 +144,11 @@ export const checkoutOrderApi = (
 
 export const reverseCheckoutApi = (orderId: string) =>
   apiPost<Order>(`/orders/${orderId}/reverse-checkout`);
+
+export const refundOrderApi = (
+  orderId: string,
+  data: { amount: number; method: string; reason: string },
+) => apiPost<Order>(`/orders/${orderId}/refund`, data);
 
 export const confirmBatchApi = (batchId: string) =>
   apiPost<Order>(`/orders/batches/${batchId}/confirm`);

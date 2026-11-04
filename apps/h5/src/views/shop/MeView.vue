@@ -199,6 +199,12 @@ async function handleCancelAccount() {
           @click="router.push({ name: 'shop-orders' })"
         />
         <van-cell
+          :title="t('reserve.myTitle')"
+          icon="shop-o"
+          is-link
+          @click="router.push({ name: 'my-reservations', query: { phone: customer.profile?.phone || '' } })"
+        />
+        <van-cell
           :title="t('shop.me.myAddresses')"
           icon="location-o"
           is-link

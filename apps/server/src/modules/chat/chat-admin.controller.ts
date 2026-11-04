@@ -20,7 +20,7 @@ import { BusinessError } from '../../common/errors/business.error';
 import { STORAGE_DRIVER, StorageDriver } from '../../storage/storage.interface';
 import { AuthUser } from '../auth/auth.types';
 import { ChatService } from './chat.service';
-import { StaffReplyDto, TranslateChatDto } from './dto/chat.dto';
+import { MuteChatDto, StaffReplyDto, TranslateChatDto } from './dto/chat.dto';
 
 class ChatMessagesQuery {
   @IsOptional()
@@ -91,6 +91,22 @@ export class ChatAdminController {
   @RequirePerm('menu:chat')
   read(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.chat.markReadByStaff(this.storeId(user), id);
+  }
+
+  @Post('conversations/:id/mute')
+  @RequirePerm('chat:mute')
+  mute(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: MuteChatDto,
+  ) {
+    return this.chat.muteConversation(this.storeId(user), id, dto.hours);
+  }
+
+  @Post('conversations/:id/unmute')
+  @RequirePerm('chat:mute')
+  unmute(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.chat.unmuteConversation(this.storeId(user), id);
   }
 
   @Post('translate')

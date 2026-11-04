@@ -7,6 +7,7 @@ export type PrintTemplate =
   | 'void'
   | 'cancel'
   | 'receipt'
+  | 'refund'
   | 'delivery'
   | 'shift'
   | 'test';
@@ -43,6 +44,14 @@ export type PrintTicketPayload = {
     createdAt?: string;
     /** 结账时间（结账单） */
     paidAt?: string;
+    /** 本笔退款（退款小票） */
+    refundId?: string;
+    refundAmount?: number;
+    refundMethod?: string;
+    refundReason?: string;
+    refundedAt?: string;
+    /** 累计已退金额 */
+    refundedAmount?: number;
     /** 用餐人数 */
     guestCount?: number | null;
     /** 页脚欢迎语 */
@@ -64,14 +73,18 @@ export type PrintTicketPayload = {
   };
 };
 
+export type PrinterConnectionType = 'network' | 'browser_usb' | 'cloud';
+
 export type PrintJobMessage = {
   jobId: string;
   printer: {
     id?: string;
     name?: string;
-    ip: string;
-    port: number;
+    /** 网口必填；browser_usb 可为空 */
+    ip?: string;
+    port?: number;
     paperWidth: 58 | 80;
+    connectionType?: PrinterConnectionType;
   };
   payload: PrintTicketPayload;
 };

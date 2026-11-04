@@ -13,8 +13,10 @@ import {
   listChatConversationsApi,
   listChatMessagesApi,
   markChatReadApi,
+  muteChatApi,
   replyChatApi,
   translateChatApi,
+  unmuteChatApi,
   uploadChatImageApi,
   type ChatConversation,
   type ChatMessage,
@@ -89,7 +91,7 @@ function rememberTranslation(m: ChatMessage, lang: ChatTranslateLang, text: stri
 
 /** 调 API：有 messageId 时服务端先查库缓存再决定是否调用模型 */
 async function ensureTranslated(m: ChatMessage) {
-  if (m.contentType !== 'text' || translations.value[m.id] || translatingIds.has(m.id)) return;
+  if (!isPeerText(m) || translations.value[m.id] || translatingIds.has(m.id)) return;
   const lang = translateTarget.value;
   const cached = m.translations?.[lang];
   if (cached) {
@@ -100,7 +102,6 @@ async function ensureTranslated(m: ChatMessage) {
   try {
     const res = await translateChatApi({
       messageId: m.id,
-      text: m.content,
       targetLang: lang,
     });
     rememberTranslation(m, lang, res.translated);
@@ -255,13 +256,32 @@ async function onUpload(file: File) {
 }
 
 async function translate(m: ChatMessage) {
-  if (m.contentType !== 'text') return;
+  if (!isPeerText(m)) return;
   if (translations.value[m.id]) {
     delete translations.value[m.id];
     translations.value = { ...translations.value };
     return;
   }
   await ensureTranslated(m);
+}
+
+const isMutedActive = computed(() => {
+  const until = activeConversation.value?.mutedUntil;
+  if (!until) return false;
+  return new Date(until).getTime() > Date.now();
+});
+
+async function toggleMute() {
+  if (!activeId.value) return;
+  try {
+    const updated = isMutedActive.value
+      ? await unmuteChatApi(activeId.value)
+      : await muteChatApi(activeId.value);
+    const idx = conversations.value.findIndex((c) => c.id === updated.id);
+    if (idx >= 0) conversations.value[idx] = { ...conversations.value[idx], ...updated };
+  } catch {
+    /* http 已提示 */
+  }
 }
 
 function connectSocket() {
@@ -319,6 +339,14 @@ onUnmounted(() => {
           <div class="meta">
             <div class="name-row">
               <span class="name">{{ c.customer?.name || c.customer?.email || c.customerId }}</span>
+              <el-tag
+                v-if="c.mutedUntil && new Date(c.mutedUntil).getTime() > Date.now()"
+                size="small"
+                type="warning"
+                effect="plain"
+              >
+                {{ t('chat.mutedBadge') }}
+              </el-tag>
               <span class="list-time">{{ msgTime(c.lastMessageAt) }}</span>
               <el-badge v-if="c.unreadStaff" :value="c.unreadStaff" />
             </div>
@@ -338,6 +366,14 @@ onUnmounted(() => {
                 </div>
               </div>
               <div class="lang-pick">
+                <el-button
+                  v-perm="'chat:mute'"
+                  size="small"
+                  :type="isMutedActive ? 'warning' : 'default'"
+                  @click="toggleMute"
+                >
+                  {{ isMutedActive ? t('chat.unmute') : t('chat.mute') }}
+                </el-button>
                 <el-switch
                   :model-value="autoTranslate"
                   inline-prompt
@@ -380,8 +416,15 @@ onUnmounted(() => {
                   />
                   <template v-else>
                     <div class="txt">{{ m.content }}</div>
-                    <div v-if="translations[m.id]" class="trans">{{ translations[m.id] }}</div>
-                    <button type="button" class="tr-btn" @click="translate(m)">
+                    <div v-if="isPeerText(m) && translations[m.id]" class="trans">
+                      {{ translations[m.id] }}
+                    </div>
+                    <button
+                      v-if="isPeerText(m)"
+                      type="button"
+                      class="tr-btn"
+                      @click="translate(m)"
+                    >
                       {{ translations[m.id] ? t('chat.hideTranslation') : t('chat.translate') }}
                     </button>
                   </template>

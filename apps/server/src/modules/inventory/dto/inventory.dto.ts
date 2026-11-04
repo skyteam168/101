@@ -251,3 +251,24 @@ export class DayQueryDto {
   @IsDateString()
   date?: string;
 }
+
+export class DishRecipeLineDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  ingredientId!: string;
+
+  @ApiProperty({ description: '每份菜品消耗量' })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.001)
+  qty!: number;
+}
+
+export class SetDishRecipesDto {
+  @ApiProperty({ type: [DishRecipeLineDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DishRecipeLineDto)
+  items!: DishRecipeLineDto[];
+}

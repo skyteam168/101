@@ -79,6 +79,20 @@ function payLabel(method: string) {
   const pair = map[method];
   return pair ? bi(pair[0], pair[1]) : method;
 }
+
+type PaymentLine = { method: string; amount: number; received?: number };
+
+function payReceived(p: PaymentLine) {
+  return p.received ?? p.amount;
+}
+
+function hasChange(payments: PaymentLine[]) {
+  return payments.some((p) => payReceived(p) > p.amount);
+}
+
+function changeTotal(payments: PaymentLine[]) {
+  return payments.reduce((s, p) => s + Math.max(0, payReceived(p) - p.amount), 0);
+}
 </script>
 
 <template>
@@ -153,21 +167,11 @@ function payLabel(method: string) {
           <div class="sep" />
           <div v-for="(p, i) in data.payments" :key="i" class="row">
             <span>{{ payLabel(p.method) }}</span>
-            <span>{{ formatVND((p as { received?: number }).received ?? p.amount) }}</span>
+            <span>{{ formatVND(payReceived(p)) }}</span>
           </div>
-          <div
-            v-if="data.payments.some((p) => ((p as { received?: number }).received ?? p.amount) > p.amount)"
-            class="row"
-          >
+          <div v-if="hasChange(data.payments)" class="row">
             <span>{{ bi('找零', 'Tiền thừa') }}</span>
-            <span>{{
-              formatVND(
-                data.payments.reduce(
-                  (s, p) => s + Math.max(0, ((p as { received?: number }).received ?? p.amount) - p.amount),
-                  0,
-                ),
-              )
-            }}</span>
+            <span>{{ formatVND(changeTotal(data.payments)) }}</span>
           </div>
         </template>
         <div v-else-if="data.paidAmount != null" class="row">

@@ -12,6 +12,7 @@ import { ChatModule } from './modules/chat/chat.module';
 import { ComboModule } from './modules/combo/combo.module';
 import { GroupMealModule } from './modules/group-meal/group-meal.module';
 import { HealthModule } from './modules/health/health.module';
+import { HrModule } from './modules/hr/hr.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { MarketingModule } from './modules/marketing/marketing.module';
 import { MemberModule } from './modules/member/member.module';
@@ -60,6 +61,7 @@ import { StorageModule } from './storage/storage.module';
     AssetModule,
     ReportModule,
     InventoryModule,
+    HrModule,
     MemberModule,
     MarketingModule,
     ComboModule,

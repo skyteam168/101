@@ -67,6 +67,14 @@ export class RealtimeBridge {
     if (sessionId) this.gateway.emitToTable(sessionId, Events.ORDER_ITEM_VOIDED, payload);
   }
 
+  @OnEvent(Events.ORDER_ITEM_STATUS_CHANGED)
+  onItemStatus(payload: { storeId?: string }) {
+    const sid = this.storeId(payload);
+    if (!sid) return;
+    this.gateway.emitToStore(sid, Events.ORDER_ITEM_STATUS_CHANGED, payload);
+    this.gateway.emitToKitchen(sid, Events.ORDER_ITEM_STATUS_CHANGED, payload);
+  }
+
   @OnEvent(Events.ORDER_CANCELLED)
   onCancel(payload: { storeId?: string; order?: { customerId?: string; type?: string } }) {
     const sid = this.storeId(payload);
@@ -156,6 +164,20 @@ export class RealtimeBridge {
   onReservationCreated(payload: { storeId?: string }) {
     const sid = this.storeId(payload);
     if (sid) this.gateway.emitToStore(sid, Events.RESERVATION_CREATED, payload);
+  }
+
+  @OnEvent(Events.RESERVATION_CONFIRMED)
+  onReservationConfirmed(payload: { storeId?: string }) {
+    const sid = this.storeId(payload);
+    if (!sid) return;
+    this.gateway.emitToStore(sid, Events.RESERVATION_CONFIRMED, payload);
+    this.gateway.emitToStore(sid, Events.RESERVATION_PREORDER_CHANGED, payload);
+  }
+
+  @OnEvent(Events.RESERVATION_PREORDER_CHANGED)
+  onReservationPreorderChanged(payload: { storeId?: string }) {
+    const sid = this.storeId(payload);
+    if (sid) this.gateway.emitToStore(sid, Events.RESERVATION_PREORDER_CHANGED, payload);
   }
 
   @OnEvent(Events.RESERVATION_PENDING_CHANGED)

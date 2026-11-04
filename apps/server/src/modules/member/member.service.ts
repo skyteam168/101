@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { CustomerStatus, LedgerDirection, Prisma } from '@prisma/client';
 import { Events } from '@restaurant/shared';
 import { BusinessError } from '../../common/errors/business.error';
+import { resolvePublicStoreId } from '../../common/public-store.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ChatService } from '../chat/chat.service';
@@ -493,7 +494,8 @@ export class MemberService {
   }
 
   /** 每小时检查一次，生日当天只发一次 */
-  async sendBirthdayGreetings(storeId = '1') {
+  async sendBirthdayGreetings(storeId?: string) {
+    storeId = resolvePublicStoreId(storeId);
     const year = this.vnYear();
     const rows = await this.prisma.customer.findMany({
       where: {

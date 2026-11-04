@@ -26,6 +26,7 @@ export type Combo = {
   id: string;
   nameZh: string;
   nameVi: string;
+  image?: string | null;
   price: number;
   takeawayPrice: number;
   status: 'on' | 'off';

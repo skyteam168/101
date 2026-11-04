@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePerm } from '../../common/decorators/require-perm.decorator';
@@ -10,6 +10,7 @@ import {
   CreateStocktakeDto,
   CreateSupplierDto,
   DayQueryDto,
+  SetDishRecipesDto,
   UpdateIngredientDto,
   UpdateSupplierDto,
 } from './dto/inventory.dto';
@@ -98,5 +99,36 @@ export class InventoryController {
   @RequirePerm('menu:inventory')
   daily(@CurrentUser() user: AuthUser, @Query() query: DayQueryDto) {
     return this.inventory.getDailyConsumption(this.storeId(user), query.date);
+  }
+
+  @Get('dishes/:dishId/recipes')
+  @RequirePerm('menu:dish')
+  listRecipes(@CurrentUser() user: AuthUser, @Param('dishId') dishId: string) {
+    return this.inventory.listDishRecipes(this.storeId(user), dishId);
+  }
+
+  @Put('dishes/:dishId/recipes')
+  @RequirePerm('menu:dish:edit')
+  setRecipes(
+    @CurrentUser() user: AuthUser,
+    @Param('dishId') dishId: string,
+    @Body() dto: SetDishRecipesDto,
+  ) {
+    return this.inventory.setDishRecipes(this.storeId(user), dishId, dto);
+  }
+
+  @Get('movements')
+  @RequirePerm('menu:inventory')
+  movements(
+    @CurrentUser() user: AuthUser,
+    @Query('ingredientId') ingredientId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.inventory.listMovements(this.storeId(user), {
+      ingredientId,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 }

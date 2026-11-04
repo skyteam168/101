@@ -69,7 +69,13 @@ onMounted(async () => {
 
 <template>
   <div class="coupons-page">
-    <van-nav-bar :title="t('shop.coupons.title')" left-arrow @click-left="router.back()" />
+    <van-nav-bar
+      :title="t('shop.coupons.title')"
+      left-arrow
+      fixed
+      placeholder
+      @click-left="router.back()"
+    />
     <van-tabs v-model:active="tab" color="#ff6a00">
       <van-tab :title="t('shop.coupons.claimable')">
         <van-empty v-if="!templates.length" :description="t('shop.coupons.emptyClaim')" />

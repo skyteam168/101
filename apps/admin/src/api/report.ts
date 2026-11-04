@@ -67,6 +67,11 @@ export const reportMonthApi = (month: string) =>
     orderCount: number;
     avgTicket: number;
     days: TrendPoint[];
+    purchaseCost?: number;
+    laborCost?: number;
+    laborCostSettled?: boolean;
+    roughGross?: number;
+    costNote?: string;
   }>('/reports/month', { month });
 
 export const listShiftsApi = (params?: { cashierId?: string; limit?: number }) =>

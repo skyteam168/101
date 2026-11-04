@@ -99,6 +99,10 @@ function goReserve() {
   router.push({ name: 'reserve' });
 }
 
+function goMyReservations() {
+  router.push({ name: 'my-reservations' });
+}
+
 function goShop() {
   router.push({ name: 'shop' });
 }
@@ -272,7 +276,7 @@ async function loadPersonal() {
 
 async function loadHome() {
   try {
-    const data = await getHomeFeedApi('1');
+    const data = await getHomeFeedApi();
     store.value = data.store;
     banners.value = data.banners || data.store?.banners || [];
     notices.value = data.notices || [];
@@ -398,6 +402,12 @@ onMounted(async () => {
         <span class="entry-label">{{ t('home.coupon.title') }}</span>
       </button>
     </section>
+    <div class="entry-sub">
+      <button type="button" class="entry-sub-link" @click="goMyReservations">
+        {{ t('reserve.myTitle') }}
+        <van-icon name="arrow" size="12" />
+      </button>
+    </div>
 
     <section v-if="banners.length" class="banner-wrap">
       <van-swipe :autoplay="4000" indicator-color="#fff" :show-indicators="banners.length > 1">
@@ -854,6 +864,21 @@ onMounted(async () => {
   color: #292524;
   text-align: center;
   line-height: 1.25;
+}
+.entry-sub {
+  display: flex;
+  justify-content: flex-end;
+  margin: -10px 4px 14px;
+}
+.entry-sub-link {
+  border: 0;
+  background: transparent;
+  color: #ea580c;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
 }
 .banner-wrap {
   margin-bottom: 18px;

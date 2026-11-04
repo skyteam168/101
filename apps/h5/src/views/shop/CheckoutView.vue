@@ -131,7 +131,13 @@ async function handleSubmit() {
 
 <template>
   <div class="checkout-page">
-    <van-nav-bar :title="t('shop.checkout.title')" left-arrow @click-left="router.back()" />
+    <van-nav-bar
+      :title="t('shop.checkout.title')"
+      left-arrow
+      fixed
+      placeholder
+      @click-left="router.back()"
+    />
 
     <van-empty v-if="emptyCart" :description="t('shop.checkout.emptyCart')">
       <van-button round type="danger" @click="router.replace({ name: 'shop' })">

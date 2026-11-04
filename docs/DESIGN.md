@@ -21,7 +21,7 @@
 | 后端 | Node.js 20 + NestJS 10 + Prisma |
 | 数据库 | MySQL 8 |
 | 缓存/实时 | Redis 7 + Socket.IO |
-| 打印 | 独立 Node.js 打印代理，TCP 9100 |
+| 打印 | 网口：print-agent → TCP 9100；小店可选收银电脑浏览器 Web Serial（USB）打印台 |
 
 ### 代码仓库结构
 
@@ -58,9 +58,10 @@ auth / rbac / user / store-setting / menu / table / order / delivery / kitchen /
 | 订单 | order_batches | order_id, round_no, source, created_by/guest_nickname, print_status |
 | 订单 | order_items | order_id, batch_id, dish_id, name_zh, name_vi, unit_price, qty, options_snapshot(JSON), amount, status(pending/cooking/served/voided), void_reason, guest_nickname |
 | 订单 | payments | order_id, method(cash/card/bank_transfer/momo/vnpay), amount, received, change, operator_id |
+| 订单 | order_refunds | order_id, amount(正数), method, reason, operator_id；已收款后退款，扣减 paid_amount，payment_status→partial/refunded；事件 ORDER_REFUNDED → 前台退款小票 PrintJobKind.refund |
 | 外卖 | customers | email(唯一), password_hash, name, phone, lang, email_verified_at |
 | 外卖 | customer_addresses | customer_id, contact_name, phone, address_text, detail, lat, lng, is_default |
-| 打印 | printers | name, ip, port(9100), paper_width(58/80), role(front/kitchen), station_id, agent_id, is_active |
+| 打印 | printers | name, ip, port(9100), paper_width(58/80), role(front/kitchen), connection_type(network/browser_usb), accept_all_tickets, station_id, agent_id, is_active |
 | 打印 | kitchen_stations | name_zh/vi（热菜/凉菜/饮品/烧烤） |
 | 打印 | print_jobs | printer_id, order_id, batch_id, kind(order_front/order_kitchen/add/void/receipt/cancel), payload(JSON), status(queued/sent/done/failed), retries, error |
 | 打印 | print_agents | name, secret_hash, last_seen_at, status |
@@ -69,6 +70,8 @@ auth / rbac / user / store-setting / menu / table / order / delivery / kitchen /
 | 资产 | asset_events | asset_id, type(in/assign/transfer/repair/repair_done/scrap/sell/check), qty, amount, from_location, to_location, reason, operator_id, happened_at |
 | 采购 | suppliers | name_zh/vi, contact_name, phone, address, note, is_active |
 | 采购 | ingredients | name_zh/vi, kind(vegetable/seasoning/other), unit, stock_qty, last_cost, is_active |
+| 采购 | dish_recipes | dish_id + ingredient_id 唯一；qty=每份消耗（BOM） |
+| 采购 | ingredient_movements | sale_deduct/sale_restore/purchase/stocktake_set；盘点不删售卖流水 |
 | 采购 | purchases / purchase_items | business_date, supplier_id, supplier(名称快照), total_amount；明细 ingredient_id, qty, unit_price, amount |
 | 采购 | stocktakes / stocktake_items | business_date 唯一；opening/purchased/counted/consumption + 金额 |
 | 系统 | login_logs | store_id?, user_id?, username, result(success/fail/logout), fail_reason?, ip, user_agent；索引按时间/用户名/结果 |
@@ -82,7 +85,7 @@ auth / rbac / user / store-setting / menu / table / order / delivery / kitchen /
 
 预置角色：超级管理员、管理员/店长、收银员、服务员、厨房。
 
-权限点示例：`menu:dish:edit`、`table:open`、`order:create`、`order:add-item`、`order:void-item`、`order:cancel`、`order:discount`、`order:checkout`、`delivery:accept`、`print:reprint`、`asset:scrap`、`asset:sell`、`report:view`、`system:role`、`audit:view`。
+权限点示例：`menu:dish:edit`、`table:open`、`order:create`、`order:add-item`、`order:void-item`、`order:cancel`、`order:discount`、`order:checkout`、`order:refund`、`delivery:accept`、`print:reprint`、`asset:scrap`、`asset:sell`、`report:view`、`system:role`、`audit:view`。
 
 ### 审计日志
 
@@ -90,7 +93,7 @@ auth / rbac / user / store-setting / menu / table / order / delivery / kitchen /
 - **顾客登录日志**（`customer_login_logs`）：H5 注册 / 密码登录 / 验证码登录 / Google / 改密 / 登出；记 email、真实 IP、UA、失败原因；配合 Cloudflare Turnstile（`CF_TURNSTILE_*`）与 Google GIS（`GOOGLE_CLIENT_ID`）。
 - **顾客账号**：`password_hash` 可空（纯 Google）；`google_sub` 唯一；同邮箱 Google 登录自动合并。
 - **真实 IP**：优先 `CF-Connecting-IP`，其次 `X-Forwarded-For` 最左端；去掉 `::ffff:`；Express `trust proxy`。
-- **操作日志**（`audit_logs`）：Service 层显式埋点敏感写操作（订单退菜/取消/改价/折扣/结账、用户与角色、门店设置、菜品/套餐、采购盘点、资产流转、外卖接拒、会员封禁、发券等）；禁止记录明文密码。
+- **操作日志**（`audit_logs`）：Service 层显式埋点敏感写操作（订单退菜/取消/改价/折扣/结账/退款、用户与角色、门店设置、菜品/套餐、采购盘点、资产流转、外卖接拒、会员封禁、发券等）；禁止记录明文密码。
 - 查询 API：`GET /api/audit/login-logs`、`GET /api/audit/operation-logs`，需 `audit:view`；Admin 菜单「系统 → 审计日志」`/system/audit`。日志只增不改不删。
 - HTTP 访问日志带真实 IP；员工/顾客认证写 Nest Logger，便于上线排错。
 
@@ -124,6 +127,7 @@ auth / rbac / user / store-setting / menu / table / order / delivery / kitchen /
 | combo_groups | comboId, nameZh, nameVi, minSelect, maxSelect, sort |
 | combo_group_items | groupId, dishId, extraPrice(BigInt,默认0), isDefault, sort |
 | reservations | storeId, customerName, phone, guestCount, reserveAt, tableId?, areaId?, customerId?, status(pending/confirmed/seated/cancelled/no_show), deposit(BigInt), remark?, createdBy?, seatedSessionId? |
+| reservation_items | reservationId, dishId?, nameZh/Vi, qty, unitPrice(BigInt), optionsSnapshot?, remark?（确认后厨房可见；入座转入订单再扣料） |
 
 ### order_items 新增字段
 - `comboId`（可空 BigInt）：点套餐时填写，与 dishId 互斥；`optionsSnapshot` 存选中各组明细

@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 import { Public } from '../../common/decorators/public.decorator';
+import { resolvePublicStoreId } from '../../common/public-store.util';
 import { MenuService } from './menu.service';
 
 class PublicMenuQuery {
@@ -22,7 +23,7 @@ export class PublicMenuController {
   @Public()
   @Get()
   list(@Query() query: PublicMenuQuery) {
-    const storeId = query.storeId || '1';
+    const storeId = resolvePublicStoreId(query.storeId);
     return this.menuService.getPublicMenu(storeId, query.channel || 'dine_in');
   }
 }

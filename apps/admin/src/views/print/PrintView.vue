@@ -50,6 +50,8 @@ const printerForm = reactive({
   port: 9100,
   paperWidth: 80 as 58 | 80,
   role: 'front' as 'front' | 'kitchen',
+  connectionType: 'network' as 'network' | 'browser_usb' | 'cloud',
+  acceptAllTickets: false,
   stationId: '' as string,
   agentId: '' as string,
   isActive: true,
@@ -112,21 +114,44 @@ function openPrinter(row?: Printer) {
   printerForm.port = row?.port || 9100;
   printerForm.paperWidth = (row?.paperWidth === 58 ? 58 : 80) as 58 | 80;
   printerForm.role = row?.role || 'front';
+  printerForm.connectionType = row?.connectionType || 'network';
+  printerForm.acceptAllTickets = row?.acceptAllTickets ?? false;
   printerForm.stationId = row?.stationId || '';
   printerForm.agentId = row?.agentId || '';
   printerForm.isActive = row?.isActive ?? true;
+  // 新建默认偏网口 80；选 USB 时见 onConnectionTypeChange
+  if (!row) {
+    printerForm.paperWidth = 80;
+    printerForm.connectionType = 'network';
+  }
   printerDialog.value = true;
 }
 
+/** 本机 USB（Xprinter 收银）默认 58mm + 承接全部 */
+function onConnectionTypeChange(type: 'network' | 'browser_usb' | 'cloud') {
+  if (type === 'browser_usb' && !printerForm.id) {
+    printerForm.paperWidth = 58;
+    printerForm.acceptAllTickets = true;
+    if (!printerForm.name) printerForm.name = 'Xprinter 58 USB';
+  }
+}
+
 async function savePrinter() {
+  const isBrowser = printerForm.connectionType === 'browser_usb';
+  const isCloud = printerForm.connectionType === 'cloud';
   const body = {
     name: printerForm.name,
-    ip: printerForm.ip,
+    ip: isBrowser ? '' : printerForm.ip,
     port: printerForm.port,
     paperWidth: printerForm.paperWidth,
     role: printerForm.role,
-    stationId: printerForm.role === 'kitchen' ? printerForm.stationId || null : null,
-    agentId: printerForm.agentId || null,
+    connectionType: printerForm.connectionType,
+    acceptAllTickets: printerForm.acceptAllTickets,
+    stationId:
+      printerForm.role === 'kitchen' && !printerForm.acceptAllTickets
+        ? printerForm.stationId || null
+        : null,
+    agentId: isBrowser || isCloud ? null : printerForm.agentId || null,
     isActive: printerForm.isActive,
   };
   if (printerForm.id) await updatePrinterApi(printerForm.id, body);
@@ -246,17 +271,36 @@ onMounted(loadAll);
       </el-tab-pane>
 
       <el-tab-pane :label="t('print.printers')" name="printers">
+        <p class="hint mb">{{ t('print.usbHint') }}</p>
         <el-button type="primary" size="small" class="mb" @click="openPrinter()">{{ t('common.create') }}</el-button>
         <el-table :data="printers" size="small" stripe>
           <el-table-column prop="name" :label="t('print.name')" />
-          <el-table-column prop="ip" label="IP" width="130" />
-          <el-table-column prop="port" :label="t('print.port')" width="80" />
-          <el-table-column prop="paperWidth" :label="t('print.paperWidth')" width="90" />
-          <el-table-column prop="role" :label="t('print.role')" width="90" />
-          <el-table-column :label="t('print.station')" width="120">
+          <el-table-column :label="t('print.connectionType')" width="110">
+            <template #default="{ row }">
+              {{
+                row.connectionType === 'browser_usb'
+                  ? t('print.connectionBrowserUsb')
+                  : row.connectionType === 'cloud'
+                    ? t('print.connectionCloud')
+                    : t('print.connectionNetwork')
+              }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="ip" :label="t('print.ipOrWebhook')" min-width="140">
+            <template #default="{ row }">{{ row.connectionType === 'browser_usb' ? '-' : row.ip }}</template>
+          </el-table-column>
+          <el-table-column prop="port" :label="t('print.port')" width="70">
+            <template #default="{ row }">{{ row.connectionType === 'cloud' ? '-' : row.port }}</template>
+          </el-table-column>
+          <el-table-column prop="paperWidth" :label="t('print.paperWidth')" width="80" />
+          <el-table-column prop="role" :label="t('print.role')" width="80" />
+          <el-table-column :label="t('print.acceptAll')" width="90">
+            <template #default="{ row }">{{ row.acceptAllTickets ? t('common.yes') : t('common.no') }}</template>
+          </el-table-column>
+          <el-table-column :label="t('print.station')" width="100">
             <template #default="{ row }">{{ row.station?.nameZh || '-' }}</template>
           </el-table-column>
-          <el-table-column :label="t('print.agent')" width="140">
+          <el-table-column :label="t('print.agent')" width="120">
             <template #default="{ row }">{{ row.agent?.name || '-' }}</template>
           </el-table-column>
           <el-table-column :label="t('common.actions')" width="140">
@@ -312,11 +356,25 @@ onMounted(loadAll);
       </template>
     </el-dialog>
 
-    <el-dialog v-model="printerDialog" :title="t('print.printers')" width="480px">
-      <el-form label-width="110px">
+    <el-dialog v-model="printerDialog" :title="t('print.printers')" width="520px">
+      <el-form label-width="130px">
         <el-form-item :label="t('print.name')"><el-input v-model="printerForm.name" /></el-form-item>
-        <el-form-item label="IP"><el-input v-model="printerForm.ip" /></el-form-item>
-        <el-form-item :label="t('print.port')"><el-input-number v-model="printerForm.port" :min="1" :max="65535" /></el-form-item>
+        <el-form-item :label="t('print.connectionType')">
+          <el-radio-group v-model="printerForm.connectionType" @change="onConnectionTypeChange">
+            <el-radio label="network">{{ t('print.connectionNetwork') }}</el-radio>
+            <el-radio label="browser_usb">{{ t('print.connectionBrowserUsb') }}</el-radio>
+            <el-radio label="cloud">{{ t('print.connectionCloud') }}</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="printerForm.connectionType === 'network'" label="IP">
+          <el-input v-model="printerForm.ip" />
+        </el-form-item>
+        <el-form-item v-if="printerForm.connectionType === 'cloud'" :label="t('print.webhookUrl')">
+          <el-input v-model="printerForm.ip" :placeholder="t('print.webhookUrlHint')" />
+        </el-form-item>
+        <el-form-item v-if="printerForm.connectionType === 'network'" :label="t('print.port')">
+          <el-input-number v-model="printerForm.port" :min="1" :max="65535" />
+        </el-form-item>
         <el-form-item :label="t('print.paperWidth')">
           <el-radio-group v-model="printerForm.paperWidth">
             <el-radio :label="58">58mm</el-radio>
@@ -329,16 +387,24 @@ onMounted(loadAll);
             <el-radio label="kitchen">{{ t('print.roleKitchen') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="printerForm.role === 'kitchen'" :label="t('print.station')">
+        <el-form-item :label="t('print.acceptAll')">
+          <el-switch v-model="printerForm.acceptAllTickets" />
+          <span class="field-hint">{{ t('print.acceptAllHint') }}</span>
+        </el-form-item>
+        <el-form-item
+          v-if="printerForm.role === 'kitchen' && !printerForm.acceptAllTickets"
+          :label="t('print.station')"
+        >
           <el-select v-model="printerForm.stationId" clearable style="width: 100%">
             <el-option v-for="s in stations" :key="s.id" :label="s.nameZh" :value="s.id" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('print.agent')">
+        <el-form-item v-if="printerForm.connectionType === 'network'" :label="t('print.agent')">
           <el-select v-model="printerForm.agentId" clearable style="width: 100%">
             <el-option v-for="a in agents" :key="a.id" :label="a.name" :value="a.id" />
           </el-select>
         </el-form-item>
+        <p v-if="printerForm.connectionType === 'cloud'" class="field-hint">{{ t('print.cloudHint') }}</p>
         <el-form-item :label="t('print.active')"><el-switch v-model="printerForm.isActive" /></el-form-item>
       </el-form>
       <template #footer>
@@ -391,5 +457,10 @@ h3 {
   margin-top: 8px;
   color: #909399;
   font-size: 13px;
+}
+.field-hint {
+  margin-left: 8px;
+  color: #909399;
+  font-size: 12px;
 }
 </style>

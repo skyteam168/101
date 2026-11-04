@@ -9,6 +9,7 @@ import { DeliveryOrderService } from './delivery-order.service';
 import { MailService } from './mail.service';
 import { CustomerAuthGuard } from '../../common/guards/customer-auth.guard';
 import { ComboModule } from '../combo/combo.module';
+import { InventoryModule } from '../inventory/inventory.module';
 import { MarketingModule } from '../marketing/marketing.module';
 import { MemberModule } from '../member/member.module';
 
@@ -17,6 +18,7 @@ import { MemberModule } from '../member/member.module';
     MarketingModule,
     ComboModule,
     MemberModule,
+    InventoryModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -3,6 +3,7 @@ import {
   OrderItemStatus,
   OrderStatus,
   OrderType,
+  PaymentStatus,
   Prisma,
 } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
@@ -96,6 +97,7 @@ export class ReportService {
       include: {
         tableSession: true,
         payments: true,
+        refunds: true,
         items: true,
       },
     });
@@ -125,24 +127,28 @@ export class ReportService {
     >();
 
     for (const o of orders) {
-      const total = this.money(o.total);
-      revenue += total;
+      // 净实收：结账后的 paidAmount（退款会扣减）；全额退款为 0
+      const net =
+        o.paymentStatus === PaymentStatus.refunded
+          ? 0
+          : this.money(o.paidAmount);
+      revenue += net;
       discountTotal += this.money(o.discount);
       if (o.tableSession) guestCount += o.tableSession.guestCount;
 
       const typeKey = o.type;
       const ch = channelMap.get(typeKey) || { amount: 0, count: 0 };
-      ch.amount += total;
+      ch.amount += net;
       ch.count += 1;
       channelMap.set(typeKey, ch);
 
-      if (o.type === OrderType.dine_in) dineInRevenue += total;
-      else if (o.type === OrderType.takeaway) takeawayRevenue += total;
-      else deliveryRevenue += total;
+      if (o.type === OrderType.dine_in) dineInRevenue += net;
+      else if (o.type === OrderType.takeaway) takeawayRevenue += net;
+      else deliveryRevenue += net;
 
       const hcm = utcToHcmParts(o.updatedAt);
       const hr = hourlyMap.get(hcm.hour) || { amount: 0, count: 0 };
-      hr.amount += total;
+      hr.amount += net;
       hr.count += 1;
       hourlyMap.set(hcm.hour, hr);
 
@@ -151,6 +157,12 @@ export class ReportService {
         const pm = payMap.get(key) || { amount: 0, count: 0 };
         pm.amount += this.money(p.amount);
         pm.count += 1;
+        payMap.set(key, pm);
+      }
+      for (const r of o.refunds) {
+        const key = r.method;
+        const pm = payMap.get(key) || { amount: 0, count: 0 };
+        pm.amount -= this.money(r.amount);
         payMap.set(key, pm);
       }
 
@@ -399,12 +411,39 @@ export class ReportService {
     const trend = await this.trend(storeId, { from, to });
     const revenue = trend.points.reduce((s, p) => s + p.revenue, 0);
     const orderCount = trend.points.reduce((s, p) => s + p.orderCount, 0);
+
+    const monthStart = new Date(Date.UTC(y, m - 1, 1));
+    const monthEnd = new Date(Date.UTC(y, m, 1));
+    const purchaseAgg = await this.prisma.purchase.aggregate({
+      where: {
+        storeId: BigInt(storeId),
+        businessDate: { gte: monthStart, lt: monthEnd },
+      },
+      _sum: { totalAmount: true },
+    });
+    const purchaseCost = this.money(purchaseAgg._sum.totalAmount ?? 0);
+
+    const payroll = await this.prisma.employeePayrollRun.findUnique({
+      where: {
+        storeId_yearMonth: { storeId: BigInt(storeId), yearMonth },
+      },
+    });
+    const laborCost = payroll ? this.money(payroll.totalLaborCost) : 0;
+    /** 粗算毛利：营收 − 进货 − 已月结人力（未月结则为 0）；仅供运营参考 */
+    const roughGross = revenue - purchaseCost - laborCost;
+
     return {
       yearMonth,
       revenue,
       orderCount,
       avgTicket: orderCount ? Math.floor(revenue / orderCount) : 0,
       days: trend.points,
+      purchaseCost,
+      laborCost,
+      laborCostSettled: !!payroll,
+      roughGross,
+      costNote:
+        'roughGross = revenue − purchaseCost − laborCost；laborCost 取自人事月结快照，未月结为 0',
     };
   }
 

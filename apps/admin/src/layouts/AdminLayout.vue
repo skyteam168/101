@@ -11,6 +11,7 @@ import {
   Fold,
   Grid,
   HomeFilled,
+  KnifeFork,
   List,
   Microphone,
   Mute,
@@ -28,6 +29,7 @@ import {
 import { localeField } from '@restaurant/shared';
 import { updateProfileApi } from '../api/auth';
 import { stopVoiceAlertGlobal, useVoiceAlert } from '../composables/useVoiceAlert';
+import { usePrintStationGlobal } from '../composables/usePrintStation';
 import { useBrandStore } from '../stores/brand';
 import { useOpsAlertStore } from '../stores/ops-alert';
 import { useUserStore } from '../stores/user';
@@ -42,6 +44,19 @@ const brandStore = useBrandStore();
 const opsAlert = useOpsAlertStore();
 const collapsed = ref(false);
 const { unlocked, muted, unlockVoice, setVoiceMuted, start: startVoice } = useVoiceAlert();
+const {
+  enabled: printStationOn,
+  connecting: printStationConnecting,
+  serialReady: printStationUsb,
+  stationClaimed: printStationClaimed,
+  statusText: printStationStatus,
+  baudRate: printStationBaud,
+  setEnabled: setPrintStationEnabled,
+  setBaudRate: setPrintStationBaud,
+  connectUsb: connectPrintStationUsb,
+  startIfNeeded: startPrintStation,
+  stop: stopPrintStation,
+} = usePrintStationGlobal();
 
 /** 菜单角标（扫码/预定/外卖/消息/团购） */
 function menuBadge(path?: string | null) {
@@ -73,12 +88,14 @@ const MENU_ICONS: Record<string, Component> = {
   '/reservations': Calendar,
   '/group-meals': Food,
   '/orders': List,
+  '/kitchen': KnifeFork,
   '/members': User,
   '/marketing': Ticket,
   '/delivery': Van,
   '/print': Printer,
   '/assets': Box,
   '/inventory': ShoppingCart,
+  '/hr': User,
   '/reports': DataAnalysis,
   '/system': Setting,
   '/system/users': User,
@@ -131,8 +148,17 @@ async function onLocaleChange(val: string) {
 async function onLogout() {
   stopVoiceAlertGlobal();
   opsAlert.stop();
+  await stopPrintStation();
   await userStore.logout();
   router.replace('/login');
+}
+
+async function onPrintStationToggle(on: boolean | string | number) {
+  await setPrintStationEnabled(!!on);
+}
+
+function onPrintStationBaudChange(v: string | number) {
+  void setPrintStationBaud(Number(v) === 115200 ? 115200 : 9600);
 }
 
 function removeTab(path: string) {
@@ -148,6 +174,7 @@ function removeTab(path: string) {
 onMounted(() => {
   void startVoice();
   void brandStore.fetchBrand();
+  void startPrintStation();
 });
 </script>
 
@@ -222,6 +249,45 @@ onMounted(() => {
           <span class="user-name">{{ userStore.profile?.displayName }}</span>
         </div>
         <div class="right">
+          <div class="print-station" :title="printStationStatus">
+            <el-switch
+              :model-value="printStationOn"
+              size="small"
+              inline-prompt
+              :active-text="t('print.station')"
+              :inactive-text="t('print.station')"
+              @change="onPrintStationToggle"
+            />
+            <el-select
+              v-if="printStationOn"
+              :model-value="printStationBaud"
+              size="small"
+              class="print-baud"
+              :teleported="true"
+              @change="onPrintStationBaudChange"
+            >
+              <el-option :label="t('print.baud9600')" :value="9600" />
+              <el-option :label="t('print.baud115200')" :value="115200" />
+            </el-select>
+            <el-button
+              v-if="printStationOn"
+              text
+              size="small"
+              :loading="printStationConnecting"
+              @click="connectPrintStationUsb()"
+            >
+              {{
+                printStationUsb ? t('print.stationReconnectUsb') : t('print.stationConnectUsb')
+              }}
+            </el-button>
+            <span
+              class="print-dot"
+              :class="{
+                on: printStationClaimed && printStationUsb,
+                warn: printStationOn && !printStationUsb,
+              }"
+            />
+          </div>
           <el-button
             v-if="!unlocked"
             type="warning"
@@ -415,6 +481,29 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.print-station {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #f5f7fa;
+}
+.print-baud {
+  width: 100px;
+}
+.print-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c0c4cc;
+}
+.print-dot.on {
+  background: #67c23a;
+}
+.print-dot.warn {
+  background: #e6a23c;
 }
 .toggle {
   cursor: pointer;

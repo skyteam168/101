@@ -45,6 +45,16 @@ const inquirySubmitting = ref(false);
 const showDate = ref(false);
 const showTime = ref(false);
 
+function onPickDate(v: { selectedValues: string[] }) {
+  inquiry.preferDate = v.selectedValues.join('-');
+  showDate.value = false;
+}
+
+function onPickTime(v: { selectedValues: string[] }) {
+  inquiry.preferTime = v.selectedValues.join(':');
+  showTime.value = false;
+}
+
 const loc = computed(() => (String(locale.value).startsWith('vi') ? 'vi' : 'zh'));
 
 function nameOf(row: { nameZh: string; nameVi: string }) {
@@ -180,8 +190,14 @@ onMounted(async () => {
 
 <template>
   <div class="group-page">
-    <van-nav-bar :title="t('group.title')" left-arrow @click-left="router.back()" />
-    <van-tabs v-model:active="tab" color="#ff6a00" sticky>
+    <van-nav-bar
+      :title="t('group.title')"
+      left-arrow
+      fixed
+      placeholder
+      @click-left="router.back()"
+    />
+    <van-tabs v-model:active="tab" color="#ff6a00" sticky offset-top="46">
       <van-tab :title="t('group.tabOrder')">
         <van-empty v-if="!combos.length" :description="t('group.emptyCombos')" />
         <div v-else class="combo-list">
@@ -310,13 +326,13 @@ onMounted(async () => {
     <van-popup v-model:show="showDate" position="bottom" round>
       <van-date-picker
         :min-date="new Date()"
-        @confirm="(v: { selectedValues: string[] }) => { inquiry.preferDate = v.selectedValues.join('-'); showDate = false; }"
+        @confirm="onPickDate"
         @cancel="showDate = false"
       />
     </van-popup>
     <van-popup v-model:show="showTime" position="bottom" round>
       <van-time-picker
-        @confirm="(v: { selectedValues: string[] }) => { inquiry.preferTime = v.selectedValues.join(':'); showTime = false; }"
+        @confirm="onPickTime"
         @cancel="showTime = false"
       />
     </van-popup>

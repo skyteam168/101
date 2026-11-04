@@ -1,4 +1,4 @@
-import { apiGet, apiPatch, apiPost } from './http';
+import { apiGet, apiPatch, apiPost, apiPut } from './http';
 
 export type Supplier = {
   id: string;
@@ -110,3 +110,45 @@ export const dailyInventoryApi = (date?: string) =>
       }[];
     } | null;
   }>('/inventory/daily', date ? { date } : undefined);
+
+export type DishRecipeLine = {
+  id?: string;
+  dishId?: string;
+  ingredientId: string;
+  qty: number;
+  unit?: string;
+  nameZh?: string;
+  nameVi?: string;
+};
+
+export const listDishRecipesApi = (dishId: string) =>
+  apiGet<DishRecipeLine[]>(`/inventory/dishes/${dishId}/recipes`);
+
+export const setDishRecipesApi = (
+  dishId: string,
+  items: { ingredientId: string; qty: number }[],
+) => apiPut<DishRecipeLine[]>(`/inventory/dishes/${dishId}/recipes`, { items });
+
+export const listIngredientMovementsApi = (params?: {
+  ingredientId?: string;
+  page?: number;
+  pageSize?: number;
+}) =>
+  apiGet<{
+    total: number;
+    page: number;
+    pageSize: number;
+    list: {
+      id: string;
+      ingredientId: string;
+      nameZh: string;
+      nameVi: string;
+      unit: string;
+      type: string;
+      qty: number;
+      refType: string | null;
+      refId: string | null;
+      note: string | null;
+      createdAt: string;
+    }[];
+  }>('/inventory/movements', params as Record<string, string | number | undefined>);

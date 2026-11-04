@@ -47,6 +47,11 @@ const monthData = ref<{
   orderCount: number;
   avgTicket: number;
   days: TrendPoint[];
+  purchaseCost?: number;
+  laborCost?: number;
+  laborCostSettled?: boolean;
+  roughGross?: number;
+  costNote?: string;
 } | null>(null);
 
 const currentShift = ref<CashierShift | null>(null);
@@ -367,7 +372,31 @@ async function doPrint(id: string) {
               <div class="stat-value">{{ formatVND(monthData.avgTicket) }}</div>
             </div>
           </el-col>
+          <el-col :span="8">
+            <div class="stat">
+              <div class="stat-title">{{ t('reports.purchaseCost') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.purchaseCost || 0) }}</div>
+            </div>
+          </el-col>
+          <el-col :span="8">
+            <div class="stat">
+              <div class="stat-title">
+                {{ t('reports.laborCost') }}
+                <span class="muted">
+                  {{ monthData.laborCostSettled ? t('reports.laborSettled') : t('reports.laborUnset') }}
+                </span>
+              </div>
+              <div class="stat-value">{{ formatVND(monthData.laborCost || 0) }}</div>
+            </div>
+          </el-col>
+          <el-col :span="8">
+            <div class="stat">
+              <div class="stat-title">{{ t('reports.roughGross') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.roughGross || 0) }}</div>
+            </div>
+          </el-col>
         </el-row>
+        <p v-if="monthData?.costNote" class="cost-note">{{ t('reports.costNote') }}</p>
         <div class="chart-box">
           <div class="chart-title">{{ t('reports.monthTrend') }}</div>
           <VChart class="chart" :option="monthLineOption" autoresize />
@@ -464,7 +493,9 @@ async function doPrint(id: string) {
 .cards { margin-bottom: 12px; }
 .stat { background: #f5f7fa; border-radius: 8px; padding: 12px; min-height: 72px; }
 .stat-title { font-size: 12px; color: #909399; margin-bottom: 6px; }
+.stat-title .muted { margin-left: 6px; font-weight: 400; color: #c0c4cc; }
 .stat-value { font-size: 16px; font-weight: 600; word-break: break-all; }
+.cost-note { font-size: 12px; color: #909399; margin: 0 0 12px; }
 .chart-box { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 12px; }
 .chart-title { font-weight: 600; margin-bottom: 8px; }
 .chart { height: 300px; width: 100%; }

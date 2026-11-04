@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import { BusinessError } from '../../common/errors/business.error';
+import { resolvePublicStoreId } from '../../common/public-store.util';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export type MailSettings = {
@@ -48,7 +49,8 @@ export class MailService {
   }
 
   /** 从门店配置热加载 SMTP（优先于 .env） */
-  async reloadFromStore(storeId = '1') {
+  async reloadFromStore(storeId?: string) {
+    storeId = resolvePublicStoreId(storeId);
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     const raw = store?.mailSettings;
     if (raw && typeof raw === 'object') {
@@ -75,6 +77,10 @@ export class MailService {
   async sendMail(to: string, subject: string, text: string, html?: string) {
     await this.reloadFromStore();
     if (!this.transporter) {
+      const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+      if (isProd) {
+        throw new BusinessError('EMAIL_NOT_CONFIGURED');
+      }
       this.logger.warn(`[DEV] email to ${to}: ${subject} | ${text}`);
       return { dev: true };
     }

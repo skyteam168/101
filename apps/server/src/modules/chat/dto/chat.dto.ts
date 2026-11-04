@@ -1,12 +1,18 @@
 import {
   ApiProperty,
-  ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn,
+  ApiPropertyOptional,
+} from '@nestjs/swagger';
+import {
+  IsIn,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class SendChatMessageDto {
   @ApiProperty({ enum: ['text', 'image'] })
@@ -21,19 +27,13 @@ export class SendChatMessageDto {
 }
 
 export class TranslateChatDto {
-  @ApiPropertyOptional({ description: '待译文本；传 messageId 时可省略，用消息原文' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(4000)
-  text?: string;
-
-  @ApiPropertyOptional({
-    description: '消息 ID：优先读库内译文缓存，译完后写回，避免重复消耗 token',
+  @ApiProperty({
+    description: '消息 ID（必填）：只译会话内对端消息，禁止裸文本蹭翻译',
   })
-  @IsOptional()
   @IsString()
+  @IsNotEmpty()
   @MaxLength(32)
-  messageId?: string;
+  messageId!: string;
 
   @ApiProperty({ enum: ['zh', 'vi', 'en'], description: '目标语言：中/越/英' })
   @IsIn(['zh', 'vi', 'en'])
@@ -46,3 +46,13 @@ export class TranslateChatDto {
 }
 
 export class StaffReplyDto extends SendChatMessageDto {}
+
+export class MuteChatDto {
+  @ApiPropertyOptional({ description: '禁言小时数，默认 168（7 天），上限 720' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(720)
+  hours?: number;
+}

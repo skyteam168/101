@@ -258,12 +258,11 @@ async function load() {
       captionVi: g.captionVi || '',
     }));
     Object.assign(form.aiSettings, s.aiSettings || {});
-    Object.assign(form.announceSettings, {
-      qrNeedConfirm: true,
-      checkout: true,
-      chatMessage: true,
-      ...s.announceSettings,
-    });
+    Object.assign(
+      form.announceSettings,
+      { qrNeedConfirm: true, checkout: true, chatMessage: true },
+      s.announceSettings || {},
+    );
     Object.assign(form.mailSettings, s.mailSettings || {});
     form.wifiSsid = s.guestWifi?.ssid || '';
     form.wifiPassword = s.guestWifi?.password || '';

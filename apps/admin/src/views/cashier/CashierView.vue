@@ -69,7 +69,15 @@ const discountVisible = ref(false);
 const tempForm = reactive({ nameZh: '', nameVi: '', unitPriceText: '', qty: 1 });
 const discountText = ref('0');
 const roundOffText = ref('0');
-const payForm = reactive({ method: 'cash', receivedText: '' });
+type PayLine = { method: string; amountText: string; receivedText: string };
+const payLines = ref<PayLine[]>([
+  { method: 'cash', amountText: '', receivedText: '' },
+]);
+const PAY_METHODS = ['cash', 'card', 'bank_transfer'] as const;
+
+function payMethodLabel(m: string) {
+  return t(`order.payMethodMap.${m}`);
+}
 
 function nameOf(row: { nameZh: string; nameVi: string }) {
   return localeField(row as unknown as Record<string, unknown>, 'name', loc.value);
@@ -352,20 +360,50 @@ async function doFree() {
   order.value = await freeOrderApi(order.value.id);
 }
 
-/** 现金快捷面额（点击填入实收并立即结账） */
+/** 现金快捷面额（点击填入实收并立即结账；仅单笔现金时） */
 const CASH_QUICK_AMOUNTS = [50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000, 3_000_000];
 
 function openCheckout() {
   if (!order.value || order.value.total < 0) return;
-  payForm.method = 'cash';
-  payForm.receivedText = formatThousands(order.value.total);
+  const due = order.value.total;
+  payLines.value = [
+    {
+      method: 'cash',
+      amountText: formatThousands(due),
+      receivedText: formatThousands(due),
+    },
+  ];
   checkoutVisible.value = true;
 }
 
+function addPayLine() {
+  const remain = Math.max(0, payRemain.value);
+  payLines.value.push({
+    method: 'bank_transfer',
+    amountText: formatThousands(remain),
+    receivedText: '',
+  });
+}
+
+function removePayLine(idx: number) {
+  if (payLines.value.length <= 1) return;
+  payLines.value.splice(idx, 1);
+}
+
+const paySum = computed(() =>
+  payLines.value.reduce((s, l) => s + (parseThousands(l.amountText) || 0), 0),
+);
+const payRemain = computed(() => (order.value?.total ?? 0) - paySum.value);
+
 async function quickCashPay(n: number) {
   if (!order.value) return;
-  payForm.method = 'cash';
-  payForm.receivedText = formatThousands(n);
+  payLines.value = [
+    {
+      method: 'cash',
+      amountText: formatThousands(order.value.total),
+      receivedText: formatThousands(n),
+    },
+  ];
   if (n < order.value.total) {
     ElMessage.warning(t('cashier.cashInsufficient'));
     return;
@@ -373,60 +411,97 @@ async function quickCashPay(n: number) {
   await confirmCheckout();
 }
 
-const cashReceived = computed(() => parseThousands(payForm.receivedText) || 0);
-const cashChange = computed(() => Math.max(0, cashReceived.value - (order.value?.total ?? 0)));
+const singleCashChange = computed(() => {
+  if (payLines.value.length !== 1 || payLines.value[0].method !== 'cash') return 0;
+  const amount = parseThousands(payLines.value[0].amountText) || 0;
+  const received = parseThousands(payLines.value[0].receivedText) || 0;
+  return Math.max(0, received - amount);
+});
 
 async function confirmCheckout() {
   if (!order.value) return;
-  // amount = 应付计入订单；received = 顾客给的钱（现金可大于应付，差额为找零）
   const due = Number(order.value.total) || 0;
-  const received = cashReceived.value;
-  if (payForm.method === 'cash' && due > 0 && received < due) {
-    ElMessage.warning(t('cashier.cashInsufficient'));
-    return;
-  }
-  const payments =
-    due === 0
-      ? [{ method: 'cash', amount: 0, received: 0 }]
-      : payForm.method === 'cash'
-        ? [{ method: 'cash', amount: due, received }]
-        : [{ method: payForm.method, amount: due }];
-  // amount 0 checkout: backend Min(1) may fail — use free order total 0 with amount 0
   if (due === 0) {
     try {
       await checkoutOrderApi(order.value.id, [{ method: 'cash', amount: 0, received: 0 }]);
     } catch {
-      // PaymentLineDto Min(1) — bump with zero total via 1 dong workaround not ideal
       ElMessage.warning(t('cashier.freeNeedPayFix'));
       return;
     }
   } else {
+    const payments: { method: string; amount: number; received?: number }[] = [];
+    for (const line of payLines.value) {
+      const amount = parseThousands(line.amountText) || 0;
+      if (amount <= 0) continue;
+      if (line.method === 'cash') {
+        const received = parseThousands(line.receivedText) || amount;
+        if (received < amount) {
+          ElMessage.warning(t('cashier.cashInsufficient'));
+          return;
+        }
+        payments.push({ method: 'cash', amount, received });
+      } else {
+        payments.push({ method: line.method, amount });
+      }
+    }
+    const sum = payments.reduce((s, p) => s + p.amount, 0);
+    if (sum !== due) {
+      ElMessage.warning(t('cashier.paySumMismatch', { due: formatVND(due), sum: formatVND(sum) }));
+      return;
+    }
+    if (!payments.length) {
+      ElMessage.warning(t('cashier.payLineRequired'));
+      return;
+    }
     await checkoutOrderApi(order.value.id, payments);
+    checkoutVisible.value = false;
+    ElMessage.success(t('order.paid'));
+    const snapOrder: Order = {
+      ...order.value,
+      paidAmount: order.value.total,
+      payments: payments.map((p, i) => {
+        const recv = p.received ?? p.amount;
+        return {
+          id: String(i),
+          method: p.method,
+          amount: p.amount,
+          received: recv,
+          change: Math.max(0, recv - p.amount),
+          createdAt: new Date().toISOString(),
+        };
+      }),
+    };
+    try {
+      const store = await getStoreSettingsApi();
+      receiptPayload.value = buildReceiptPayload(snapOrder, store);
+      receiptVisible.value = true;
+    } catch {
+      // 预览失败不影响结账完成
+    }
+    await afterCheckoutCleanup();
+    return;
   }
   checkoutVisible.value = false;
   ElMessage.success(t('order.paid'));
-  const snapOrder: Order = {
-    ...order.value,
-    paidAmount: order.value.total,
-    payments: payments.map((p, i) => {
-      const recv = 'received' in p ? (p.received as number) : p.amount;
-      return {
-        id: String(i),
-        method: p.method,
-        amount: p.amount,
-        received: recv,
-        change: Math.max(0, recv - p.amount),
-        createdAt: new Date().toISOString(),
-      };
-    }),
-  };
   try {
     const store = await getStoreSettingsApi();
-    receiptPayload.value = buildReceiptPayload(snapOrder, store);
+    receiptPayload.value = buildReceiptPayload(
+      {
+        ...order.value,
+        paidAmount: 0,
+        payments: [{ id: '0', method: 'cash', amount: 0, received: 0, change: 0, createdAt: new Date().toISOString() }],
+      },
+      store,
+    );
     receiptVisible.value = true;
   } catch {
-    // 预览失败不影响结账完成
+    /* ignore */
   }
+  await afterCheckoutCleanup();
+}
+
+async function afterCheckoutCleanup() {
+  // 原 confirmCheckout 尾部逻辑（刷新桌台等）保留在下方同一函数体被拆分后继续调用
   order.value = null;
   selectedMember.value = null;
   await loadTables();
@@ -573,6 +648,10 @@ function closeReceipt() {
               class="dish"
               @click="addToCart(d)"
             >
+              <div
+                class="dish-cover"
+                :style="d.image ? { backgroundImage: `url(${d.image})` } : undefined"
+              />
               <span>{{ nameOf(d) }}</span>
               <em>{{ formatVND(d.price) }}</em>
             </button>
@@ -594,6 +673,10 @@ function closeReceipt() {
               class="dish combo-card"
               @click="pickCombo(cb)"
             >
+              <div
+                class="dish-cover"
+                :style="cb.image ? { backgroundImage: `url(${cb.image})` } : undefined"
+              />
               <span>{{ nameOf(cb) }}</span>
               <em>{{ formatVND(cb.price) }}</em>
               <small>{{ (cb.groups || []).length }} {{ t('combo.groups') }}</small>
@@ -729,38 +812,69 @@ function closeReceipt() {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="checkoutVisible" :title="t('order.checkout')" width="460px">
-      <el-form label-width="90px">
+    <el-dialog v-model="checkoutVisible" :title="t('order.checkout')" width="520px">
+      <el-form label-width="100px">
         <el-form-item :label="t('cashier.due')"><strong>{{ formatVND(order?.total ?? 0) }}</strong></el-form-item>
-        <el-form-item :label="t('order.payMethod')">
-          <el-select v-model="payForm.method" style="width: 100%">
-            <el-option label="Cash" value="cash" />
-            <el-option label="Card" value="card" />
-            <el-option label="Transfer" value="bank_transfer" />
-          </el-select>
+        <div v-for="(line, idx) in payLines" :key="idx" class="pay-line">
+          <el-form-item :label="t('order.payMethod')">
+            <div class="pay-line-row">
+              <el-select v-model="line.method" style="width: 140px">
+                <el-option
+                  v-for="m in PAY_METHODS"
+                  :key="m"
+                  :label="payMethodLabel(m)"
+                  :value="m"
+                />
+              </el-select>
+              <el-input
+                :model-value="line.amountText"
+                style="flex: 1"
+                :placeholder="t('cashier.payAmount')"
+                @update:model-value="(v: string) => (line.amountText = formatThousands(parseThousands(v)))"
+              />
+              <el-button
+                v-if="payLines.length > 1"
+                link
+                type="danger"
+                @click="removePayLine(idx)"
+              >
+                {{ t('common.delete') }}
+              </el-button>
+            </div>
+          </el-form-item>
+          <el-form-item v-if="line.method === 'cash'" :label="t('order.received')">
+            <el-input
+              :model-value="line.receivedText"
+              @update:model-value="(v: string) => (line.receivedText = formatThousands(parseThousands(v)))"
+            />
+          </el-form-item>
+        </div>
+        <el-form-item>
+          <el-button link type="primary" @click="addPayLine">{{ t('cashier.addPayLine') }}</el-button>
+          <span class="pay-remain" :class="{ warn: payRemain !== 0 }">
+            {{ t('cashier.payRemain', { n: formatVND(payRemain) }) }}
+          </span>
         </el-form-item>
-        <el-form-item v-if="payForm.method === 'cash'" :label="t('order.received')">
-          <el-input
-            :model-value="payForm.receivedText"
-            @update:model-value="(v: string) => (payForm.receivedText = formatThousands(parseThousands(v)))"
-          />
-          <div class="cash-quick">
-            <el-button
-              v-for="n in CASH_QUICK_AMOUNTS"
-              :key="n"
-              size="small"
-              :type="n >= (order?.total ?? 0) ? 'primary' : 'default'"
-              plain
-              @click="quickCashPay(n)"
-            >
-              {{ formatThousands(n) }}
-            </el-button>
-          </div>
-          <div class="cash-quick-hint">{{ t('cashier.cashQuickHint') }}</div>
-        </el-form-item>
-        <el-form-item v-if="payForm.method === 'cash'" :label="t('order.change')">
-          <strong :class="{ 'change-ok': cashChange > 0 }">{{ formatVND(cashChange) }}</strong>
-        </el-form-item>
+        <template v-if="payLines.length === 1 && payLines[0].method === 'cash'">
+          <el-form-item :label="t('order.change')">
+            <strong :class="{ 'change-ok': singleCashChange > 0 }">{{ formatVND(singleCashChange) }}</strong>
+          </el-form-item>
+          <el-form-item>
+            <div class="cash-quick">
+              <el-button
+                v-for="n in CASH_QUICK_AMOUNTS"
+                :key="n"
+                size="small"
+                :type="n >= (order?.total ?? 0) ? 'primary' : 'default'"
+                plain
+                @click="quickCashPay(n)"
+              >
+                {{ formatThousands(n) }}
+              </el-button>
+            </div>
+            <div class="cash-quick-hint">{{ t('cashier.cashQuickHint') }}</div>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="checkoutVisible = false">{{ t('common.cancel') }}</el-button>
@@ -784,6 +898,44 @@ function closeReceipt() {
 </template>
 
 <style scoped>
+.pay-line {
+  border-bottom: 1px dashed var(--el-border-color-lighter);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+}
+.pay-line-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+.pay-remain {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.pay-remain.warn {
+  color: var(--el-color-warning);
+}
+.pay-line {
+  border-bottom: 1px dashed var(--el-border-color-lighter);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+}
+.pay-line-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+.pay-remain {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.pay-remain.warn {
+  color: var(--el-color-warning);
+}
 .cash-quick {
   display: flex;
   flex-wrap: wrap;
@@ -825,7 +977,14 @@ function closeReceipt() {
 .cats button { border: 1px solid #ddd; background: #fafafa; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
 .cats button.active { background: #ffc300; border-color: #ffc300; }
 .dishes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-.dish { border: 1px solid #eee; background: #fff; border-radius: 8px; padding: 10px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.dish { border: 1px solid #eee; background: #fff; border-radius: 8px; padding: 8px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+.dish-cover {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  background: #f3f4f6 center / cover no-repeat;
+  flex-shrink: 0;
+}
 .dish em { font-style: normal; color: #ff6a00; }
 .cart { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .actions {
