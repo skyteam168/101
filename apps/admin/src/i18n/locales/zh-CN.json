@@ -1017,7 +1017,9 @@
     "addDish": "添加菜品",
     "nameRequired": "请填写套餐中文名",
     "isGroupMeal": "团餐套餐",
-    "servingSize": "建议人数"
+    "servingSize": "建议人数",
+    "image": "封面图",
+    "uploadImage": "上传封面"
   },
   "groupMeal": {
     "contact": "联系人",

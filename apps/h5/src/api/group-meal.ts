@@ -6,7 +6,7 @@ export type GroupComboItem = {
   dishId: string;
   extraPrice: number;
   isDefault: boolean;
-  dish?: { nameZh: string; nameVi: string; status?: string };
+  dish?: { nameZh: string; nameVi: string; status?: string; image?: string | null };
 };
 
 export type GroupComboGroup = {

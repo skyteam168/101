@@ -290,15 +290,19 @@ async function saveDish() {
   }
   ElMessage.success(t('common.saved'));
   drawer.value = false;
-  await loadDishes();
-  await loadMeta();
+  await refreshAll();
+}
+
+async function refreshAll() {
+  await Promise.all([loadDishes(), loadMeta()]);
 }
 
 async function removeDish(d: Dish) {
   await ElMessageBox.confirm(t('common.confirmDelete'), { type: 'warning' });
   await deleteDishApi(d.id);
   ElMessage.success(t('common.saved'));
-  await loadDishes();
+  // 同步刷新分类 dishCount，避免左侧「火锅 (1)」残留旧数字
+  await refreshAll();
 }
 
 async function doBatchStatus(status: 'on' | 'off') {
@@ -403,6 +407,7 @@ onUnmounted(() => {
             <el-button v-perm="'menu:dish:edit'" @click="doBatchStatus('off')">{{ t('menuMgmt.batchOff') }}</el-button>
             <el-button v-perm="'menu:dish:edit'" @click="doBatchPrice">{{ t('menuMgmt.batchPrice') }}</el-button>
             <el-button v-perm="'menu:dish:edit'" type="warning" @click="doSoldOut">{{ t('menuMgmt.soldOut') }}</el-button>
+            <el-button @click="refreshAll">{{ t('common.refresh') }}</el-button>
           </div>
         </div>
 

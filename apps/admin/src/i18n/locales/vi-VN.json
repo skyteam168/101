@@ -1134,7 +1134,9 @@
     "addDish": "Thêm món",
     "nameRequired": "Vui lòng nhập tên combo (tiếng Trung)",
     "isGroupMeal": "Combo suất nhóm",
-    "servingSize": "Số người gợi ý"
+    "servingSize": "Số người gợi ý",
+    "image": "Ảnh bìa",
+    "uploadImage": "Tải ảnh bìa"
   },
   "groupMeal": {
     "contact": "Liên hệ",

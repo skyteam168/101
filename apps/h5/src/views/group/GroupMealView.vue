@@ -68,6 +68,17 @@ function nameOf(row: { nameZh: string; nameVi: string }) {
   return localeField(row as unknown as Record<string, unknown>, 'name', loc.value);
 }
 
+/** 套餐封面：优先套餐图，否则取分组内第一张菜品图 */
+function coverOf(c: GroupCombo): string | undefined {
+  if (c.image) return c.image;
+  for (const g of c.groups || []) {
+    for (const it of g.items || []) {
+      if (it.dish?.image) return it.dish.image;
+    }
+  }
+  return undefined;
+}
+
 function openCombo(c: GroupCombo) {
   selected.value = c;
   guestCount.value = c.servingSize || 10;
@@ -218,7 +229,13 @@ onMounted(async () => {
             class="combo-card"
             @click="openCombo(c)"
           >
-            <div class="cover" :style="c.image ? { backgroundImage: `url(${c.image})` } : undefined" />
+            <div
+              class="cover"
+              :class="{ empty: !coverOf(c) }"
+              :style="(u => (u ? { backgroundImage: `url(${u})` } : undefined))(coverOf(c))"
+            >
+              <span v-if="!coverOf(c)" class="cover-placeholder">{{ nameOf(c).slice(0, 1) || '餐' }}</span>
+            </div>
             <div class="meta">
               <div class="name">{{ nameOf(c) }}</div>
               <div class="sub">
@@ -392,6 +409,18 @@ onMounted(async () => {
   height: 96px;
   background: #f3f4f6 center/cover no-repeat;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cover.empty {
+  background: linear-gradient(145deg, #fff3e8, #ffe0c2);
+}
+.cover-placeholder {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ff6a00;
+  opacity: 0.55;
 }
 .meta {
   padding: 12px;

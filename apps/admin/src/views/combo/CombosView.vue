@@ -14,7 +14,7 @@ import {
   type ComboGroup,
   type ComboGroupItem,
 } from '../../api/combo';
-import { listDishesApi, type Dish } from '../../api/menu';
+import { listDishesApi, uploadImageApi, type Dish } from '../../api/menu';
 import { formatThousands, parseThousands } from '../../utils/vnd-input';
 
 const { t, locale } = useI18n();
@@ -32,6 +32,7 @@ const form = reactive({
   id: '',
   nameZh: '',
   nameVi: '',
+  image: '' as string | null,
   priceText: '',
   takeawayPriceText: '',
   status: 'on' as 'on' | 'off',
@@ -85,6 +86,7 @@ async function openCreate() {
   form.id = '';
   form.nameZh = '';
   form.nameVi = '';
+  form.image = '';
   form.priceText = '';
   form.takeawayPriceText = '';
   form.status = 'on';
@@ -94,6 +96,12 @@ async function openCreate() {
   dialog.value = true;
 }
 
+async function onUpload(file: File) {
+  const res = await uploadImageApi(file);
+  form.image = res.url;
+  return false;
+}
+
 // ─── 编辑 ───
 async function openEdit(row: Combo) {
   await ensureDishes();
@@ -101,6 +109,7 @@ async function openEdit(row: Combo) {
   form.id = detail.id;
   form.nameZh = detail.nameZh;
   form.nameVi = detail.nameVi;
+  form.image = detail.image || '';
   form.priceText = formatThousands(detail.price);
   form.takeawayPriceText = formatThousands(detail.takeawayPrice);
   form.status = detail.status;
@@ -184,6 +193,7 @@ async function save() {
     const payload = {
       nameZh: form.nameZh,
       nameVi: form.nameVi,
+      image: form.image || null,
       price: parseThousands(form.priceText),
       takeawayPrice: parseThousands(form.takeawayPriceText),
       status: form.status,
@@ -296,6 +306,26 @@ onMounted(refresh);
         </el-form-item>
         <el-form-item :label="t('common.nameVi')">
           <el-input v-model="form.nameVi" :placeholder="t('common.nameVi')" />
+        </el-form-item>
+        <el-form-item :label="t('combo.image')">
+          <div class="image-row">
+            <div v-if="form.image" class="preview-wrap">
+              <img :src="form.image" class="preview" alt="" />
+            </div>
+            <div class="image-actions">
+              <el-upload :show-file-list="false" accept="image/*" :before-upload="onUpload">
+                <el-button>{{ t('combo.uploadImage') }}</el-button>
+              </el-upload>
+              <el-button
+                v-if="form.image"
+                link
+                type="danger"
+                @click="form.image = ''"
+              >
+                {{ t('common.delete') }}
+              </el-button>
+            </div>
+          </div>
         </el-form-item>
         <el-row :gutter="16">
           <el-col :span="12">
@@ -427,4 +457,8 @@ onMounted(refresh);
 }
 .item-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
 .item-row { display: flex; gap: 8px; align-items: center; }
+.image-row { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.preview-wrap { width: 96px; height: 96px; border-radius: 8px; overflow: hidden; background: #f5f5f5; }
+.preview { width: 100%; height: 100%; object-fit: cover; display: block; }
+.image-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding-top: 4px; }
 </style>
