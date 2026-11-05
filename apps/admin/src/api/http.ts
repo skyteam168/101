@@ -1,5 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { ElMessage } from 'element-plus';
+import { ElLoading, ElMessage } from 'element-plus';
+import type { LoadingInstance } from 'element-plus/es/components/loading/src/loading';
 import { i18n } from '../i18n';
 import {
   clearTokens,
@@ -14,12 +15,51 @@ type ApiBody<T = unknown> = {
   message: string;
 };
 
+type RequestConfig = InternalAxiosRequestConfig & {
+  skipLoading?: boolean;
+};
+
 const http = axios.create({
   baseURL: '/api',
   timeout: 30000,
 });
 
 let refreshing: Promise<string | null> | null = null;
+let loadingCount = 0;
+let loadingInst: LoadingInstance | null = null;
+let loadingTimer: ReturnType<typeof setTimeout> | null = null;
+
+function startLoading(config: RequestConfig) {
+  if (config.skipLoading) return;
+  loadingCount += 1;
+  if (loadingCount === 1 && !loadingInst && !loadingTimer) {
+    loadingTimer = setTimeout(() => {
+      loadingTimer = null;
+      if (loadingCount > 0 && !loadingInst) {
+        loadingInst = ElLoading.service({
+          fullscreen: true,
+          text: String(i18n.global.t('common.loading')),
+          background: 'rgba(255,255,255,0.45)',
+        });
+      }
+    }, 280);
+  }
+}
+
+function endLoading(config?: RequestConfig) {
+  if (config?.skipLoading) return;
+  loadingCount = Math.max(0, loadingCount - 1);
+  if (loadingCount === 0) {
+    if (loadingTimer) {
+      clearTimeout(loadingTimer);
+      loadingTimer = null;
+    }
+    if (loadingInst) {
+      loadingInst.close();
+      loadingInst = null;
+    }
+  }
+}
 
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
@@ -38,15 +78,18 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const cfg = config as RequestConfig;
+  startLoading(cfg);
   const token = getAccessToken();
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+    cfg.headers.Authorization = `Bearer ${token}`;
   }
-  return config;
+  return cfg;
 });
 
 http.interceptors.response.use(
   (res) => {
+    endLoading(res.config as RequestConfig);
     const body = res.data as ApiBody;
     if (body && typeof body === 'object' && 'code' in body && body.code !== 0) {
       const key = `errors.${body.code}`;
@@ -58,12 +101,14 @@ http.interceptors.response.use(
     return res;
   },
   async (error: AxiosError<ApiBody>) => {
+    endLoading(error.config as RequestConfig | undefined);
     const status = error.response?.status;
     const code = error.response?.data?.code;
-    const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+    const original = error.config as RequestConfig & { _retry?: boolean };
 
     if (status === 401 && original && !original._retry && !original.url?.includes('/auth/login')) {
       original._retry = true;
+      original.skipLoading = true;
       refreshing = refreshing ?? refreshAccessToken().finally(() => {
         refreshing = null;
       });

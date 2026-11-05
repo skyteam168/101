@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { SessionStatus, TableStatus } from '@prisma/client';
+import { BatchPrintStatus, OrderStatus, SessionStatus, TableStatus } from '@prisma/client';
 import { Events } from '@restaurant/shared';
 import { randomBytes, randomInt } from 'crypto';
 import * as fs from 'fs';
@@ -79,16 +79,29 @@ export class TableService {
     } | null;
   }) {
     const openOrder = t.currentSession?.orders?.find((o) => o.status === 'open');
+    const hasSettledOrder = t.currentSession?.orders?.some(
+      (o) => o.status === 'paid' || o.status === 'cancelled',
+    );
+    const sessionClosed = t.currentSession?.status === SessionStatus.closed;
     const pendingBatches =
       openOrder?.batches?.filter((b) => b.printStatus === 'need_confirm').map((b) => ({
         id: b.id.toString(),
         roundNo: b.roundNo,
         guestNickname: b.guestNickname,
       })) ?? [];
-    // 纠正不一致：status=idle 但仍挂着 session → 有未结账订单视为用餐中，否则视为待清台
+    // 纠正不一致：
+    // - idle 仍挂 session → 有 open 单=用餐中，否则待清台
+    // - dining 但会话已关 / 仅有已结账单且无 open → 待清台（结账后未刷新脏数据）
     let status = t.status;
     if (t.status === TableStatus.idle && t.currentSessionId) {
       status = openOrder ? TableStatus.dining : TableStatus.cleaning;
+    } else if (
+      t.status === TableStatus.dining &&
+      t.currentSessionId &&
+      !openOrder &&
+      (sessionClosed || hasSettledOrder)
+    ) {
+      status = TableStatus.cleaning;
     }
     return {
       id: t.id.toString(),
@@ -177,6 +190,63 @@ export class TableService {
     return { ok: true };
   }
 
+  private readonly sessionFloorInclude = {
+    orders: {
+      // 需带上已结账/取消单，便于 mapTable 把「结账后仍 dining」纠成 cleaning
+      where: {
+        status: {
+          in: [OrderStatus.open, OrderStatus.paid, OrderStatus.cancelled] as OrderStatus[],
+        },
+      },
+      select: {
+        id: true,
+        total: true,
+        status: true,
+        batches: {
+          where: { printStatus: BatchPrintStatus.need_confirm },
+          select: { id: true, roundNo: true, printStatus: true, guestNickname: true },
+        },
+      },
+    },
+  } as const;
+
+  /** 把 mapTable 纠出来的待清台写回 DB，避免前端刷新后又变回用餐中 */
+  private async persistStatusHeals(
+    tables: {
+      id: bigint;
+      status: TableStatus;
+      currentSessionId: bigint | null;
+      currentSession?: {
+        status: SessionStatus;
+        orders?: { status: string }[];
+      } | null;
+    }[],
+  ) {
+    const heals: { id: bigint }[] = [];
+    for (const t of tables) {
+      const openOrder = t.currentSession?.orders?.some((o) => o.status === 'open');
+      const hasSettled = t.currentSession?.orders?.some(
+        (o) => o.status === 'paid' || o.status === 'cancelled',
+      );
+      const sessionClosed = t.currentSession?.status === SessionStatus.closed;
+      if (
+        t.status === TableStatus.dining &&
+        t.currentSessionId &&
+        !openOrder &&
+        (sessionClosed || hasSettled)
+      ) {
+        heals.push({ id: t.id });
+      } else if (t.status === TableStatus.idle && t.currentSessionId && !openOrder) {
+        heals.push({ id: t.id });
+      }
+    }
+    if (!heals.length) return;
+    await this.prisma.table.updateMany({
+      where: { id: { in: heals.map((h) => h.id) } },
+      data: { status: TableStatus.cleaning },
+    });
+  }
+
   async listFloor(storeId: string) {
     const areas = await this.prisma.area.findMany({
       where: { storeId: BigInt(storeId) },
@@ -187,25 +257,13 @@ export class TableService {
           include: {
             area: true,
             currentSession: {
-              include: {
-                orders: {
-                  where: { status: 'open' },
-                  select: {
-                    id: true,
-                    total: true,
-                    status: true,
-                    batches: {
-                      where: { printStatus: 'need_confirm' },
-                      select: { id: true, roundNo: true, printStatus: true, guestNickname: true },
-                    },
-                  },
-                },
-              },
+              include: this.sessionFloorInclude,
             },
           },
         },
       },
     });
+    await this.persistStatusHeals(areas.flatMap((a) => a.tables));
     return areas.map((a) => ({
       ...this.mapArea(a),
       tables: a.tables.map((t) => this.mapTable(t)),
@@ -218,24 +276,12 @@ export class TableService {
       include: {
         area: true,
         currentSession: {
-          include: {
-            orders: {
-              where: { status: 'open' },
-              select: {
-                id: true,
-                total: true,
-                status: true,
-                batches: {
-                  where: { printStatus: 'need_confirm' },
-                  select: { id: true, roundNo: true, printStatus: true, guestNickname: true },
-                },
-              },
-            },
-          },
+          include: this.sessionFloorInclude,
         },
       },
       orderBy: { code: 'asc' },
     });
+    await this.persistStatusHeals(rows);
     return rows.map((t) => this.mapTable(t));
   }
 
@@ -470,10 +516,22 @@ export class TableService {
           where: { orderId: sourceOrder.id },
           data: { orderId: targetOrder.id },
         });
-        await tx.orderBatch.updateMany({
-          where: { orderId: sourceOrder.id },
-          data: { orderId: targetOrder.id },
+        // 避免 order_batches(orderId, roundNo) 唯一约束冲突：源轮次接到目标最大轮次之后
+        const maxRound = await tx.orderBatch.aggregate({
+          where: { orderId: targetOrder.id },
+          _max: { roundNo: true },
         });
+        const base = maxRound._max.roundNo ?? 0;
+        const sourceBatches = await tx.orderBatch.findMany({
+          where: { orderId: sourceOrder.id },
+          orderBy: { roundNo: 'asc' },
+        });
+        for (let i = 0; i < sourceBatches.length; i++) {
+          await tx.orderBatch.update({
+            where: { id: sourceBatches[i].id },
+            data: { orderId: targetOrder.id, roundNo: base + i + 1 },
+          });
+        }
         await tx.order.update({
           where: { id: sourceOrder.id },
           data: { status: 'cancelled', cancelReason: 'merge_table' },

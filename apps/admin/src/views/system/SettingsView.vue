@@ -53,6 +53,8 @@ const form = reactive({
   businessDayCutHour: 4,
   businessOpen: '09:00',
   businessClose: '22:00',
+  businessDays: [0, 1, 2, 3, 4, 5, 6] as number[],
+  estimatedDeliveryMinutes: null as number | null,
   businessPaused: false,
   feeRules: [
     { maxKm: 2, fee: 15000 },
@@ -118,6 +120,8 @@ const noticeForm = reactive({
   sort: 0,
   expiresAt: '' as string,
 });
+
+const BUSINESS_DAY_VALUES = [0, 1, 2, 3, 4, 5, 6] as const;
 
 const keys: (keyof AnnounceSettings)[] = [
   'dineInNew',
@@ -270,6 +274,10 @@ async function load() {
     form.businessDayCutHour = s.businessDayCutHour ?? 4;
     form.businessOpen = s.businessHours?.open || '09:00';
     form.businessClose = s.businessHours?.close || '22:00';
+    form.businessDays =
+      s.businessHours?.days?.length ? [...s.businessHours.days] : [0, 1, 2, 3, 4, 5, 6];
+    form.estimatedDeliveryMinutes =
+      s.businessHours?.deliveryMinutes != null ? Number(s.businessHours.deliveryMinutes) : null;
     form.businessPaused = !!s.businessHours?.paused;
     form.feeRules = (s.deliveryFeeRules || []).map((r) => ({
       maxKm: Number(r.maxKm) || 0,
@@ -429,8 +437,11 @@ async function save() {
       businessHours: {
         open: form.businessOpen,
         close: form.businessClose,
-        days: [0, 1, 2, 3, 4, 5, 6],
+        days: [...form.businessDays].sort((a, b) => a - b),
         paused: form.businessPaused,
+        ...(form.estimatedDeliveryMinutes != null && form.estimatedDeliveryMinutes >= 0
+          ? { deliveryMinutes: Math.round(form.estimatedDeliveryMinutes) }
+          : {}),
       },
       deliveryFeeRules,
       mailSettings: { ...form.mailSettings },
@@ -678,6 +689,23 @@ onMounted(load);
           <el-input v-model="form.businessOpen" style="width: 120px" placeholder="09:00" />
           <span style="margin: 0 8px">-</span>
           <el-input v-model="form.businessClose" style="width: 120px" placeholder="22:00" />
+        </el-form-item>
+        <el-form-item :label="t('settings.businessDays')">
+          <el-checkbox-group v-model="form.businessDays">
+            <el-checkbox v-for="d in BUSINESS_DAY_VALUES" :key="d" :label="d">
+              {{ t(`settings.businessDay${d}`) }}
+            </el-checkbox>
+          </el-checkbox-group>
+        </el-form-item>
+        <el-form-item :label="t('settings.estimatedDeliveryMinutes')">
+          <el-input-number
+            v-model="form.estimatedDeliveryMinutes"
+            :min="0"
+            :max="240"
+            :step="5"
+            :controls="true"
+          />
+          <span class="form-hint">{{ t('settings.estimatedDeliveryMinutesHint') }}</span>
         </el-form-item>
         <el-form-item :label="t('settings.businessPaused')">
           <el-switch v-model="form.businessPaused" />

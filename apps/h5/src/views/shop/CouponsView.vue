@@ -23,6 +23,20 @@ const claiming = ref<string | null>(null);
 
 const loc = computed(() => (String(locale.value).startsWith('vi') ? 'vi' : 'zh'));
 
+/** 已领过的模板 id（含已用/过期，避免再显示「领取」） */
+const claimedTemplateIds = computed(() => {
+  const set = new Set<string>();
+  for (const c of mine.value) {
+    const tid = (c.template as { id?: string } | undefined)?.id;
+    if (tid) set.add(String(tid));
+  }
+  return set;
+});
+
+function isClaimed(tplId: string) {
+  return claimedTemplateIds.value.has(tplId);
+}
+
 function tplName(row: { nameZh: string; nameVi: string }) {
   return localeField(row as unknown as Record<string, unknown>, 'name', loc.value);
 }
@@ -89,11 +103,12 @@ onMounted(async () => {
             <van-button
               size="small"
               round
-              color="#ff6a00"
+              :color="isClaimed(tpl.id) ? '#c8c9cc' : '#ff6a00'"
+              :disabled="isClaimed(tpl.id)"
               :loading="claiming === tpl.id"
               @click="onClaim(tpl.id)"
             >
-              {{ t('shop.coupons.claim') }}
+              {{ isClaimed(tpl.id) ? t('shop.coupons.alreadyClaimed') : t('shop.coupons.claim') }}
             </van-button>
           </div>
         </div>

@@ -21,6 +21,7 @@ export type StoreInfo = {
     close: string;
     days: number[];
     paused?: boolean;
+    deliveryMinutes?: number;
   } | null;
   bankTransferQr: string | null;
   storefrontImage?: string | null;
@@ -211,6 +212,7 @@ export type MyCoupon = {
   status: string;
   expiresAt: string;
   template: {
+    id?: string;
     nameZh: string;
     nameVi: string;
     type: string;
@@ -344,6 +346,7 @@ export type DeliveryOrder = {
     qty: number;
     amount: number;
     status?: string;
+    optionsSnapshot?: unknown;
   }[];
   statusTimeline: { status: string; at: string; reason?: string }[];
   createdAt: string;

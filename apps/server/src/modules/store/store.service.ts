@@ -276,6 +276,8 @@ export class StoreService {
       nameVi: store.nameVi,
       address: store.address,
       phone: store.phone,
+      lat: store.lat != null ? Number(store.lat) : null,
+      lng: store.lng != null ? Number(store.lng) : null,
       banners: this.mapHomeBanners(store.homeBanners),
       storefrontImage: store.storefrontImage,
       envGallery: this.mapEnvGallery(store.envGallery),

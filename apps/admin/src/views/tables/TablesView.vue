@@ -92,6 +92,17 @@ function statusClass(status: FloorTable['status']) {
   return `tbl-${status}`;
 }
 
+async function doClearTable(table: FloorTable, skipConfirm = false) {
+  if (!skipConfirm) {
+    await ElMessageBox.confirm(t('tables.clearConfirm', { code: table.code }), t('common.confirm'), {
+      type: 'warning',
+    });
+  }
+  await clearTableApi(table.id);
+  ElMessage.success(t('tables.cleared'));
+  await load();
+}
+
 function onCardClick(table: FloorTable) {
   if (table.status === 'idle') {
     if (!userStore.hasPerm('table:open')) return;
@@ -102,17 +113,26 @@ function onCardClick(table: FloorTable) {
     return;
   }
   if (table.status === 'dining') {
+    // 已开台但未点单（常见于结账清台后扫码又开台）：直接引导清台，避免一直显示用餐中 0₫
+    const emptySession = table.session && !table.session.orderId;
+    if (emptySession && userStore.hasPerm('table:open')) {
+      ElMessageBox.confirm(t('tables.emptySessionClear', { code: table.code }), t('common.confirm'), {
+        type: 'warning',
+        distinguishCancelAndClose: true,
+        confirmButtonText: t('tables.clickClear'),
+        cancelButtonText: t('tables.enterOrder'),
+      })
+        .then(() => doClearTable(table, true))
+        .catch((action: string) => {
+          if (action === 'cancel') router.push(`/tables/${table.id}/order`);
+        });
+      return;
+    }
     router.push(`/tables/${table.id}/order`);
     return;
   }
   if (table.status === 'cleaning' && userStore.hasPerm('table:open')) {
-    ElMessageBox.confirm(t('tables.clearConfirm', { code: table.code }), t('common.confirm'), {
-      type: 'warning',
-    }).then(async () => {
-      await clearTableApi(table.id);
-      ElMessage.success(t('tables.cleared'));
-      await load();
-    });
+    doClearTable(table).catch(() => undefined);
   }
 }
 
@@ -321,6 +341,7 @@ onUnmounted(() => {
         <div v-if="table.status === 'dining' && table.session" class="meta">
           <div class="money">{{ formatVND(table.session.total) }}</div>
           <div class="duration">{{ t('tables.duration', { m: table.session.durationMinutes }) }}</div>
+          <div v-if="!table.session.orderId" class="empty-hint">{{ t('tables.noOrderYet') }}</div>
           <div
             v-for="b in table.session.pendingBatches || []"
             :key="b.id"
@@ -629,6 +650,7 @@ onUnmounted(() => {
   color: var(--mt-orange);
 }
 .duration { margin-top: 4px; color: #909399; }
+.empty-hint { margin-top: 6px; font-size: 12px; color: #e6a23c; }
 .badge {
   margin-left: 6px;
   vertical-align: top;

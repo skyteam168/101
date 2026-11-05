@@ -241,7 +241,13 @@ export class UpdateStoreSettingsDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsObject()
-  businessHours?: { open: string; close: string; days: number[]; paused?: boolean };
+  businessHours?: {
+    open: string;
+    close: string;
+    days: number[];
+    paused?: boolean;
+    deliveryMinutes?: number;
+  };
 
   @ApiPropertyOptional()
   @IsOptional()

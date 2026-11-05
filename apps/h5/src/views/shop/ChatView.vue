@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { showImagePreview, showToast } from 'vant';
@@ -23,6 +23,8 @@ import {
 import { formatChatTime } from '../../utils/chat-time';
 import { getCustomerToken } from '../../utils/customer-storage';
 import { useInboxStore } from '../../stores/inbox';
+import { getStoreInfo, type StoreInfo } from '../../api/delivery';
+import { formatBusinessHoursLine } from '../../utils/business-hours-display';
 
 const PAGE_SIZE = 20;
 const TRANSLATE_KEY = 'chat_translate_target_h5';
@@ -39,6 +41,7 @@ function defaultTranslateLang(): ChatTranslateLang {
   return String(locale.value).startsWith('vi') ? 'vi' : 'zh';
 }
 
+const storeInfo = ref<StoreInfo | null>(null);
 const messages = ref<ChatMessage[]>([]);
 const text = ref('');
 const sending = ref(false);
@@ -56,6 +59,16 @@ const nowTick = ref(Date.now());
 const translatingIds = new Set<string>();
 let socket: Socket | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
+
+const storeOpen = computed(() => storeInfo.value?.openNow !== false);
+const hoursText = computed(() => formatBusinessHoursLine(storeInfo.value?.businessHours, t));
+const chatClosedTip = computed(() => {
+  if (storeOpen.value) return '';
+  if (storeInfo.value?.closedReason === 'paused') return t('shop.storePaused');
+  if (hoursText.value) return t('shop.storeClosedHours', { hours: hoursText.value });
+  return t('shop.storeClosed');
+});
+const composerDisabled = computed(() => !storeOpen.value || sending.value);
 
 /** 顾客端：自动翻译商家发来的文本 */
 function isPeerText(m: ChatMessage) {
@@ -228,6 +241,10 @@ function connectSocket() {
 }
 
 async function sendText() {
+  if (!storeOpen.value) {
+    showToast(chatClosedTip.value || t('chat.storeClosedTip'));
+    return;
+  }
   const content = text.value.trim();
   if (!content || sending.value) return;
   sending.value = true;
@@ -249,16 +266,26 @@ function previewImage(url: string) {
 }
 
 function openGallery() {
-  if (sending.value) return;
+  if (composerDisabled.value) {
+    if (!storeOpen.value) showToast(chatClosedTip.value || t('chat.storeClosedTip'));
+    return;
+  }
   galleryInput.value?.click();
 }
 
 function openCamera() {
-  if (sending.value) return;
+  if (composerDisabled.value) {
+    if (!storeOpen.value) showToast(chatClosedTip.value || t('chat.storeClosedTip'));
+    return;
+  }
   cameraInput.value?.click();
 }
 
 async function onFileInputChange(e: Event) {
+  if (!storeOpen.value) {
+    showToast(chatClosedTip.value || t('chat.storeClosedTip'));
+    return;
+  }
   const input = e.target as HTMLInputElement;
   const f = input.files?.[0];
   input.value = '';
@@ -298,6 +325,11 @@ onMounted(async () => {
   if (!getCustomerToken()) {
     router.replace({ name: 'shop-login', query: { redirect: '/shop/chat' } });
     return;
+  }
+  try {
+    storeInfo.value = await getStoreInfo();
+  } catch {
+    storeInfo.value = null;
   }
   await load();
   connectSocket();
@@ -402,11 +434,13 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="composer">
+    <div v-if="!storeOpen && chatClosedTip" class="chat-closed-tip">{{ chatClosedTip }}</div>
+
+    <div class="composer" :class="{ 'composer-closed': !storeOpen }">
       <button
         type="button"
         class="icon-tool"
-        :disabled="sending"
+        :disabled="composerDisabled"
         :aria-label="t('chat.image')"
         @click="openGallery"
       >
@@ -415,7 +449,7 @@ onUnmounted(() => {
       <button
         type="button"
         class="icon-tool"
-        :disabled="sending"
+        :disabled="composerDisabled"
         :aria-label="t('chat.camera')"
         @click="openCamera"
       >
@@ -442,10 +476,19 @@ onUnmounted(() => {
         rows="1"
         autosize
         type="textarea"
-        :placeholder="t('chat.placeholder')"
+        :disabled="!storeOpen"
+        :placeholder="storeOpen ? t('chat.placeholder') : t('chat.storeClosedTip')"
         @keydown.enter.exact.prevent="sendText"
       />
-      <van-button type="danger" size="small" round :loading="sending" @click="sendText">
+      <van-button
+        type="danger"
+        size="small"
+        round
+        :loading="sending"
+        :disabled="!storeOpen"
+        class="send-btn"
+        @click="sendText"
+      >
         {{ t('chat.send') }}
       </van-button>
     </div>
@@ -599,6 +642,15 @@ onUnmounted(() => {
 .mine .msg-time {
   text-align: right;
 }
+.chat-closed-tip {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #ed6a0c;
+  background: #fff7e8;
+  border-top: 1px solid #ffe2b8;
+  line-height: 1.4;
+}
 .composer {
   flex-shrink: 0;
   display: flex;
@@ -607,6 +659,13 @@ onUnmounted(() => {
   padding: 8px 10px;
   background: #fff;
   border-top: 1px solid #eee;
+}
+.composer-closed {
+  opacity: 0.72;
+}
+.composer-closed .send-btn:disabled {
+  background: #c8c9cc;
+  border-color: #c8c9cc;
 }
 .icon-tool {
   border: none;

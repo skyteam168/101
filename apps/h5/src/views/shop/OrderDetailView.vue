@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { showConfirmDialog, showToast } from 'vant';
@@ -27,6 +27,7 @@ const loading = ref(true);
 const cancelling = ref(false);
 const showReceipt = ref(false);
 const receiptPayload = ref<PrintTicketPayload | null>(null);
+const receiptTicketRef = ref<InstanceType<typeof EReceiptTicket> | null>(null);
 let socket: Socket | null = null;
 
 const addr = computed(() => (order.value?.addressSnapshot || {}) as Record<string, string | boolean | number>);
@@ -71,6 +72,12 @@ function openEReceipt() {
   receiptPayload.value = buildEReceiptPayload(order.value, s);
   showReceipt.value = true;
 }
+
+watch(showReceipt, async (open) => {
+  if (!open) return;
+  await nextTick();
+  await receiptTicketRef.value?.exportImage();
+});
 
 function connectSocket() {
   const token = getCustomerToken();
@@ -234,7 +241,12 @@ function payMethodLabel(method?: string | null): string {
     >
       <div class="receipt-sheet">
         <h3 class="receipt-title">{{ t('shop.order.eReceiptTitle') }}</h3>
-        <EReceiptTicket v-if="receiptPayload" :payload="receiptPayload" paid-stamp />
+        <EReceiptTicket
+          v-if="receiptPayload"
+          ref="receiptTicketRef"
+          :payload="receiptPayload"
+          paid-stamp
+        />
       </div>
     </van-popup>
   </div>

@@ -39,11 +39,19 @@ export type HomeStore = {
   nameVi: string;
   address: string | null;
   phone: string | null;
+  lat?: number | null;
+  lng?: number | null;
   banners: HomeBanner[];
   /** 门头图 */
   storefrontImage?: string | null;
   envGallery?: { image: string; captionZh?: string; captionVi?: string }[];
-  businessHours?: { open: string; close: string; days: number[]; paused?: boolean } | null;
+  businessHours?: {
+    open: string;
+    close: string;
+    days: number[];
+    paused?: boolean;
+    deliveryMinutes?: number;
+  } | null;
   openNow?: boolean;
   closedReason?: 'paused' | 'outside_hours' | null;
 };

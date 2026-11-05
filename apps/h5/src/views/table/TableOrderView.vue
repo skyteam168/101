@@ -177,10 +177,39 @@ async function loadMenu() {
   categories.value = await publicMenuApi(storeId);
 }
 
+function endSessionAfterPaid() {
+  socket?.disconnect();
+  socket = null;
+  clearGuestSession();
+  meta.value = null;
+  cart.value = [];
+  order.value = null;
+  phase.value = 'join';
+  showToast({ message: t('menu.paidDone'), duration: 3500 });
+  void loadPeek();
+}
+
+function isSessionEndedError(err: unknown) {
+  const code = (err as { code?: string })?.code;
+  return (
+    code === 'TABLE_NOT_DINING' ||
+    code === 'TABLE_IS_CLEANING' ||
+    code === 'TABLE_NOT_FOUND'
+  );
+}
+
 async function refreshState() {
-  const state = await sessionStateApi();
-  cart.value = state.cart;
-  order.value = state.order;
+  try {
+    const state = await sessionStateApi();
+    cart.value = state.cart;
+    order.value = state.order;
+  } catch (err) {
+    if (isSessionEndedError(err)) {
+      endSessionAfterPaid();
+      return;
+    }
+    throw err;
+  }
 }
 
 function openOptions(dish: MenuCategory['dishes'][0]) {
@@ -287,14 +316,39 @@ async function submit() {
   tab.value = 1;
 }
 
+const calling = ref(false);
+
 async function callWaiter() {
-  await callWaiterApi();
-  showToast(t('menu.called'));
+  if (calling.value) return;
+  calling.value = true;
+  try {
+    await callWaiterApi();
+    showToast(t('menu.called'));
+  } catch (err) {
+    if (isSessionEndedError(err)) {
+      endSessionAfterPaid();
+      return;
+    }
+    // 拦截器已 toast；避免误以为失败后重复点
+  } finally {
+    calling.value = false;
+  }
 }
 
 async function requestBill() {
-  await requestBillApi();
-  showToast(t('menu.billed'));
+  if (calling.value) return;
+  calling.value = true;
+  try {
+    await requestBillApi();
+    showToast(t('menu.billed'));
+  } catch (err) {
+    if (isSessionEndedError(err)) {
+      endSessionAfterPaid();
+      return;
+    }
+  } finally {
+    calling.value = false;
+  }
 }
 
 function toggleLang() {
@@ -369,7 +423,12 @@ function connectSocket() {
   socket.on(Events.ORDER_BATCH_ADDED, () => refreshState());
   socket.on(Events.ORDER_CREATED, () => refreshState());
   socket.on(Events.ORDER_ITEM_VOIDED, () => refreshState());
-  socket.on(Events.ORDER_PAID, () => refreshState());
+  socket.on(Events.ORDER_PAID, () => {
+    endSessionAfterPaid();
+  });
+  socket.on(Events.DISH_UPDATED, () => {
+    void loadMenu();
+  });
   socket.on('disconnect', () => {
     /* reconnect handled by socket.io */
   });
@@ -450,8 +509,8 @@ watch(locale, () => syncDocTitle());
 
     <template v-else>
       <div class="actions">
-        <van-button size="small" @click="callWaiter">{{ t('menu.callWaiter') }}</van-button>
-        <van-button size="small" type="warning" @click="requestBill">{{ t('menu.requestBill') }}</van-button>
+        <van-button size="small" :loading="calling" @click="callWaiter">{{ t('menu.callWaiter') }}</van-button>
+        <van-button size="small" type="warning" :loading="calling" @click="requestBill">{{ t('menu.requestBill') }}</van-button>
         <span class="pin">PIN {{ meta?.pin }}</span>
       </div>
 

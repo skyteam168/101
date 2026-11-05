@@ -10,6 +10,7 @@ import {
   PaymentMethod,
   PaymentStatus,
   Prisma,
+  SessionStatus,
   TableStatus,
 } from '@prisma/client';
 import { Events } from '@restaurant/shared';
@@ -637,12 +638,9 @@ export class OrderService {
         },
       });
 
-      // 取消后桌台进入 cleaning（需清台）
-      if (order.tableSession?.table) {
-        await tx.table.update({
-          where: { id: order.tableSession.table.id },
-          data: { status: TableStatus.cleaning },
-        });
+      // 取消后关闭会话并进入待清台，避免仍显示「用餐中」
+      if (order.tableSessionId) {
+        await this.markTableCleaningAfterSettle(tx, order.tableSessionId);
       }
     });
 
@@ -656,7 +654,11 @@ export class OrderService {
       after: { reason: dto.reason },
     });
     this.events.emit(Events.ORDER_CANCELLED, { storeId, order: mapped, userId });
-    this.events.emit(Events.TABLE_STATUS_CHANGED, { storeId, orderId });
+    this.events.emit(Events.TABLE_STATUS_CHANGED, {
+      storeId,
+      orderId,
+      tableId: mapped.tableId,
+    });
     return mapped;
   }
 
@@ -919,11 +921,9 @@ export class OrderService {
         },
       });
 
-      if (order.tableSession?.table) {
-        await tx.table.update({
-          where: { id: order.tableSession.table.id },
-          data: { status: TableStatus.cleaning },
-        });
+      // 结账后关闭本会话并进入待清台（避免桌台仍显示用餐中 / 顾客继续加菜）
+      if (order.tableSessionId) {
+        await this.markTableCleaningAfterSettle(tx, order.tableSessionId);
       }
     });
 
@@ -943,8 +943,66 @@ export class OrderService {
       },
     });
     this.events.emit(Events.ORDER_PAID, { storeId, order: mapped, userId });
-    this.events.emit(Events.TABLE_STATUS_CHANGED, { storeId, orderId: mapped.id });
+    this.events.emit(Events.TABLE_STATUS_CHANGED, {
+      storeId,
+      orderId: mapped.id,
+      tableId: mapped.tableId,
+    });
     return mapped;
+  }
+
+  /**
+   * 堂食结账/取消后：关闭订单所属会话；若桌台当前无其它 open 单则标为待清台。
+   * 用 tableId 更新，不依赖 include 出来的 table 对象。
+   */
+  private async markTableCleaningAfterSettle(tx: Tx, tableSessionId: bigint) {
+    const session = await tx.tableSession.findUnique({
+      where: { id: tableSessionId },
+      select: { id: true, tableId: true, status: true },
+    });
+    if (!session) return;
+
+    if (session.status === SessionStatus.open) {
+      await tx.tableSession.update({
+        where: { id: session.id },
+        data: { status: SessionStatus.closed, closeAt: new Date() },
+      });
+    }
+
+    const table = await tx.table.findUnique({
+      where: { id: session.tableId },
+      include: {
+        currentSession: {
+          include: {
+            orders: { where: { status: OrderStatus.open }, select: { id: true } },
+          },
+        },
+      },
+    });
+    if (!table) return;
+
+    const openOnCurrent = table.currentSession?.orders?.length ?? 0;
+    if (openOnCurrent > 0) return;
+
+    // 当前挂着的空会话（扫码重开、未点单）一并关掉，避免清台前又显示用餐中
+    if (
+      table.currentSessionId &&
+      table.currentSessionId !== session.id &&
+      table.currentSession &&
+      !(table.currentSession.orders?.length)
+    ) {
+      if (table.currentSession.status === SessionStatus.open) {
+        await tx.tableSession.update({
+          where: { id: table.currentSessionId },
+          data: { status: SessionStatus.closed, closeAt: new Date() },
+        });
+      }
+    }
+
+    await tx.table.update({
+      where: { id: table.id },
+      data: { status: TableStatus.cleaning },
+    });
   }
 
   /** 反结账：需 order:checkout，写审计；已有退款记录不可反结账 */

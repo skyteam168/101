@@ -209,7 +209,7 @@ async function confirmCheckout() {
       : [{ method: payForm.method, amount: due }];
   await checkoutOrderApi(order.value.id, payments);
   checkoutVisible.value = false;
-  ElMessage.success(t('order.paid'));
+  ElMessage.success(t('order.paidNeedClear'));
   const snapOrder: Order = {
     ...order.value,
     paidAmount: order.value.total,

@@ -3,6 +3,9 @@
     "title": "101牛排火锅烧烤",
     "switchLang": "语言"
   },
+  "common": {
+    "loading": "加载中…"
+  },
   "group": {
     "title": "团餐",
     "tabOrder": "点套餐下单",
@@ -180,7 +183,10 @@
     "requestBill": "请求结账",
     "called": "已呼叫服务员",
     "billed": "已请求结账",
+    "callFail": "呼叫失败，请稍后重试",
+    "paidDone": "结账完成，感谢光临",
     "submitted": "已提交厨房",
+    "dishOff": "已下架",
     "round": "第 {n} 轮",
     "needConfirm": "待确认",
     "total": "合计",
@@ -271,6 +277,7 @@
     "title": "联系商家",
     "empty": "还没有消息，跟商家打个招呼吧",
     "placeholder": "输入消息…",
+    "storeClosedTip": "商家休息中，暂无法发送消息",
     "send": "发送",
     "image": "相册",
     "camera": "拍照",
@@ -316,6 +323,10 @@
     "openNow": "营业中",
     "resting": "休息中",
     "businessHours": "营业时间 {hours}",
+    "openEveryDay": "每日",
+    "dayListSep": "、",
+    "deliveryMinutes": "预计送达约 {n} 分钟",
+    "openMap": "查看地图",
     "storeClosed": "商家休息中，暂无法下单",
     "storePaused": "商家已暂停营业，暂无法下单",
     "storeClosedHours": "未到营业时间（{hours}），暂无法下单",
@@ -338,6 +349,7 @@
       "mine": "我的",
       "claim": "领取",
       "claimed": "领取成功",
+      "alreadyClaimed": "已领取",
       "emptyClaim": "暂无可领优惠券",
       "emptyMine": "暂无优惠券",
       "minSpend": "满 {n} 可用",
@@ -484,6 +496,8 @@
       "receiptLongPressHint": "生成后可长按图片保存到相册",
       "receiptSavedHint": "已生成图片，可长按保存",
       "receiptSaveFailed": "生成图片失败，请重试",
+      "reorderOneMore": "再来一单",
+      "reorderEmpty": "该订单没有可复购的菜品",
       "channel": {
         "all": "全部",
         "delivery": "外卖",

@@ -18,6 +18,8 @@ const uploadingAvatar = ref(false);
 const form = reactive({ name: '', phone: '' });
 const avatarInput = ref<HTMLInputElement | null>(null);
 const membership = ref<Membership | null>(null);
+/** null=加载中，避免闪「立即加入」 */
+const membershipReady = ref(false);
 
 onMounted(async () => {
   await customer.loadMe();
@@ -29,6 +31,8 @@ onMounted(async () => {
     membership.value = await getMyMembership();
   } catch {
     membership.value = null;
+  } finally {
+    membershipReady.value = true;
   }
 });
 
@@ -144,26 +148,36 @@ async function handleCancelAccount() {
       </section>
 
       <section class="member-card">
-        <div class="member-row">
-          <span>{{ t('shop.me.member') }}</span>
-          <strong>{{
-            membership?.joined && membership.memberLevel
-              ? localeField(
-                  membership.memberLevel as unknown as Record<string, unknown>,
-                  'name',
-                  locale.startsWith('vi') ? 'vi' : 'zh',
-                )
-              : t('shop.me.notJoined')
-          }}</strong>
+        <div v-if="!membershipReady" class="member-loading">
+          <van-loading size="20" />
         </div>
-        <div v-if="membership?.joined" class="member-row">
-          <span>{{ t('shop.me.spend') }}</span>
-          <strong>{{ formatVND(membership.lifetimeSpend || 0) }}</strong>
-        </div>
-        <p v-if="membership?.birthdayGiftPending" class="member-gift">{{ t('shop.me.birthdayGiftHint') }}</p>
-        <button v-if="!membership?.joined" type="button" class="member-join" @click="router.push({ path: '/', query: { join: '1' } })">
-          {{ t('home.joinNow') }}
-        </button>
+        <template v-else>
+          <div class="member-row">
+            <span>{{ t('shop.me.member') }}</span>
+            <strong>{{
+              membership?.joined && membership.memberLevel
+                ? localeField(
+                    membership.memberLevel as unknown as Record<string, unknown>,
+                    'name',
+                    locale.startsWith('vi') ? 'vi' : 'zh',
+                  )
+                : t('shop.me.notJoined')
+            }}</strong>
+          </div>
+          <div v-if="membership?.joined" class="member-row">
+            <span>{{ t('shop.me.spend') }}</span>
+            <strong>{{ formatVND(membership.lifetimeSpend || 0) }}</strong>
+          </div>
+          <p v-if="membership?.birthdayGiftPending" class="member-gift">{{ t('shop.me.birthdayGiftHint') }}</p>
+          <button
+            v-if="!membership?.joined"
+            type="button"
+            class="member-join"
+            @click="router.push({ path: '/', query: { join: '1' } })"
+          >
+            {{ t('home.joinNow') }}
+          </button>
+        </template>
       </section>
 
       <van-cell-group v-if="editing" inset class="block">
@@ -331,6 +345,11 @@ async function handleCancelAccount() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.member-loading {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0;
 }
 .member-card {
   margin: 0 16px 12px;

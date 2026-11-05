@@ -373,6 +373,13 @@ export class PublicTableService {
     if (session.table.currentSessionId?.toString() !== guest.sessionId) {
       throw new BusinessError('TABLE_NOT_DINING');
     }
+    // 已结账进入待清台后禁止继续加菜/下单
+    if (session.table.status === TableStatus.cleaning) {
+      throw new BusinessError('TABLE_IS_CLEANING');
+    }
+    if (session.table.status !== TableStatus.dining) {
+      throw new BusinessError('TABLE_NOT_DINING');
+    }
   }
 
   async sessionState(guest: GuestUser) {

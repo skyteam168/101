@@ -3,6 +3,9 @@
     "title": "Nhà hàng 101",
     "switchLang": "Ngôn ngữ"
   },
+  "common": {
+    "loading": "Đang tải…"
+  },
   "group": {
     "title": "Suất nhóm",
     "tabOrder": "Đặt combo",
@@ -180,7 +183,10 @@
     "requestBill": "Yêu cầu tính tiền",
     "called": "Đã gọi phục vụ",
     "billed": "Đã yêu cầu tính tiền",
+    "callFail": "Gọi thất bại, thử lại sau",
+    "paidDone": "Thanh toán xong, cảm ơn quý khách",
     "submitted": "Đã gửi bếp",
+    "dishOff": "Ngừng bán",
     "round": "Lượt {n}",
     "needConfirm": "Chờ xác nhận",
     "total": "Tổng",
@@ -271,6 +277,7 @@
     "title": "Nhắn cửa hàng",
     "empty": "Chưa có tin nhắn, hãy chào cửa hàng",
     "placeholder": "Nhập tin nhắn…",
+    "storeClosedTip": "Cửa hàng đang nghỉ, chưa thể nhắn tin",
     "send": "Gửi",
     "image": "Thư viện",
     "camera": "Chụp ảnh",
@@ -316,6 +323,10 @@
     "openNow": "Đang mở",
     "resting": "Đang nghỉ",
     "businessHours": "Giờ mở cửa {hours}",
+    "openEveryDay": "Mỗi ngày",
+    "dayListSep": ", ",
+    "deliveryMinutes": "Giao dự kiến ~{n} phút",
+    "openMap": "Xem bản đồ",
     "storeClosed": "Cửa hàng đang nghỉ, tạm không nhận đơn",
     "storePaused": "Cửa hàng tạm dừng kinh doanh, không nhận đơn",
     "storeClosedHours": "Ngoài giờ mở cửa ({hours}), tạm không nhận đơn",
@@ -338,6 +349,7 @@
       "mine": "Của tôi",
       "claim": "Nhận",
       "claimed": "Đã nhận",
+      "alreadyClaimed": "Đã nhận",
       "emptyClaim": "Chưa có phiếu để nhận",
       "emptyMine": "Chưa có phiếu",
       "minSpend": "Đơn từ {n}",
@@ -484,6 +496,8 @@
       "receiptLongPressHint": "Sau khi tạo, nhấn giữ ảnh để lưu vào album",
       "receiptSavedHint": "Đã tạo ảnh, hãy nhấn giữ để lưu",
       "receiptSaveFailed": "Tạo ảnh thất bại, thử lại",
+      "reorderOneMore": "Đặt lại",
+      "reorderEmpty": "Không có món để đặt lại",
       "channel": {
         "all": "Tất cả",
         "delivery": "Giao hàng",

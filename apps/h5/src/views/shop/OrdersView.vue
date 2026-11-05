@@ -2,11 +2,15 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
+import { showToast } from 'vant';
 import { formatVND } from '@restaurant/shared';
-import { listMyOrders, type DeliveryOrder } from '../../api/delivery';
+import { getOrderDetail, listMyOrders, type DeliveryOrder } from '../../api/delivery';
+import { useCartStore } from '../../stores/cart';
 
 const { t, locale } = useI18n();
 const router = useRouter();
+const cart = useCartStore();
+const reorderingId = ref<string | null>(null);
 
 type OrderChannel = 'all' | 'delivery' | 'dine_in' | 'group_meal' | 'takeaway';
 
@@ -72,6 +76,59 @@ function channelTagType(ch: string) {
   return 'default';
 }
 
+function canReorder(o: DeliveryOrder) {
+  return o.status === 'completed' || o.status === 'paid';
+}
+
+function optionLabelFromSnapshot(
+  snapshot: unknown,
+  loc: 'zh' | 'vi',
+): { label: string; snapshot: unknown[] } {
+  if (!Array.isArray(snapshot) || !snapshot.length) {
+    return { label: '', snapshot: [] };
+  }
+  const labels: string[] = [];
+  for (const row of snapshot) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as { optionNameZh?: string; optionNameVi?: string };
+    labels.push(loc === 'vi' ? r.optionNameVi || r.optionNameZh || '' : r.optionNameZh || r.optionNameVi || '');
+  }
+  return { label: labels.filter(Boolean).join(' / '), snapshot };
+}
+
+async function reorderOneMore(o: DeliveryOrder, e: Event) {
+  e.stopPropagation();
+  if (!canReorder(o)) return;
+  reorderingId.value = o.id;
+  const loc = String(locale.value).startsWith('vi') ? 'vi' : 'zh';
+  try {
+    const detail = await getOrderDetail(o.id);
+    const lines = detail.items.filter((it) => it.dishId);
+    if (!lines.length) {
+      showToast(t('shop.order.reorderEmpty'));
+      return;
+    }
+    cart.clear();
+    for (const it of lines) {
+      const { label, snapshot } = optionLabelFromSnapshot(it.optionsSnapshot, loc);
+      cart.add({
+        dishId: String(it.dishId),
+        nameZh: it.nameZh,
+        nameVi: it.nameVi,
+        price: it.unitPrice,
+        qty: it.qty,
+        optionLabel: label || undefined,
+        optionsSnapshot: snapshot.length ? snapshot : undefined,
+      });
+    }
+    router.push({ name: 'shop-cart' });
+  } catch {
+    /* http 已提示 */
+  } finally {
+    reorderingId.value = null;
+  }
+}
+
 function formatOrderTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -132,6 +189,17 @@ function formatOrderTime(iso: string) {
               {{ t(`shop.order.status.${o.status}`, o.status) }}
             </div>
             <div class="amount">{{ formatVND(o.total) }}</div>
+            <van-button
+              v-if="canReorder(o)"
+              size="mini"
+              type="primary"
+              plain
+              class="reorder-btn"
+              :loading="reorderingId === o.id"
+              @click="reorderOneMore(o, $event)"
+            >
+              {{ t('shop.order.reorderOneMore') }}
+            </van-button>
           </div>
         </template>
       </van-cell>
@@ -161,5 +229,8 @@ function formatOrderTime(iso: string) {
 .amount {
   margin-top: 2px;
   font-weight: 600;
+}
+.reorder-btn {
+  margin-top: 6px;
 }
 </style>

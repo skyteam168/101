@@ -455,7 +455,7 @@ async function confirmCheckout() {
     }
     await checkoutOrderApi(order.value.id, payments);
     checkoutVisible.value = false;
-    ElMessage.success(t('order.paid'));
+    ElMessage.success(t('order.paidNeedClear'));
     const snapOrder: Order = {
       ...order.value,
       paidAmount: order.value.total,
@@ -482,7 +482,7 @@ async function confirmCheckout() {
     return;
   }
   checkoutVisible.value = false;
-  ElMessage.success(t('order.paid'));
+  ElMessage.success(t('order.paidNeedClear'));
   try {
     const store = await getStoreSettingsApi();
     receiptPayload.value = buildReceiptPayload(

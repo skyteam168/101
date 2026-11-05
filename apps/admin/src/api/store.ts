@@ -39,6 +39,8 @@ export type BusinessHours = {
   days: number[];
   /** 手动暂停接单 */
   paused?: boolean;
+  /** 预计送达分钟（展示用） */
+  deliveryMinutes?: number;
 };
 
 export type MailSettings = {

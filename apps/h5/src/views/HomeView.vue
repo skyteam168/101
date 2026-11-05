@@ -23,6 +23,7 @@ import { useCustomerStore } from '../stores/customer';
 import { useInboxStore } from '../stores/inbox';
 import { getCustomerToken } from '../utils/customer-storage';
 import { listChatMessages, type ChatMessage } from '../api/chat';
+import { formatBusinessHoursLine } from '../utils/business-hours-display';
 
 const { t, locale } = useI18n();
 const route = useRoute();
@@ -96,6 +97,10 @@ function noticeLevelLabel(level?: string) {
 }
 
 function goReserve() {
+  if (!storeOpen.value) {
+    showToast(closedTip.value || t('errors.STORE_CLOSED'));
+    return;
+  }
   router.push({ name: 'reserve' });
 }
 
@@ -104,10 +109,18 @@ function goMyReservations() {
 }
 
 function goShop() {
+  if (!storeOpen.value) {
+    showToast(closedTip.value || t('errors.STORE_CLOSED'));
+    return;
+  }
   router.push({ name: 'shop' });
 }
 
 function goChat() {
+  if (!storeOpen.value) {
+    showToast(closedTip.value || t('errors.STORE_CLOSED'));
+    return;
+  }
   if (customer.isLoggedIn() || getCustomerToken()) {
     router.push({ name: 'shop-chat' });
   } else {
@@ -116,6 +129,10 @@ function goChat() {
 }
 
 function goGroupMeal() {
+  if (!storeOpen.value) {
+    showToast(closedTip.value || t('errors.STORE_CLOSED'));
+    return;
+  }
   router.push({ name: 'group-meal' });
 }
 
@@ -201,11 +218,7 @@ function onBannerClick(b: HomeBanner) {
 }
 
 const storeOpen = computed(() => store.value?.openNow !== false);
-const hoursText = computed(() => {
-  const h = store.value?.businessHours;
-  if (!h?.open || !h?.close) return '';
-  return `${h.open} - ${h.close}`;
-});
+const hoursText = computed(() => formatBusinessHoursLine(store.value?.businessHours, t));
 const closedTip = computed(() => {
   if (storeOpen.value) return '';
   if (store.value?.closedReason === 'paused') return t('shop.storePaused');
@@ -368,7 +381,14 @@ onMounted(async () => {
       <span>{{ t('home.searchPh') }}</span>
     </button>
 
-    <button v-if="inbox.unread" type="button" class="inbox-strip" @click="goChat">
+    <button
+      v-if="inbox.unread"
+      type="button"
+      class="inbox-strip"
+      :class="{ disabled: !storeOpen }"
+      :disabled="!storeOpen"
+      @click="goChat"
+    >
       <van-icon name="chat-o" size="16" />
       <span>{{ inbox.preview || t('home.inboxNew') }}</span>
     </button>
@@ -385,15 +405,33 @@ onMounted(async () => {
     />
 
     <section class="entry-row">
-      <button type="button" class="entry" @click="goReserve">
+      <button
+        type="button"
+        class="entry"
+        :class="{ disabled: !storeOpen }"
+        :disabled="!storeOpen"
+        @click="goReserve"
+      >
         <span class="entry-icon c-orange"><van-icon name="shop-o" size="26" /></span>
         <span class="entry-label">{{ t('home.reserve.title') }}</span>
       </button>
-      <button type="button" class="entry" @click="goShop">
+      <button
+        type="button"
+        class="entry"
+        :class="{ disabled: !storeOpen }"
+        :disabled="!storeOpen"
+        @click="goShop"
+      >
         <span class="entry-icon c-green"><van-icon name="logistics" size="26" /></span>
         <span class="entry-label">{{ t('home.delivery.title') }}</span>
       </button>
-      <button type="button" class="entry" @click="goGroupMeal">
+      <button
+        type="button"
+        class="entry"
+        :class="{ disabled: !storeOpen }"
+        :disabled="!storeOpen"
+        @click="goGroupMeal"
+      >
         <span class="entry-icon c-purple"><van-icon name="friends-o" size="26" /></span>
         <span class="entry-label">{{ t('home.group.title') }}</span>
       </button>
@@ -501,23 +539,32 @@ onMounted(async () => {
       <span class="member-cta">{{ membership?.joined ? t('home.joined') : t('home.joinNow') }}</span>
     </button>
 
-    <van-popup v-model:show="showJoin" position="bottom" round :style="{ maxHeight: '86%' }">
+    <van-popup
+      v-model:show="showJoin"
+      position="bottom"
+      round
+      teleport="body"
+      :style="{ height: 'min(88vh, 720px)' }"
+      class="sheet-popup"
+    >
       <div class="join-sheet">
-        <h3>{{ t('home.joinTitle') }}</h3>
-        <p class="join-lead">{{ t('home.joinLead') }}</p>
-        <article v-for="lv in joinLevels" :key="lv.id" class="join-level">
-          <strong>{{ levelName(lv) }}</strong>
-          <ul>
-            <li v-if="lv.minSpend > 0">{{ t('home.benefitSpend', { amount: formatVND(lv.minSpend) }) }}</li>
-            <li v-if="lv.discountPercent">{{ t('home.benefitDiscount', { n: lv.discountPercent }) }}</li>
-            <li v-if="lv.deliveryFeeOff">{{ t('home.benefitFee', { amount: formatVND(lv.deliveryFeeOff) }) }}</li>
-            <li v-if="lv.priorityReserve">{{ t('home.benefitReserve') }}</li>
-            <li v-if="lv.priorityDelivery">{{ t('home.benefitDelivery') }}</li>
-            <li v-if="lv.birthdayGift">{{ t('home.benefitBirthday') }}</li>
-            <li v-if="lv.birthdayBonusPoints">{{ t('home.benefitPoints', { n: lv.birthdayBonusPoints }) }}</li>
-          </ul>
-        </article>
-        <template v-if="!membership?.joined">
+        <div class="join-sheet-scroll">
+          <h3>{{ t('home.joinTitle') }}</h3>
+          <p class="join-lead">{{ t('home.joinLead') }}</p>
+          <article v-for="lv in joinLevels" :key="lv.id" class="join-level">
+            <strong>{{ levelName(lv) }}</strong>
+            <ul>
+              <li v-if="lv.minSpend > 0">{{ t('home.benefitSpend', { amount: formatVND(lv.minSpend) }) }}</li>
+              <li v-if="lv.discountPercent">{{ t('home.benefitDiscount', { n: lv.discountPercent }) }}</li>
+              <li v-if="lv.deliveryFeeOff">{{ t('home.benefitFee', { amount: formatVND(lv.deliveryFeeOff) }) }}</li>
+              <li v-if="lv.priorityReserve">{{ t('home.benefitReserve') }}</li>
+              <li v-if="lv.priorityDelivery">{{ t('home.benefitDelivery') }}</li>
+              <li v-if="lv.birthdayGift">{{ t('home.benefitBirthday') }}</li>
+              <li v-if="lv.birthdayBonusPoints">{{ t('home.benefitPoints', { n: lv.birthdayBonusPoints }) }}</li>
+            </ul>
+          </article>
+        </div>
+        <div v-if="!membership?.joined" class="join-sheet-footer">
           <label class="join-date">
             <span>{{ t('home.birthday') }}</span>
             <input v-model="joinBirthday" type="date" />
@@ -529,7 +576,7 @@ onMounted(async () => {
           <button type="button" class="join-submit" :disabled="joining" @click="submitJoin">
             {{ t('home.joinSubmit') }}
           </button>
-        </template>
+        </div>
       </div>
     </van-popup>
 
@@ -537,8 +584,9 @@ onMounted(async () => {
       v-model:show="showNotices"
       position="bottom"
       round
-      :style="{ maxHeight: '72%' }"
-      class="notice-sheet"
+      teleport="body"
+      :style="{ height: 'min(80vh, 640px)' }"
+      class="notice-sheet sheet-popup"
     >
       <div class="notice-popup">
         <div class="notice-handle" aria-hidden="true" />
@@ -557,6 +605,7 @@ onMounted(async () => {
           </button>
         </div>
 
+        <div class="notice-scroll">
         <div v-if="!notices.length && !personalMessages.length" class="empty">
           <van-icon name="notes-o" size="36" color="#c8c9cc" />
           <p>{{ t('home.noNotices') }}</p>
@@ -614,6 +663,7 @@ onMounted(async () => {
               </p>
             </div>
           </article>
+        </div>
         </div>
       </div>
     </van-popup>
@@ -693,6 +743,13 @@ onMounted(async () => {
   color: #c2410c;
   font-size: 13px;
   line-height: 1.4;
+}
+.entry.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.inbox-strip.disabled {
+  opacity: 0.55;
 }
 .top-actions {
   display: flex;
@@ -977,11 +1034,12 @@ onMounted(async () => {
   display: flex;
   gap: 12px;
   overflow-x: auto;
-  padding: 2px 2px 8px;
+  /* 给卡片阴影与加号留出边距，避免横向滚动容器裁切 */
+  padding: 4px 4px 12px;
   -webkit-overflow-scrolling: touch;
 }
 .dish-card {
-  flex: 0 0 156px;
+  flex: 0 0 160px;
   background: #fff;
   border-radius: 18px;
   overflow: hidden;
@@ -1023,7 +1081,9 @@ onMounted(async () => {
   border-radius: 999px;
 }
 .dish-meta {
-  padding: 10px 10px 12px;
+  /* 右侧多留一点，避免 +/- 贴边被 overflow 裁成半圆 */
+  padding: 10px 12px 12px;
+  box-sizing: border-box;
 }
 .dish-name {
   font-size: 14px;
@@ -1041,17 +1101,26 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
+  /* 价格与加减分行，避免加号被卡片 overflow 裁掉一半 */
+  flex-wrap: wrap;
 }
 .dish-price {
   font-size: 14px;
   color: #ea580c;
   font-weight: 800;
+  min-width: 0;
+  flex: 1 1 auto;
+  line-height: 1.2;
 }
 .dish-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   min-height: 28px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .mini-sold {
   font-size: 11px;
@@ -1060,10 +1129,11 @@ onMounted(async () => {
 .qty-ctrl {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .qty-num {
-  min-width: 16px;
+  min-width: 14px;
   text-align: center;
   font-size: 13px;
   font-weight: 800;
@@ -1072,10 +1142,10 @@ onMounted(async () => {
 }
 .qty-btn {
   box-sizing: border-box;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
   border: none;
   border-radius: 50%;
   display: inline-flex;
@@ -1092,7 +1162,7 @@ onMounted(async () => {
 .qty-plus {
   background: #ff6a00;
   color: #fff;
-  box-shadow: 0 4px 10px rgba(255, 106, 0, 0.28);
+  box-shadow: 0 2px 6px rgba(255, 106, 0, 0.28);
 }
 .qty-minus {
   border: 1px solid #ebedf0;
@@ -1152,7 +1222,25 @@ onMounted(async () => {
   align-items: center;
 }
 .join-sheet {
-  padding: 18px 16px calc(20px + env(safe-area-inset-bottom));
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+.join-sheet-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 16px 12px;
+}
+.join-sheet-footer {
+  flex-shrink: 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #f0f0f0;
+  background: #fff;
 }
 .join-sheet h3 {
   margin: 0;
@@ -1203,8 +1291,24 @@ onMounted(async () => {
   font-weight: 700;
 }
 .notice-popup {
-  padding: 8px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 0 0;
+  box-sizing: border-box;
   background: linear-gradient(180deg, #fff8f2 0%, #fff 56px);
+}
+.notice-popup .notice-head {
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+.notice-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 16px calc(20px + env(safe-area-inset-bottom, 0px));
 }
 .notice-handle {
   width: 36px;

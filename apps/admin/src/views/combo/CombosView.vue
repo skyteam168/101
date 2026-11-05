@@ -161,6 +161,24 @@ async function save() {
     ElMessage.warning(t('combo.nameRequired'));
     return;
   }
+  // 剔除空分组；有内容的分组必须填名与菜品
+  const cleanedGroups = form.groups
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((it) => !!it.dishId),
+    }))
+    .filter((g) => g.nameZh.trim() || g.nameVi.trim() || g.items.length);
+  for (const g of cleanedGroups) {
+    if (!g.nameZh.trim() || !g.nameVi.trim()) {
+      ElMessage.warning(t('combo.groupNameRequired'));
+      return;
+    }
+    if (!g.items.length) {
+      ElMessage.warning(t('combo.groupItemsRequired'));
+      return;
+    }
+  }
+  form.groups = cleanedGroups;
   saving.value = true;
   try {
     const payload = {
@@ -171,10 +189,10 @@ async function save() {
       status: form.status,
       isGroupMeal: form.isGroupMeal,
       servingSize: form.isGroupMeal ? form.servingSize : null,
-      groups: form.groups.map((g, gi) => ({
+      groups: cleanedGroups.map((g, gi) => ({
         ...(g.id ? { id: g.id } : {}),
-        nameZh: g.nameZh,
-        nameVi: g.nameVi,
+        nameZh: g.nameZh.trim(),
+        nameVi: g.nameVi.trim(),
         minSelect: g.minSelect,
         maxSelect: g.maxSelect,
         sort: g.sort || gi + 1,

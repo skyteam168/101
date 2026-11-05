@@ -27,6 +27,8 @@ export type BusinessHours = {
   days: number[]; // 0=Sun ... 6=Sat
   /** 商家手动暂停接单（休息中） */
   paused?: boolean;
+  /** 预计送达分钟（顾客端展示） */
+  deliveryMinutes?: number;
 };
 
 export type StoreClosedReason = 'paused' | 'outside_hours' | null;

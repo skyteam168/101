@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUpdate, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onBeforeUpdate, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { showToast } from 'vant';
-import { formatVND, localeField } from '@restaurant/shared';
+import { Events, formatVND, localeField } from '@restaurant/shared';
+import { io, type Socket } from 'socket.io-client';
 import {
   getDeliveryMenu,
   getStoreInfo,
@@ -14,6 +15,11 @@ import {
 } from '../../api/delivery';
 import { useCartStore } from '../../stores/cart';
 import { useCustomerStore } from '../../stores/customer';
+import {
+  formatBusinessHoursLine,
+  googleMapsUrl,
+  normalizeTel,
+} from '../../utils/business-hours-display';
 
 const { t, locale } = useI18n();
 const router = useRouter();
@@ -29,6 +35,8 @@ const sectionRefs = ref<HTMLElement[]>([]);
 /** 点击左侧分类滚动时，暂时忽略右侧 scroll 回写，避免抖动 */
 let syncLock = false;
 let syncUnlockTimer: ReturnType<typeof setTimeout> | null = null;
+let menuSocket: Socket | null = null;
+let menuPollTimer: ReturnType<typeof setInterval> | null = null;
 
 const optVisible = ref(false);
 const optDish = ref<Dish | null>(null);
@@ -63,16 +71,50 @@ const gallery = computed(() => {
   return [];
 });
 
+async function refreshMenu() {
+  try {
+    categories.value = await getDeliveryMenu();
+  } catch {
+    /* 静默失败，保留当前菜单 */
+  }
+}
+
+function connectMenuRealtime(storeId: string) {
+  menuSocket?.disconnect();
+  menuSocket = io('/', {
+    path: '/socket.io',
+    transports: ['websocket', 'polling'],
+  });
+  menuSocket.on('connect', () => {
+    menuSocket?.emit('join', { room: `store:${storeId}:front` });
+  });
+  menuSocket.on(Events.DISH_UPDATED, () => {
+    void refreshMenu();
+  });
+}
+
 onMounted(async () => {
   try {
     const [storeData, menuData] = await Promise.all([getStoreInfo(), getDeliveryMenu()]);
     store.value = storeData;
     categories.value = menuData;
+    connectMenuRealtime(storeData.id);
+    menuPollTimer = setInterval(() => {
+      void refreshMenu();
+    }, 60_000);
   } catch {
     showToast(t('errors.HTTP_ERROR'));
   } finally {
     loading.value = false;
   }
+});
+
+onBeforeUnmount(() => {
+  if (menuPollTimer) clearInterval(menuPollTimer);
+  menuPollTimer = null;
+  menuSocket?.off(Events.DISH_UPDATED);
+  menuSocket?.disconnect();
+  menuSocket = null;
 });
 
 onBeforeUpdate(() => {
@@ -123,11 +165,25 @@ function onDishListScroll() {
 }
 
 const storeOpen = computed(() => store.value?.openNow !== false);
-const hoursText = computed(() => {
-  const h = store.value?.businessHours;
-  if (!h?.open || !h?.close) return '';
-  return `${h.open} - ${h.close}`;
+const hoursText = computed(() => formatBusinessHoursLine(store.value?.businessHours, t));
+const deliveryMinutesText = computed(() => {
+  const n = store.value?.businessHours?.deliveryMinutes;
+  if (n == null || n <= 0) return '';
+  return t('shop.deliveryMinutes', { n: Math.round(n) });
 });
+const storeTel = computed(() => normalizeTel(store.value?.phone));
+const storeMapUrl = computed(() => {
+  const lat = store.value?.lat;
+  const lng = store.value?.lng;
+  if (lat == null || lng == null) return null;
+  return googleMapsUrl(lat, lng);
+});
+
+function openStoreMap() {
+  const url = storeMapUrl.value;
+  if (!url) return;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
 const closedBannerText = computed(() => {
   if (storeOpen.value) return '';
   if (store.value?.closedReason === 'paused') return t('shop.storePaused');
@@ -378,13 +434,25 @@ function galleryCaption(g: { captionZh?: string; captionVi?: string }) {
               <van-icon name="clock-o" size="12" />
               {{ t('shop.businessHours', { hours: hoursText }) }}
             </div>
-            <div class="store-meta">
-              <van-icon name="location-o" size="12" />
-              {{ store.address }}
+            <div v-if="deliveryMinutesText" class="store-meta">
+              <van-icon name="logistics" size="12" />
+              {{ deliveryMinutesText }}
             </div>
-            <div class="store-meta">
+            <div class="store-meta store-meta-row">
+              <van-icon name="location-o" size="12" />
+              <span class="meta-text">{{ store.address }}</span>
+              <button
+                v-if="storeMapUrl"
+                type="button"
+                class="meta-link"
+                @click.stop="openStoreMap"
+              >
+                {{ t('shop.openMap') }}
+              </button>
+            </div>
+            <div v-if="storeTel" class="store-meta">
               <van-icon name="phone-o" size="12" />
-              {{ store.phone }}
+              <a class="meta-link tel" :href="`tel:${storeTel}`">{{ store.phone }}</a>
             </div>
           </div>
         </div>
@@ -659,6 +727,24 @@ function galleryCaption(g: { captionZh?: string; captionVi?: string }) {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.store-meta-row {
+  flex-wrap: wrap;
+}
+.meta-text {
+  flex: 1;
+  min-width: 0;
+}
+.meta-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #1989fa;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.meta-link.tel {
+  text-decoration: none;
 }
 .closed-banner {
   margin: 0 12px 12px;

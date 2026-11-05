@@ -156,8 +156,12 @@ export function usePrintStation() {
         await claimStation();
       }
     } catch (e) {
-      lastError.value = (e as Error).message;
-      if ((e as Error).name !== 'NotFoundError') {
+      const err = e as Error & { name?: string };
+      lastError.value = err.message || String(e);
+      // 用户取消选口：NotFoundError；无 COM/无兼容设备也常是 NotFoundError
+      if (err.name === 'NotFoundError' || /No port selected|找不到|No compatible/i.test(err.message || '')) {
+        ElMessage.warning({ message: t('print.stationUsbNoDevice'), duration: 8000, showClose: true });
+      } else {
         ElMessage.error(t('print.stationUsbFail'));
       }
     } finally {
