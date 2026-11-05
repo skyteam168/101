@@ -13,6 +13,15 @@ describe('isSafeExternalHttpUrl', () => {
     assert.equal(isSafeExternalHttpUrl('data:text/html,<script>'), false);
     assert.equal(isSafeExternalHttpUrl('vbscript:x'), false);
   });
+
+  it('rejects private and loopback hosts (SSRF)', () => {
+    assert.equal(isSafeExternalHttpUrl('http://127.0.0.1/'), false);
+    assert.equal(isSafeExternalHttpUrl('http://localhost:8080/a'), false);
+    assert.equal(isSafeExternalHttpUrl('http://192.168.1.1/'), false);
+    assert.equal(isSafeExternalHttpUrl('http://10.0.0.8/'), false);
+    assert.equal(isSafeExternalHttpUrl('http://169.254.169.254/latest'), false);
+    assert.equal(isSafeExternalHttpUrl('http://172.16.0.1/'), false);
+  });
 });
 
 describe('isSafeMediaUrl', () => {

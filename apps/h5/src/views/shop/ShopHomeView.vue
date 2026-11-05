@@ -86,7 +86,7 @@ function connectMenuRealtime(storeId: string) {
     transports: ['websocket', 'polling'],
   });
   menuSocket.on('connect', () => {
-    menuSocket?.emit('join', { room: `store:${storeId}:front` });
+    menuSocket?.emit('join', { room: `store:${storeId}:menu` });
   });
   menuSocket.on(Events.DISH_UPDATED, () => {
     void refreshMenu();

@@ -382,7 +382,11 @@ export class StoreService {
       if (incoming.apiKey === '********' || incoming.apiKey === undefined) {
         delete incoming.apiKey;
       }
-      nextAi = { ...prev, ...incoming } as Prisma.InputJsonValue;
+      const merged = { ...prev, ...incoming };
+      if (merged.apiBase) {
+        assertSafeExternalHttpUrl(String(merged.apiBase));
+      }
+      nextAi = merged as Prisma.InputJsonValue;
     }
 
     const row = await this.prisma.store.update({

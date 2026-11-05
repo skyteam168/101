@@ -411,6 +411,9 @@ function connectSocket() {
   });
   socket.on('connect', () => {
     socket?.emit('join', { room: `table:${meta.value!.sessionId}` });
+    if (meta.value?.storeId) {
+      socket?.emit('join', { room: `store:${meta.value.storeId}:menu` });
+    }
   });
   socket.on(
     Events.CART_UPDATED,

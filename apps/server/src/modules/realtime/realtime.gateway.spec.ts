@@ -42,6 +42,31 @@ describe('RealtimeGateway onJoin / print station', () => {
     expect(client.join).toHaveBeenCalledWith('store:1:kitchen');
   });
 
+  it('onJoin denies staff joining other store rooms', async () => {
+    const client = mockSocket({ typ: 'staff', storeId: '1', userId: '9' });
+    const r = await gateway.onJoin(client as never, { room: 'store:2:front' });
+    expect(r).toEqual({ ok: false });
+    expect(client.join).not.toHaveBeenCalled();
+  });
+
+  it('onJoin denies anonymous front/kitchen eavesdropping', async () => {
+    const client = mockSocket(undefined);
+    expect(await gateway.onJoin(client as never, { room: 'store:1:front' })).toEqual({
+      ok: false,
+    });
+    expect(await gateway.onJoin(client as never, { room: 'store:1:kitchen' })).toEqual({
+      ok: false,
+    });
+    expect(client.join).not.toHaveBeenCalled();
+  });
+
+  it('onJoin allows anonymous menu room for dish updates', async () => {
+    const client = mockSocket(undefined);
+    const r = await gateway.onJoin(client as never, { room: 'store:1:menu' });
+    expect(r).toEqual({ ok: true, room: 'store:1:menu' });
+    expect(client.join).toHaveBeenCalledWith('store:1:menu');
+  });
+
   it('onJoin denies guest joining other table room', async () => {
     const client = mockSocket({ typ: 'guest', sessionId: '10' });
     const r = await gateway.onJoin(client as never, { room: 'table:99' });

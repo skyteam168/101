@@ -308,7 +308,17 @@ export class RealtimeGateway
     this.server.to(`store:${storeId}:print-station`).emit(event, payload);
   }
 
-  /** 显式加入房间（兼容旧客户端；员工/顾客仍受 auth 校验） */
+  /** 员工只能加入本店房间：store:{storeId} 或 store:{storeId}:* */
+  private staffOwnsStoreRoom(storeId: string, room: string): boolean {
+    return room === `store:${storeId}` || room.startsWith(`store:${storeId}:`);
+  }
+
+  /**
+   * 显式加入房间。
+   * - 员工：仅本店 store 房间
+   * - 访客/顾客：仅自己的 table/customer 房间
+   * - 匿名：仅 store:{id}:menu（菜品上下架广播，不含订单/厨房事件）
+   */
   @SubscribeMessage('join')
   async onJoin(
     @ConnectedSocket() client: Socket,
@@ -317,7 +327,12 @@ export class RealtimeGateway
     const room = body?.room;
     if (!room) return { ok: false };
     const auth = client.data.auth as SocketAuth | undefined;
-    if (room.startsWith('store:') && auth?.typ === 'staff') {
+    if (
+      room.startsWith('store:') &&
+      auth?.typ === 'staff' &&
+      auth.storeId &&
+      this.staffOwnsStoreRoom(auth.storeId, room)
+    ) {
       await client.join(room);
       return { ok: true, room };
     }
@@ -325,12 +340,16 @@ export class RealtimeGateway
       await client.join(room);
       return { ok: true, room };
     }
-    if (room.startsWith('customer:') && auth?.typ === 'customer' && room === `customer:${auth.customerId}`) {
+    if (
+      room.startsWith('customer:') &&
+      auth?.typ === 'customer' &&
+      room === `customer:${auth.customerId}`
+    ) {
       await client.join(room);
       return { ok: true, room };
     }
-    // 无 token 的开发兼容：仅允许 store:*:front（菜单页旧逻辑）
-    if (!auth && /^store:\d+:(front|kitchen)$/.test(room)) {
+    // 公开菜单页：只允许 menu 房间，禁止匿名进 front/kitchen 窃听订单事件
+    if ((!auth || auth.typ === 'guest' || auth.typ === 'customer') && /^store:\d+:menu$/.test(room)) {
       await client.join(room);
       return { ok: true, room };
     }
@@ -355,6 +374,7 @@ export class RealtimeGateway
   }
 
   emitDishUpdated(storeId: string, payload: unknown) {
+    this.server.to(`store:${storeId}:menu`).emit(Events.DISH_UPDATED, payload);
     this.emitToStore(storeId, Events.DISH_UPDATED, payload);
   }
 
