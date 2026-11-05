@@ -32,6 +32,7 @@ import {
   OrderQueryDto,
   RefundDto,
   SubmitOrderDto,
+  TakeawaySubmitDto,
   TempItemDto,
   UpdateItemStatusDto,
   VoidItemDto,
@@ -338,6 +339,7 @@ export class OrderService {
     tx: Tx,
     storeId: bigint,
     items: SubmitOrderDto['items'],
+    channel: 'dine_in' | 'takeaway' = 'dine_in',
   ) {
     const lines: Array<{
       dishId: bigint;
@@ -354,7 +356,11 @@ export class OrderService {
       const dish = await tx.dish.findFirst({
         where: { id: BigInt(raw.dishId), storeId },
       });
-      if (!dish || dish.status !== 'on' || !dish.isDineIn) {
+      const channelOk =
+        channel === 'takeaway'
+          ? !!(dish && (dish.isDineIn || dish.isDelivery))
+          : !!(dish && dish.isDineIn);
+      if (!dish || dish.status !== 'on' || !channelOk) {
         throw new BusinessError('DISH_NOT_AVAILABLE');
       }
       let extra = 0n;
@@ -363,7 +369,8 @@ export class OrderService {
           extra += BigInt(opt.extraPrice ?? 0);
         }
       }
-      const unitPrice = dish.price + extra;
+      const base = channel === 'takeaway' ? dish.takeawayPrice : dish.price;
+      const unitPrice = base + extra;
       const qty = raw.qty;
       lines.push({
         dishId: dish.id,
@@ -380,6 +387,102 @@ export class OrderService {
       });
     }
     return lines;
+  }
+
+  /** 未结清外带单列表（收银台切换） */
+  async listOpenTakeaways(storeId: string) {
+    const rows = await this.prisma.order.findMany({
+      where: {
+        storeId: BigInt(storeId),
+        type: OrderType.takeaway,
+        status: OrderStatus.open,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return Promise.all(rows.map(async (r) => this.mapOrder((await this.getOrderFull(r.id))!)));
+  }
+
+  /** 收银台外带开单（无桌台） */
+  async createTakeaway(storeId: string, dto: TakeawaySubmitDto, userId: string) {
+    const sid = BigInt(storeId);
+    const orderId = await this.prisma.$transaction(async (tx) => {
+      const lines = await this.resolveLines(tx, sid, dto.items, 'takeaway');
+      for (const line of lines) {
+        await this.deductStock(tx, line.dishId, line.qty);
+      }
+
+      const amounts = this.calculateAmounts({
+        items: lines.map((l) => ({ amount: l.amount, status: 'pending' })),
+        discount: 0,
+        serviceCharge: 0,
+      });
+
+      const order = await tx.order.create({
+        data: {
+          storeId: sid,
+          orderNo: this.orderNo(),
+          type: OrderType.takeaway,
+          source: OrderSource.pos,
+          status: OrderStatus.open,
+          subtotal: amounts.subtotal,
+          discount: 0n,
+          serviceCharge: 0n,
+          total: amounts.total,
+          remark: dto.remark,
+          createdBy: BigInt(userId),
+        },
+      });
+
+      const batch = await tx.orderBatch.create({
+        data: {
+          orderId: order.id,
+          roundNo: 1,
+          source: OrderSource.pos,
+          createdBy: BigInt(userId),
+        },
+      });
+
+      for (const line of lines) {
+        await tx.orderItem.create({
+          data: {
+            orderId: order.id,
+            batchId: batch.id,
+            dishId: line.dishId,
+            nameZh: line.nameZh,
+            nameVi: line.nameVi,
+            originUnitPrice: line.unitPrice,
+            unitPrice: line.unitPrice,
+            qty: line.qty,
+            amount: line.amount,
+            optionsSnapshot: line.optionsSnapshot,
+            guestNickname: line.guestNickname,
+            status: OrderItemStatus.pending,
+          },
+        });
+        await this.inventory.consumeRecipe(tx, sid, line.dishId, line.qty, {
+          refType: 'order',
+          refId: order.id.toString(),
+        });
+      }
+
+      return order.id;
+    });
+
+    const full = await this.getOrderFull(orderId);
+    const mapped = this.mapOrder(full!);
+    this.events.emit(Events.ORDER_CREATED, {
+      storeId,
+      order: mapped,
+    });
+    this.events.emit(Events.ORDER_BATCH_ADDED, {
+      storeId,
+      orderId: mapped.id,
+      roundNo: 1,
+      batch: mapped.batches[0],
+      order: mapped,
+    });
+    return mapped;
   }
 
   /** 开台后首次下单，或会话已有 open 单则转为加菜 */
@@ -498,7 +601,11 @@ export class OrderService {
       if (!order) throw new BusinessError('ORDER_NOT_FOUND');
       if (order.status !== OrderStatus.open) throw new BusinessError('ORDER_NOT_OPEN');
 
-      const lines = await this.resolveLines(tx, sid, dto.items);
+      const channel =
+        order.type === OrderType.takeaway || order.type === OrderType.delivery
+          ? 'takeaway'
+          : 'dine_in';
+      const lines = await this.resolveLines(tx, sid, dto.items, channel);
       for (const line of lines) {
         await this.deductStock(tx, line.dishId, line.qty);
       }
@@ -508,7 +615,7 @@ export class OrderService {
         data: {
           orderId: oid,
           roundNo: nextRound,
-          source: OrderSource.waiter,
+          source: order.source === OrderSource.pos ? OrderSource.pos : OrderSource.waiter,
           createdBy: BigInt(userId),
         },
       });

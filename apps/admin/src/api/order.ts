@@ -104,6 +104,15 @@ export const submitOrderApi = (data: {
   remark?: string;
 }) => apiPost<Order>('/orders/submit', data);
 
+/** 未结清外带单 */
+export const listOpenTakeawaysApi = () => apiGet<Order[]>('/orders/takeaway/open');
+
+/** 收银台外带开单 */
+export const createTakeawayOrderApi = (data: {
+  items: { dishId: string; qty: number; optionsSnapshot?: unknown }[];
+  remark?: string;
+}) => apiPost<Order>('/orders/takeaway', data);
+
 export const addOrderItemsApi = (
   orderId: string,
   items: { dishId: string; qty: number; optionsSnapshot?: unknown }[],

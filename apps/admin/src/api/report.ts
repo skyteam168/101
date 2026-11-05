@@ -60,19 +60,36 @@ export const reportOverviewApi = (params?: { date?: string; from?: string; to?: 
 export const reportTrendApi = (params?: { from?: string; to?: string }) =>
   apiGet<{ cutHour: number; points: TrendPoint[] }>('/reports/trend', params);
 
+export type PeriodProfit = {
+  period: 'month' | 'quarter' | 'half' | 'year';
+  label: string;
+  from: string;
+  to: string;
+  yearMonths: string[];
+  yearMonth?: string;
+  revenue: number;
+  orderCount: number;
+  avgTicket: number;
+  days: TrendPoint[];
+  purchaseCost: number;
+  laborCost: number;
+  laborCostSettled: boolean;
+  laborMonthsSettled?: string[];
+  stocktakeConsumption: number;
+  inventoryValue: number;
+  netProfit: number;
+  roughGross: number;
+  costNote?: string;
+};
+
 export const reportMonthApi = (month: string) =>
-  apiGet<{
-    yearMonth: string;
-    revenue: number;
-    orderCount: number;
-    avgTicket: number;
-    days: TrendPoint[];
-    purchaseCost?: number;
-    laborCost?: number;
-    laborCostSettled?: boolean;
-    roughGross?: number;
-    costNote?: string;
-  }>('/reports/month', { month });
+  apiGet<PeriodProfit>('/reports/month', { month });
+
+/** 期间损益：月 / 季 / 半年 / 年 */
+export const reportPeriodProfitApi = (
+  period: 'month' | 'quarter' | 'half' | 'year',
+  anchor: string,
+) => apiGet<PeriodProfit>('/reports/period-profit', { period, anchor });
 
 export const listShiftsApi = (params?: { cashierId?: string; limit?: number }) =>
   apiGet<CashierShift[]>('/reports/shifts', params);

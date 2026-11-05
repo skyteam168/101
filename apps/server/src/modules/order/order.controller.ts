@@ -26,6 +26,7 @@ import {
   OrderQueryDto,
   RefundDto,
   SubmitOrderDto,
+  TakeawaySubmitDto,
   TempItemDto,
   UpdateItemStatusDto,
   VoidItemDto,
@@ -71,6 +72,18 @@ export class OrderController {
   @RequirePerm('menu:order')
   byTable(@CurrentUser() user: AuthUser, @Param('tableId') tableId: string) {
     return this.orderService.byTable(this.storeId(user), tableId);
+  }
+
+  @Get('takeaway/open')
+  @RequirePerm('menu:order')
+  openTakeaways(@CurrentUser() user: AuthUser) {
+    return this.orderService.listOpenTakeaways(this.storeId(user));
+  }
+
+  @Post('takeaway')
+  @RequirePerm('order:create')
+  createTakeaway(@CurrentUser() user: AuthUser, @Body() dto: TakeawaySubmitDto) {
+    return this.orderService.createTakeaway(this.storeId(user), dto, user.id);
   }
 
   @Post('batches/:batchId/confirm')

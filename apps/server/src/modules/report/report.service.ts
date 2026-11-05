@@ -401,49 +401,154 @@ export class ReportService {
     return overview;
   }
 
+  /** 将期间解析为营业日起止与覆盖的 YYYY-MM 列表 */
+  private resolveProfitPeriod(
+    period: 'month' | 'quarter' | 'half' | 'year',
+    anchor: string,
+  ): { from: string; to: string; label: string; yearMonths: string[] } {
+    const ym = /^(\d{4})-(\d{2})$/.exec(anchor);
+    const yOnly = /^(\d{4})$/.exec(anchor);
+    let y: number;
+    let m: number;
+    if (ym) {
+      y = Number(ym[1]);
+      m = Number(ym[2]);
+    } else if (yOnly && period === 'year') {
+      y = Number(yOnly[1]);
+      m = 1;
+    } else {
+      throw new BusinessError('INVALID_DATE');
+    }
+    if (!y || m < 1 || m > 12) throw new BusinessError('INVALID_DATE');
+
+    let startM: number;
+    let endM: number;
+    let label: string;
+    if (period === 'month') {
+      startM = m;
+      endM = m;
+      label = `${y}-${String(m).padStart(2, '0')}`;
+    } else if (period === 'quarter') {
+      const q = Math.ceil(m / 3);
+      startM = (q - 1) * 3 + 1;
+      endM = q * 3;
+      label = `${y}-Q${q}`;
+    } else if (period === 'half') {
+      const h = m <= 6 ? 1 : 2;
+      startM = h === 1 ? 1 : 7;
+      endM = h === 1 ? 6 : 12;
+      label = `${y}-H${h}`;
+    } else {
+      startM = 1;
+      endM = 12;
+      label = String(y);
+    }
+
+    const from = `${y}-${String(startM).padStart(2, '0')}-01`;
+    const lastDay = new Date(Date.UTC(y, endM, 0)).getUTCDate();
+    const to = `${y}-${String(endM).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const yearMonths: string[] = [];
+    for (let mm = startM; mm <= endM; mm++) {
+      yearMonths.push(`${y}-${String(mm).padStart(2, '0')}`);
+    }
+    return { from, to, label, yearMonths };
+  }
+
   async monthReport(storeId: string, yearMonth: string) {
-    // yearMonth = YYYY-MM
-    const [y, m] = yearMonth.split('-').map(Number);
-    if (!y || !m) throw new BusinessError('INVALID_DATE');
-    const from = `${yearMonth}-01`;
-    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-    const to = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
+    return this.periodProfit(storeId, 'month', yearMonth);
+  }
+
+  /**
+   * 期间损益：营收 − 进货 − 已月结人力 = 净利润；
+   * 另附盘点消耗合计、当前库存金额，便于对照「采购库存 / 人事」明细。
+   */
+  async periodProfit(
+    storeId: string,
+    period: 'month' | 'quarter' | 'half' | 'year',
+    anchor: string,
+  ) {
+    const { from, to, label, yearMonths } = this.resolveProfitPeriod(period, anchor);
     const trend = await this.trend(storeId, { from, to });
     const revenue = trend.points.reduce((s, p) => s + p.revenue, 0);
     const orderCount = trend.points.reduce((s, p) => s + p.orderCount, 0);
 
-    const monthStart = new Date(Date.UTC(y, m - 1, 1));
-    const monthEnd = new Date(Date.UTC(y, m, 1));
+    const rangeStart = new Date(`${from}T00:00:00.000Z`);
+    // to 为期末月最后一天；开区间上界 = 下一月 1 日（Date.UTC 月份 0 起算，endM 为 1–12 时正好是下一月）
+    const endY = Number(to.slice(0, 4));
+    const endM = Number(to.slice(5, 7));
+    const exclusive = new Date(Date.UTC(endY, endM, 1));
+
     const purchaseAgg = await this.prisma.purchase.aggregate({
       where: {
         storeId: BigInt(storeId),
-        businessDate: { gte: monthStart, lt: monthEnd },
+        businessDate: { gte: rangeStart, lt: exclusive },
       },
       _sum: { totalAmount: true },
     });
     const purchaseCost = this.money(purchaseAgg._sum.totalAmount ?? 0);
 
-    const payroll = await this.prisma.employeePayrollRun.findUnique({
+    const payrolls = await this.prisma.employeePayrollRun.findMany({
       where: {
-        storeId_yearMonth: { storeId: BigInt(storeId), yearMonth },
+        storeId: BigInt(storeId),
+        yearMonth: { in: yearMonths },
       },
     });
-    const laborCost = payroll ? this.money(payroll.totalLaborCost) : 0;
-    /** 粗算毛利：营收 − 进货 − 已月结人力（未月结则为 0）；仅供运营参考 */
-    const roughGross = revenue - purchaseCost - laborCost;
+    const laborCost = payrolls.reduce((s, p) => s + this.money(p.totalLaborCost), 0);
+    const laborMonthsSettled = payrolls.map((p) => p.yearMonth);
+    const laborCostSettled = laborMonthsSettled.length === yearMonths.length;
+
+    const stocktakes = await this.prisma.stocktake.findMany({
+      where: {
+        storeId: BigInt(storeId),
+        status: 'confirmed',
+        businessDate: { gte: rangeStart, lt: exclusive },
+      },
+      include: { items: true },
+    });
+    const stocktakeConsumption = stocktakes.reduce(
+      (s, st) => s + st.items.reduce((a, it) => a + Number(it.consumptionAmount), 0),
+      0,
+    );
+
+    const ingredients = await this.prisma.ingredient.findMany({
+      where: { storeId: BigInt(storeId) },
+      select: { stockQty: true, lastCost: true },
+    });
+    const inventoryValue = ingredients.reduce(
+      (s, i) => s + Math.floor(Number(i.stockQty) * Number(i.lastCost)),
+      0,
+    );
+
+    const netProfit = revenue - purchaseCost - laborCost;
 
     return {
-      yearMonth,
+      period,
+      label,
+      from,
+      to,
+      yearMonths,
+      yearMonth: period === 'month' ? label : undefined,
       revenue,
       orderCount,
       avgTicket: orderCount ? Math.floor(revenue / orderCount) : 0,
       days: trend.points,
+      income: { revenue },
+      expenses: {
+        purchaseCost,
+        laborCost,
+        laborCostSettled,
+        laborMonthsSettled,
+        stocktakeConsumption,
+      },
+      inventoryValue,
       purchaseCost,
       laborCost,
-      laborCostSettled: !!payroll,
-      roughGross,
+      laborCostSettled,
+      stocktakeConsumption,
+      roughGross: netProfit,
+      netProfit,
       costNote:
-        'roughGross = revenue − purchaseCost − laborCost；laborCost 取自人事月结快照，未月结为 0',
+        'netProfit = revenue − purchaseCost − laborCost；人力取自人事月结快照（未月结月记 0）；盘点消耗与库存金额来自采购库存模块，供对照，不重复扣减进货。',
     };
   }
 

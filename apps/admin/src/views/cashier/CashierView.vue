@@ -18,8 +18,11 @@ import {
   addTempItemApi,
   bindCustomerApi,
   checkoutOrderApi,
+  createTakeawayOrderApi,
   freeOrderApi,
+  getOrderApi,
   getOrderByTableApi,
+  listOpenTakeawaysApi,
   setDiscountApi,
   submitOrderApi,
   updateLineItemApi,
@@ -41,8 +44,12 @@ const userStore = useUserStore();
 const loc = computed(() => (locale.value === 'vi-VN' ? 'vi' : 'zh'));
 
 const loading = ref(false);
+/** 堂食 / 外带 */
+const orderMode = ref<'dine_in' | 'takeaway'>('dine_in');
 const tables = ref<FloorTable[]>([]);
 const tableId = ref('');
+const openTakeaways = ref<Order[]>([]);
+const takeawayOrderId = ref('');
 const categories = ref<Category[]>([]);
 const dishes = ref<Dish[]>([]);
 const activeCat = ref('');
@@ -90,10 +97,19 @@ const activeItems = computed(() =>
 const snap = computed(() => order.value?.promoSnapshot || null);
 
 function isSellable(d: Dish) {
-  if (d.status !== 'on' || !d.isDineIn) return false;
+  if (d.status !== 'on') return false;
+  if (orderMode.value === 'takeaway') {
+    if (!d.isDineIn && !d.isDelivery) return false;
+  } else if (!d.isDineIn) {
+    return false;
+  }
   if (d.stock != null && d.stock <= 0) return false;
   if (d.dailyStock != null && d.soldToday >= d.dailyStock) return false;
   return true;
+}
+
+function dishUnitPrice(d: Dish) {
+  return orderMode.value === 'takeaway' ? (d.takeawayPrice ?? d.price) : d.price;
 }
 
 const filteredDishes = computed(() =>
@@ -178,12 +194,30 @@ function dishNameById(dishId: string) {
   return d ? nameOf(d) : dishId;
 }
 
-async function loadOrder() {
-  if (!tableId.value) {
-    order.value = null;
-    return;
+async function loadOpenTakeaways() {
+  openTakeaways.value = await listOpenTakeawaysApi();
+  if (
+    takeawayOrderId.value &&
+    !openTakeaways.value.some((o) => o.id === takeawayOrderId.value)
+  ) {
+    takeawayOrderId.value = '';
   }
-  order.value = await getOrderByTableApi(tableId.value);
+}
+
+async function loadOrder() {
+  if (orderMode.value === 'takeaway') {
+    if (!takeawayOrderId.value) {
+      order.value = null;
+      return;
+    }
+    order.value = await getOrderApi(takeawayOrderId.value);
+  } else {
+    if (!tableId.value) {
+      order.value = null;
+      return;
+    }
+    order.value = await getOrderByTableApi(tableId.value);
+  }
   if (order.value?.customerId) {
     const found = members.value.find((m) => m.id === order.value!.customerId);
     if (found) selectedMember.value = found;
@@ -193,11 +227,36 @@ async function loadOrder() {
 async function refresh() {
   loading.value = true;
   try {
-    await Promise.all([loadTables(), loadMenu(), loadCombos()]);
+    await Promise.all([loadTables(), loadMenu(), loadCombos(), loadOpenTakeaways()]);
     await loadOrder();
   } finally {
     loading.value = false;
   }
+}
+
+async function switchMode(mode: 'dine_in' | 'takeaway') {
+  orderMode.value = mode;
+  cart.value = [];
+  order.value = null;
+  selectedMember.value = null;
+  if (mode === 'takeaway') {
+    takeawayOrderId.value = '';
+    await loadOpenTakeaways();
+  } else {
+    await loadOrder();
+  }
+}
+
+async function pickTakeawayOrder(id: string) {
+  takeawayOrderId.value = id;
+  await loadOrder();
+}
+
+function startNewTakeaway() {
+  takeawayOrderId.value = '';
+  order.value = null;
+  cart.value = [];
+  selectedMember.value = null;
 }
 
 onMounted(() => {
@@ -205,7 +264,12 @@ onMounted(() => {
   window.addEventListener('keydown', onCashierKey);
 });
 onUnmounted(() => window.removeEventListener('keydown', onCashierKey));
-watch(tableId, () => loadOrder());
+watch(tableId, () => {
+  if (orderMode.value === 'dine_in') void loadOrder();
+});
+watch(takeawayOrderId, () => {
+  if (orderMode.value === 'takeaway') void loadOrder();
+});
 
 async function ensureDining() {
   await loadTables();
@@ -237,8 +301,20 @@ function addToCart(dish: Dish) {
 
 async function submitCart() {
   if (!cart.value.length) return;
-  if (!(await ensureDining())) return;
   const items = cart.value.map((c) => ({ dishId: c.dish.id, qty: c.qty }));
+  if (orderMode.value === 'takeaway') {
+    if (order.value) {
+      order.value = await addOrderItemsApi(order.value.id, items);
+    } else {
+      order.value = await createTakeawayOrderApi({ items });
+      takeawayOrderId.value = order.value.id;
+    }
+    cart.value = [];
+    ElMessage.success(t('order.submitted'));
+    await loadOpenTakeaways();
+    return;
+  }
+  if (!(await ensureDining())) return;
   if (order.value) {
     order.value = await addOrderItemsApi(order.value.id, items);
   } else {
@@ -501,10 +577,14 @@ async function confirmCheckout() {
 }
 
 async function afterCheckoutCleanup() {
-  // 原 confirmCheckout 尾部逻辑（刷新桌台等）保留在下方同一函数体被拆分后继续调用
   order.value = null;
   selectedMember.value = null;
-  await loadTables();
+  if (orderMode.value === 'takeaway') {
+    takeawayOrderId.value = '';
+    await loadOpenTakeaways();
+  } else {
+    await loadTables();
+  }
 }
 
 function closeReceipt() {
@@ -516,7 +596,17 @@ function closeReceipt() {
 <template>
   <div class="cashier" v-loading="loading">
     <div class="top">
-      <el-select v-model="tableId" filterable style="width: 160px" :placeholder="t('cashier.selectTable')">
+      <el-radio-group :model-value="orderMode" @change="(v: string | number | boolean) => switchMode(v as 'dine_in' | 'takeaway')">
+        <el-radio-button value="dine_in">{{ t('cashier.modeDineIn') }}</el-radio-button>
+        <el-radio-button value="takeaway">{{ t('cashier.modeTakeaway') }}</el-radio-button>
+      </el-radio-group>
+      <el-select
+        v-if="orderMode === 'dine_in'"
+        v-model="tableId"
+        filterable
+        style="width: 160px"
+        :placeholder="t('cashier.selectTable')"
+      >
         <el-option
           v-for="tb in tables"
           :key="tb.id"
@@ -524,6 +614,24 @@ function closeReceipt() {
           :value="tb.id"
         />
       </el-select>
+      <template v-else>
+        <el-select
+          :model-value="takeawayOrderId"
+          filterable
+          clearable
+          style="width: 220px"
+          :placeholder="t('cashier.selectTakeaway')"
+          @change="(id: string) => pickTakeawayOrder(id || '')"
+        >
+          <el-option
+            v-for="o in openTakeaways"
+            :key="o.id"
+            :label="`${o.orderNo} · ${formatVND(o.total)}`"
+            :value="o.id"
+          />
+        </el-select>
+        <el-button @click="startNewTakeaway">{{ t('cashier.newTakeaway') }}</el-button>
+      </template>
       <div class="member">
         <el-input
           v-model="memberKeyword"
@@ -653,7 +761,7 @@ function closeReceipt() {
                 :style="d.image ? { backgroundImage: `url(${d.image})` } : undefined"
               />
               <span>{{ nameOf(d) }}</span>
-              <em>{{ formatVND(d.price) }}</em>
+              <em>{{ formatVND(dishUnitPrice(d)) }}</em>
             </button>
           </div>
           <div class="cart" v-if="cart.length">

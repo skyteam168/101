@@ -63,6 +63,22 @@ export class SubmitOrderDto {
   remark?: string;
 }
 
+/** 收银台外带开单（无桌台会话） */
+export class TakeawaySubmitDto {
+  @ApiProperty({ type: [OrderItemInputDto] })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => OrderItemInputDto)
+  items!: OrderItemInputDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  remark?: string;
+}
+
 export class AddItemsDto {
   @ApiProperty({ type: [OrderItemInputDto] })
   @IsArray()

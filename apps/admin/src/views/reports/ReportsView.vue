@@ -19,10 +19,11 @@ import {
   listShiftsApi,
   openShiftApi,
   printShiftApi,
-  reportMonthApi,
   reportOverviewApi,
+  reportPeriodProfitApi,
   reportTrendApi,
   type CashierShift,
+  type PeriodProfit,
   type ReportOverview,
   type TrendPoint,
 } from '../../api/report';
@@ -38,21 +39,11 @@ const loading = ref(false);
 const date = ref(new Date().toISOString().slice(0, 10));
 const range = reactive({ from: '', to: '' });
 const month = ref(new Date().toISOString().slice(0, 7));
+const profitPeriod = ref<'month' | 'quarter' | 'half' | 'year'>('month');
 
 const overview = ref<ReportOverview | null>(null);
 const trend = ref<TrendPoint[]>([]);
-const monthData = ref<{
-  yearMonth: string;
-  revenue: number;
-  orderCount: number;
-  avgTicket: number;
-  days: TrendPoint[];
-  purchaseCost?: number;
-  laborCost?: number;
-  laborCostSettled?: boolean;
-  roughGross?: number;
-  costNote?: string;
-} | null>(null);
+const monthData = ref<PeriodProfit | null>(null);
 
 const currentShift = ref<CashierShift | null>(null);
 const shifts = ref<CashierShift[]>([]);
@@ -92,7 +83,7 @@ async function loadOverview() {
 async function loadMonth() {
   loading.value = true;
   try {
-    monthData.value = await reportMonthApi(month.value);
+    monthData.value = await reportPeriodProfitApi(profitPeriod.value, month.value);
   } finally {
     loading.value = false;
   }
@@ -259,9 +250,9 @@ async function doPrint(id: string) {
             { k: 'revenue', v: formatVND(overview.revenue) },
             { k: 'orderCount', v: String(overview.orderCount) },
             { k: 'avgTicket', v: formatVND(overview.avgTicket) },
-            { k: 'avgPerGuest', v: formatVND(overview.avgPerGuest) },
-            { k: 'tableTurnover', v: String(overview.tableTurnover) },
-            { k: 'avgDineMinutes', v: `${overview.avgDineMinutes}` },
+            { k: 'dineIn', v: formatVND(overview.dineInRevenue) },
+            { k: 'takeaway', v: formatVND(overview.takeawayRevenue) },
+            { k: 'delivery', v: formatVND(overview.deliveryRevenue) },
           ]" :key="item.k">
             <div class="stat">
               <div class="stat-title">{{ t(`reports.${item.k}`) }}</div>
@@ -349,36 +340,31 @@ async function doPrint(id: string) {
         </el-descriptions>
       </el-tab-pane>
 
-      <el-tab-pane :label="t('reports.month')" name="month">
+      <el-tab-pane :label="t('reports.periodProfit')" name="month">
         <div class="toolbar" style="margin-bottom: 12px">
+          <el-radio-group v-model="profitPeriod" @change="loadMonth">
+            <el-radio-button value="month">{{ t('reports.periodMonth') }}</el-radio-button>
+            <el-radio-button value="quarter">{{ t('reports.periodQuarter') }}</el-radio-button>
+            <el-radio-button value="half">{{ t('reports.periodHalf') }}</el-radio-button>
+            <el-radio-button value="year">{{ t('reports.periodYear') }}</el-radio-button>
+          </el-radio-group>
           <el-date-picker v-model="month" type="month" value-format="YYYY-MM" @change="loadMonth" />
+          <span v-if="monthData" class="period-label">{{ monthData.label }} · {{ monthData.from }} ~ {{ monthData.to }}</span>
         </div>
         <el-row v-if="monthData" :gutter="12" class="cards">
-          <el-col :span="8">
+          <el-col :span="6">
             <div class="stat">
               <div class="stat-title">{{ t('reports.revenue') }}</div>
               <div class="stat-value">{{ formatVND(monthData.revenue) }}</div>
             </div>
           </el-col>
-          <el-col :span="8">
-            <div class="stat">
-              <div class="stat-title">{{ t('reports.orderCount') }}</div>
-              <div class="stat-value">{{ monthData.orderCount }}</div>
-            </div>
-          </el-col>
-          <el-col :span="8">
-            <div class="stat">
-              <div class="stat-title">{{ t('reports.avgTicket') }}</div>
-              <div class="stat-value">{{ formatVND(monthData.avgTicket) }}</div>
-            </div>
-          </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
             <div class="stat">
               <div class="stat-title">{{ t('reports.purchaseCost') }}</div>
               <div class="stat-value">{{ formatVND(monthData.purchaseCost || 0) }}</div>
             </div>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
             <div class="stat">
               <div class="stat-title">
                 {{ t('reports.laborCost') }}
@@ -389,14 +375,39 @@ async function doPrint(id: string) {
               <div class="stat-value">{{ formatVND(monthData.laborCost || 0) }}</div>
             </div>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="6">
+            <div class="stat highlight">
+              <div class="stat-title">{{ t('reports.netProfit') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.netProfit ?? monthData.roughGross ?? 0) }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
             <div class="stat">
-              <div class="stat-title">{{ t('reports.roughGross') }}</div>
-              <div class="stat-value">{{ formatVND(monthData.roughGross || 0) }}</div>
+              <div class="stat-title">{{ t('reports.orderCount') }}</div>
+              <div class="stat-value">{{ monthData.orderCount }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat">
+              <div class="stat-title">{{ t('reports.avgTicket') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.avgTicket) }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat">
+              <div class="stat-title">{{ t('reports.stocktakeConsumption') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.stocktakeConsumption || 0) }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat">
+              <div class="stat-title">{{ t('reports.inventoryValue') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.inventoryValue || 0) }}</div>
             </div>
           </el-col>
         </el-row>
-        <p v-if="monthData?.costNote" class="cost-note">{{ t('reports.costNote') }}</p>
+        <p v-if="monthData" class="cost-note">{{ t('reports.costNote') }}</p>
+        <p class="cost-note">{{ t('reports.costDetailHint') }}</p>
         <div class="chart-box">
           <div class="chart-title">{{ t('reports.monthTrend') }}</div>
           <VChart class="chart" :option="monthLineOption" autoresize />
@@ -492,10 +503,12 @@ async function doPrint(id: string) {
 .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .cards { margin-bottom: 12px; }
 .stat { background: #f5f7fa; border-radius: 8px; padding: 12px; min-height: 72px; }
+.stat.highlight { background: #ecf5ff; border: 1px solid #d9ecff; }
 .stat-title { font-size: 12px; color: #909399; margin-bottom: 6px; }
 .stat-title .muted { margin-left: 6px; font-weight: 400; color: #c0c4cc; }
 .stat-value { font-size: 16px; font-weight: 600; word-break: break-all; }
-.cost-note { font-size: 12px; color: #909399; margin: 0 0 12px; }
+.cost-note { font-size: 12px; color: #909399; margin: 0 0 8px; }
+.period-label { font-size: 13px; color: #606266; }
 .chart-box { background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 12px; }
 .chart-title { font-weight: 600; margin-bottom: 8px; }
 .chart { height: 300px; width: 100%; }

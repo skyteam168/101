@@ -50,6 +50,25 @@ export class ReportController {
     return this.reports.monthReport(this.storeId(user), month);
   }
 
+  /** 期间损益：month | quarter | half | year；anchor=YYYY-MM（年可用 YYYY） */
+  @Get('period-profit')
+  @RequirePerm('report:view')
+  periodProfit(
+    @CurrentUser() user: AuthUser,
+    @Query('period') period: string,
+    @Query('anchor') anchor: string,
+  ) {
+    const allowed = ['month', 'quarter', 'half', 'year'] as const;
+    if (!anchor || !allowed.includes(period as (typeof allowed)[number])) {
+      throw new BusinessError('INVALID_DATE');
+    }
+    return this.reports.periodProfit(
+      this.storeId(user),
+      period as 'month' | 'quarter' | 'half' | 'year',
+      anchor,
+    );
+  }
+
   @Get('export')
   @RequirePerm('report:view')
   async export(
