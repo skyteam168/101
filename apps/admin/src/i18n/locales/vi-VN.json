@@ -647,7 +647,7 @@
     "status_unused": "Chưa dùng",
     "status_used": "Đã dùng",
     "status_expired": "Hết hạn",
-    "deleteCouponConfirm": "Xóa mẫu coupon này? Các phiếu chưa dùng/hết hạn sẽ bị xóa; phiếu đã dùng không thể xóa."
+    "deleteCouponConfirm": "Xóa mẫu coupon? Nếu đã có người nhận chưa dùng hoặc đã dùng thì không xóa được (hãy tắt hoạt động; phiếu đã nhận vẫn dùng đến hết hạn)."
   },
   "cashier": {
     "selectTable": "Chọn bàn",
@@ -1119,6 +1119,7 @@
     "MEMBER_BIRTHDAY_REQUIRED": "Vui lòng nhập ngày sinh",
     "COUPON_TEMPLATE_NOT_FOUND": "Không tìm thấy mẫu coupon",
     "COUPON_TEMPLATE_HAS_USED": "Coupon đã có lần sử dụng, không thể xóa — hãy tắt hoạt động",
+    "COUPON_TEMPLATE_HAS_CLAIMS": "Vẫn còn phiếu đã nhận chưa dùng, không thể xóa; hãy tắt hoạt động, phiếu đã nhận vẫn dùng đến hết hạn",
     "PROMO_RULE_NOT_FOUND": "Không tìm thấy quy tắc",
     "COUPON_INVALID": "Coupon không hợp lệ",
     "COUPON_NOT_APPLICABLE": "Coupon không áp dụng (kênh hoặc chưa đủ điều kiện)",

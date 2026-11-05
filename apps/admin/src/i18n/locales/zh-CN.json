@@ -647,7 +647,7 @@
     "status_unused": "未使用",
     "status_used": "已使用",
     "status_expired": "已过期",
-    "deleteCouponConfirm": "确认删除该优惠券模板？未使用/已过期的领取记录会一并清除；已核销过的券不可删除。"
+    "deleteCouponConfirm": "确认删除该优惠券模板？若已有人领取未用或已核销，将无法删除（请改用停用，已领券可继续用到过期）。"
   },
   "cashier": {
     "selectTable": "选择桌台",
@@ -1194,6 +1194,7 @@
     "MEMBER_BIRTHDAY_REQUIRED": "请填写生日",
     "COUPON_TEMPLATE_NOT_FOUND": "优惠券模板不存在",
     "COUPON_TEMPLATE_HAS_USED": "该券已有核销记录，无法删除，请改为停用",
+    "COUPON_TEMPLATE_HAS_CLAIMS": "仍有顾客已领取未使用，无法删除；请先停用，已领券可继续用到过期",
     "PROMO_RULE_NOT_FOUND": "优惠规则不存在",
     "COUPON_INVALID": "优惠券不可用",
     "COUPON_NOT_APPLICABLE": "优惠券不适用（渠道或未满门槛）",

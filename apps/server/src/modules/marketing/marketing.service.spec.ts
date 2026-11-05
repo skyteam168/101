@@ -10,6 +10,7 @@ function makeService(prisma: Record<string, unknown>, audit = { log: async () =>
 describe('MarketingService.deleteTemplate', () => {
   it('rejects when template missing', async () => {
     const svc = makeService({
+      coupon: { updateMany: async () => ({ count: 0 }) },
       couponTemplate: { findFirst: async () => null },
     });
     await assert.rejects(() => svc.deleteTemplate('1', '9'), (e: unknown) => {
@@ -22,7 +23,10 @@ describe('MarketingService.deleteTemplate', () => {
   it('rejects when any coupon already used', async () => {
     const svc = makeService({
       couponTemplate: { findFirst: async () => ({ id: 1n, nameZh: '满减', nameVi: 'GG' }) },
-      coupon: { count: async () => 2 },
+      coupon: {
+        updateMany: async () => ({ count: 0 }),
+        count: async () => 2,
+      },
     });
     await assert.rejects(() => svc.deleteTemplate('1', '1'), (e: unknown) => {
       assert.ok(e instanceof BusinessError);
@@ -31,14 +35,40 @@ describe('MarketingService.deleteTemplate', () => {
     });
   });
 
-  it('deletes unused coupons then template', async () => {
+  it('rejects when unused claims still exist', async () => {
+    let countCalls = 0;
+    const svc = makeService({
+      coupon: {
+        updateMany: async () => ({ count: 0 }),
+        count: async () => {
+          countCalls += 1;
+          return countCalls === 1 ? 0 : 4; // used=0, unused=4
+        },
+      },
+      couponTemplate: { findFirst: async () => ({ id: 1n, nameZh: '满减', nameVi: 'GG' }) },
+    });
+    await assert.rejects(() => svc.deleteTemplate('1', '1'), (e: unknown) => {
+      assert.ok(e instanceof BusinessError);
+      assert.equal(e.errorCode, 'COUPON_TEMPLATE_HAS_CLAIMS');
+      return true;
+    });
+  });
+
+  it('deletes expired leftovers then template when no live claims', async () => {
     const calls: string[] = [];
+    let countCalls = 0;
     const svc = makeService(
       {
         couponTemplate: {
           findFirst: async () => ({ id: 3n, nameZh: '满减', nameVi: 'GG' }),
         },
-        coupon: { count: async () => 0 },
+        coupon: {
+          updateMany: async () => ({ count: 0 }),
+          count: async () => {
+            countCalls += 1;
+            return 0; // used + unused both 0
+          },
+        },
         $transaction: async (fn: (tx: Record<string, unknown>) => Promise<unknown>) =>
           fn({
             coupon: {

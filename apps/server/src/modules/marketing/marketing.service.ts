@@ -237,10 +237,14 @@ export class MarketingService {
   }
 
   /**
-   * 删除优惠券模板：已有核销记录则禁止（订单仍引用券）；
-   * 否则先清未用/过期领取记录再删模板。
+   * 删除优惠券模板（安全策略）：
+   * - 已有核销：禁止（历史订单仍可能引用券记录）
+   * - 仍有未使用领取：禁止（避免顾客结账时券突然消失、订单 SET NULL 后按原价结算）
+   * - 仅过期或无人领取：清理过期券后删模板
+   * 停发新券请用「停用」，已领未用券可继续用到过期。
    */
   async deleteTemplate(storeId: string, id: string, operatorId?: string) {
+    await this.expireOverdue(storeId);
     const existing = await this.prisma.couponTemplate.findFirst({
       where: { id: BigInt(id), storeId: BigInt(storeId) },
     });
@@ -251,12 +255,15 @@ export class MarketingService {
     });
     if (usedCount > 0) throw new BusinessError('COUPON_TEMPLATE_HAS_USED');
 
+    const unusedCount = await this.prisma.coupon.count({
+      where: { templateId: existing.id, status: CouponStatus.unused },
+    });
+    if (unusedCount > 0) throw new BusinessError('COUPON_TEMPLATE_HAS_CLAIMS');
+
     await this.prisma.$transaction(async (tx) => {
+      // 过期券可清；orders.coupon_id 为 ON DELETE SET NULL，不会卡死
       await tx.coupon.deleteMany({
-        where: {
-          templateId: existing.id,
-          status: { in: [CouponStatus.unused, CouponStatus.expired] },
-        },
+        where: { templateId: existing.id, status: CouponStatus.expired },
       });
       await tx.couponTemplate.delete({ where: { id: existing.id } });
     });
