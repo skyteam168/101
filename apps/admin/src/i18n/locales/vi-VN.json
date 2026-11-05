@@ -1040,6 +1040,7 @@
     "TABLE_IS_CLEANING": "Bàn đang dọn",
     "TABLE_NOT_OPEN": "Bàn chưa mở và không cho tự mở",
     "TABLE_PIN_INVALID": "Sai PIN",
+    "TABLE_PIN_LOCKED": "Sai PIN quá nhiều, thử lại sau",
     "CART_EMPTY": "Giỏ trống",
     "CART_ITEM_NOT_FOUND": "Không tìm thấy món trong giỏ",
     "ORDER_SUBMIT_BUSY": "Đang gửi đơn, thử lại",

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { showToast } from 'vant';
 import { forgotPassword, sendCode } from '../../api/delivery';
+import TurnstileWidget from '../../components/TurnstileWidget.vue';
 
 const { t } = useI18n();
 const router = useRouter();
@@ -13,6 +14,9 @@ const form = reactive({ email: '', code: '', newPassword: '', confirmPassword: '
 const loading = ref(false);
 const codeSending = ref(false);
 const countdown = ref(0);
+const cfToken = ref('');
+const turnstileEnabled = ref(false);
+const turnstileReset = ref(0);
 
 let timer: ReturnType<typeof setInterval>;
 
@@ -52,11 +56,23 @@ async function handleReset() {
     showToast(t('shop.auth.passwordTooWeak'));
     return;
   }
+  if (turnstileEnabled.value && !cfToken.value) {
+    showToast(t('shop.auth.turnstileRequired'));
+    return;
+  }
   loading.value = true;
   try {
-    await forgotPassword({ email: form.email, code: form.code, newPassword: form.newPassword });
+    await forgotPassword({
+      email: form.email,
+      code: form.code,
+      newPassword: form.newPassword,
+      cfTurnstileToken: cfToken.value || undefined,
+    });
     showToast(t('shop.auth.resetSuccess'));
     router.replace({ name: 'shop-login' });
+  } catch {
+    turnstileReset.value += 1;
+    cfToken.value = '';
   } finally {
     loading.value = false;
   }
@@ -116,6 +132,12 @@ async function handleReset() {
           :placeholder="t('shop.auth.confirmPasswordPlaceholder')"
         />
       </van-cell-group>
+
+      <TurnstileWidget
+        :reset-key="turnstileReset"
+        @update:token="(v) => (cfToken = v)"
+        @ready="(v) => (turnstileEnabled = v)"
+      />
 
       <div class="auth-actions">
         <van-button

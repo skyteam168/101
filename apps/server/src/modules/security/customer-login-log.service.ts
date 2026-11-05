@@ -5,7 +5,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 export type CustomerLoginLogInput = {
   customerId?: string | null;
   email: string;
-  action: 'register' | 'login' | 'login_code' | 'google' | 'logout' | 'password_change';
+  action:
+    | 'register'
+    | 'login'
+    | 'login_code'
+    | 'google'
+    | 'logout'
+    | 'password_change'
+    | 'password_reset';
   result: LoginResult;
   failReason?: string | null;
   ip?: string | null;

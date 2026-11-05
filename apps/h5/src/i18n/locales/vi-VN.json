@@ -240,6 +240,8 @@
     "EMAIL_CODE_INVALID": "Mã xác nhận sai hoặc hết hạn",
     "EMAIL_CODE_TOO_FREQUENT": "Gửi mã quá thường xuyên",
     "EMAIL_CODE_DAILY_LIMIT": "Đã hết lượt gửi mã hôm nay",
+    "EMAIL_CODE_LOCKED": "Nhập sai mã quá nhiều, thử lại sau",
+    "TABLE_PIN_LOCKED": "Sai PIN quá nhiều, thử lại sau",
     "EMAIL_ALREADY_REGISTERED": "Email đã được đăng ký",
     "TURNSTILE_REQUIRED": "Vui lòng hoàn thành xác minh",
     "TURNSTILE_FAILED": "Xác minh thất bại, thử lại",

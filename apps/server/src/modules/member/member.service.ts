@@ -137,22 +137,53 @@ export class MemberService {
     return this.mapLevel(row);
   }
 
-  async listMembers(storeId: string, query: MemberQueryDto) {
-    void storeId;
-    const where: Prisma.CustomerWhereInput = {
-      status: query.status
-        ? (query.status as CustomerStatus)
-        : { not: CustomerStatus.deleted },
+  /** 本店相关顾客：会员等级 / 订单 / 聊天 / 预订 / 团餐询价 */
+  private storeCustomerScope(storeId: string): Prisma.CustomerWhereInput {
+    const sid = BigInt(storeId);
+    return {
+      OR: [
+        { memberLevel: { storeId: sid } },
+        { orders: { some: { storeId: sid } } },
+        { chatConversations: { some: { storeId: sid } } },
+        { reservations: { some: { storeId: sid } } },
+        { groupMealInquiries: { some: { storeId: sid } } },
+      ],
     };
+  }
+
+  private async requireStoreCustomer(storeId: string, customerId: string) {
+    const row = await this.prisma.customer.findFirst({
+      where: {
+        id: BigInt(customerId),
+        status: { not: CustomerStatus.deleted },
+        ...this.storeCustomerScope(storeId),
+      },
+      include: { memberLevel: true },
+    });
+    if (!row) throw new BusinessError('CUSTOMER_NOT_FOUND');
+    return row;
+  }
+
+  async listMembers(storeId: string, query: MemberQueryDto) {
+    const and: Prisma.CustomerWhereInput[] = [
+      this.storeCustomerScope(storeId),
+      {
+        status: query.status
+          ? (query.status as CustomerStatus)
+          : { not: CustomerStatus.deleted },
+      },
+    ];
     if (query.keyword) {
-      where.OR = [
-        { email: { contains: query.keyword } },
-        { name: { contains: query.keyword } },
-        { phone: { contains: query.keyword } },
-      ];
+      and.push({
+        OR: [
+          { email: { contains: query.keyword } },
+          { name: { contains: query.keyword } },
+          { phone: { contains: query.keyword } },
+        ],
+      });
     }
     const rows = await this.prisma.customer.findMany({
-      where,
+      where: { AND: and },
       include: { memberLevel: true },
       orderBy: { id: 'desc' },
       take: 200,
@@ -160,25 +191,16 @@ export class MemberService {
     return rows.map((r) => this.mapCustomer(r));
   }
 
-  async getMember(id: string) {
-    const row = await this.prisma.customer.findUnique({
-      where: { id: BigInt(id) },
-      include: { memberLevel: true },
-    });
-    if (!row || row.status === CustomerStatus.deleted) {
-      throw new BusinessError('CUSTOMER_NOT_FOUND');
-    }
+  async getMember(storeId: string, id: string) {
+    const row = await this.requireStoreCustomer(storeId, id);
     return this.mapCustomer(row);
   }
 
-  async updateMember(id: string, dto: UpdateMemberDto) {
-    const existing = await this.prisma.customer.findUnique({ where: { id: BigInt(id) } });
-    if (!existing || existing.status === CustomerStatus.deleted) {
-      throw new BusinessError('CUSTOMER_NOT_FOUND');
-    }
+  async updateMember(storeId: string, id: string, dto: UpdateMemberDto) {
+    const existing = await this.requireStoreCustomer(storeId, id);
     if (dto.memberLevelId) {
       const lv = await this.prisma.memberLevel.findUnique({
-        where: { id: BigInt(dto.memberLevelId) },
+        where: { id: BigInt(dto.memberLevelId), storeId: BigInt(storeId) },
       });
       if (!lv) throw new BusinessError('MEMBER_LEVEL_NOT_FOUND');
     }
@@ -195,11 +217,13 @@ export class MemberService {
     return this.mapCustomer(row);
   }
 
-  async setStatus(id: string, status: 'active' | 'banned', operatorId?: string) {
-    const existing = await this.prisma.customer.findUnique({ where: { id: BigInt(id) } });
-    if (!existing || existing.status === CustomerStatus.deleted) {
-      throw new BusinessError('CUSTOMER_NOT_FOUND');
-    }
+  async setStatus(
+    storeId: string,
+    id: string,
+    status: 'active' | 'banned',
+    operatorId?: string,
+  ) {
+    const existing = await this.requireStoreCustomer(storeId, id);
     const row = await this.prisma.customer.update({
       where: { id: existing.id },
       data: { status },
@@ -220,12 +244,9 @@ export class MemberService {
     return mapped;
   }
 
-  async softDelete(id: string, operatorId?: string) {
+  async softDelete(storeId: string, id: string, operatorId?: string) {
     void operatorId;
-    const existing = await this.prisma.customer.findUnique({ where: { id: BigInt(id) } });
-    if (!existing || existing.status === CustomerStatus.deleted) {
-      throw new BusinessError('CUSTOMER_NOT_FOUND');
-    }
+    const existing = await this.requireStoreCustomer(storeId, id);
     const row = await this.prisma.customer.update({
       where: { id: existing.id },
       data: { status: CustomerStatus.deleted, deletedAt: new Date() },
@@ -234,7 +255,13 @@ export class MemberService {
     return this.mapCustomer(row);
   }
 
-  async adjustPoints(id: string, operatorId: string | undefined, dto: AdjustPointsDto) {
+  async adjustPoints(
+    storeId: string,
+    id: string,
+    operatorId: string | undefined,
+    dto: AdjustPointsDto,
+  ) {
+    await this.requireStoreCustomer(storeId, id);
     return this.prisma.$transaction(async (tx) => {
       const c = await tx.customer.findUnique({ where: { id: BigInt(id) } });
       if (!c || c.status === CustomerStatus.deleted) throw new BusinessError('CUSTOMER_NOT_FOUND');
@@ -269,7 +296,13 @@ export class MemberService {
     });
   }
 
-  async adjustBalance(id: string, operatorId: string | undefined, dto: AdjustBalanceDto) {
+  async adjustBalance(
+    storeId: string,
+    id: string,
+    operatorId: string | undefined,
+    dto: AdjustBalanceDto,
+  ) {
+    await this.requireStoreCustomer(storeId, id);
     return this.prisma.$transaction(async (tx) => {
       const c = await tx.customer.findUnique({ where: { id: BigInt(id) } });
       if (!c || c.status === CustomerStatus.deleted) throw new BusinessError('CUSTOMER_NOT_FOUND');
@@ -327,12 +360,9 @@ export class MemberService {
   }
 
   /** 生日当天发等级生日积分（可手动触发） */
-  async grantBirthdayBonus(id: string, operatorId?: string) {
-    const c = await this.prisma.customer.findUnique({
-      where: { id: BigInt(id) },
-      include: { memberLevel: true },
-    });
-    if (!c || c.status !== CustomerStatus.active) throw new BusinessError('CUSTOMER_NOT_FOUND');
+  async grantBirthdayBonus(storeId: string, id: string, operatorId?: string) {
+    const c = await this.requireStoreCustomer(storeId, id);
+    if (c.status !== CustomerStatus.active) throw new BusinessError('CUSTOMER_NOT_FOUND');
     if (!c.birthday) throw new BusinessError('BIRTHDAY_NOT_SET');
     const today = new Date();
     if (
@@ -343,23 +373,28 @@ export class MemberService {
     }
     const bonus = c.memberLevel?.birthdayBonusPoints ?? 0;
     if (bonus <= 0) return this.mapCustomer(c);
-    return this.adjustPoints(id, operatorId, {
+    return this.adjustPoints(storeId, id, operatorId, {
       delta: bonus,
       remark: 'birthday_bonus',
     });
   }
 
-  async searchActive(keyword?: string) {
-    const where: Prisma.CustomerWhereInput = { status: CustomerStatus.active };
+  async searchActive(storeId: string, keyword?: string) {
+    const and: Prisma.CustomerWhereInput[] = [
+      this.storeCustomerScope(storeId),
+      { status: CustomerStatus.active },
+    ];
     if (keyword) {
-      where.OR = [
-        { email: { contains: keyword } },
-        { name: { contains: keyword } },
-        { phone: { contains: keyword } },
-      ];
+      and.push({
+        OR: [
+          { email: { contains: keyword } },
+          { name: { contains: keyword } },
+          { phone: { contains: keyword } },
+        ],
+      });
     }
     const rows = await this.prisma.customer.findMany({
-      where,
+      where: { AND: and },
       include: { memberLevel: true },
       take: 30,
       orderBy: { id: 'desc' },
@@ -478,12 +513,9 @@ export class MemberService {
     });
   }
 
-  async redeemBirthdayGift(id: string) {
-    const c = await this.prisma.customer.findUnique({
-      where: { id: BigInt(id) },
-      include: { memberLevel: true },
-    });
-    if (!c || c.status !== CustomerStatus.active) throw new BusinessError('CUSTOMER_NOT_FOUND');
+  async redeemBirthdayGift(storeId: string, id: string) {
+    const c = await this.requireStoreCustomer(storeId, id);
+    if (c.status !== CustomerStatus.active) throw new BusinessError('CUSTOMER_NOT_FOUND');
     if (!this.isBirthdayToday(c.birthday)) throw new BusinessError('NOT_BIRTHDAY');
     const row = await this.prisma.customer.update({
       where: { id: c.id },
@@ -499,9 +531,14 @@ export class MemberService {
     const year = this.vnYear();
     const rows = await this.prisma.customer.findMany({
       where: {
-        status: CustomerStatus.active,
-        birthday: { not: null },
-        OR: [{ memberJoinedAt: { not: null } }, { memberLevelId: { not: null } }],
+        AND: [
+          this.storeCustomerScope(storeId),
+          {
+            status: CustomerStatus.active,
+            birthday: { not: null },
+            OR: [{ memberJoinedAt: { not: null } }, { memberLevelId: { not: null } }],
+          },
+        ],
       },
       include: { memberLevel: true },
     });
@@ -520,7 +557,7 @@ export class MemberService {
           : `尊贵的会员${who ? ` ${who}` : ''}，今天是你的生日！祝你今天愉快。`;
       await this.chat.sendSystemMessage(storeId, c.id.toString(), text);
       if ((c.memberLevel?.birthdayBonusPoints ?? 0) > 0) {
-        await this.adjustPoints(c.id.toString(), undefined, {
+        await this.adjustPoints(storeId, c.id.toString(), undefined, {
           delta: c.memberLevel!.birthdayBonusPoints,
           remark: 'birthday_bonus',
         });

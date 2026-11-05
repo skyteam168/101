@@ -1113,6 +1113,7 @@
     "TABLE_IS_CLEANING": "桌台清理中",
     "TABLE_NOT_OPEN": "桌台未开台且未允许自动开台",
     "TABLE_PIN_INVALID": "PIN 错误",
+    "TABLE_PIN_LOCKED": "桌台 PIN 错误过多，请稍后再试",
     "CART_EMPTY": "购物车为空",
     "CART_ITEM_NOT_FOUND": "购物车项不存在",
     "ORDER_SUBMIT_BUSY": "订单提交繁忙，请重试",

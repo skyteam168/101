@@ -152,6 +152,12 @@ export class ForgotPasswordDto {
     message: 'PASSWORD_TOO_WEAK',
   })
   newPassword!: string;
+
+  @ApiPropertyOptional({ description: 'Cloudflare Turnstile token' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(8192)
+  cfTurnstileToken?: string;
 }
 
 export class UpdateCustomerProfileDto {

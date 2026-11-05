@@ -6,6 +6,7 @@ describe('MemberService soft delete / ban', () => {
   const prisma = {
     customer: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       update: jest.fn(),
     },
   };
@@ -18,9 +19,10 @@ describe('MemberService soft delete / ban', () => {
   });
 
   it('softDelete marks deleted', async () => {
-    prisma.customer.findUnique.mockResolvedValue({
+    prisma.customer.findFirst.mockResolvedValue({
       id: 1n,
       status: CustomerStatus.active,
+      memberLevel: null,
     });
     prisma.customer.update.mockResolvedValue({
       id: 1n,
@@ -37,15 +39,16 @@ describe('MemberService soft delete / ban', () => {
       deletedAt: new Date(),
       createdAt: new Date(),
     });
-    const row = await service.softDelete('1');
+    const row = await service.softDelete('1', '1');
     expect(row.status).toBe('deleted');
     expect(prisma.customer.update).toHaveBeenCalled();
   });
 
   it('setStatus bans', async () => {
-    prisma.customer.findUnique.mockResolvedValue({
+    prisma.customer.findFirst.mockResolvedValue({
       id: 1n,
       status: CustomerStatus.active,
+      memberLevel: null,
     });
     prisma.customer.update.mockResolvedValue({
       id: 1n,
@@ -62,15 +65,12 @@ describe('MemberService soft delete / ban', () => {
       deletedAt: null,
       createdAt: new Date(),
     });
-    const row = await service.setStatus('1', 'banned');
+    const row = await service.setStatus('1', '1', 'banned');
     expect(row.status).toBe('banned');
   });
 
   it('softDelete throws if already deleted', async () => {
-    prisma.customer.findUnique.mockResolvedValue({
-      id: 1n,
-      status: CustomerStatus.deleted,
-    });
-    await expect(service.softDelete('1')).rejects.toBeInstanceOf(BusinessError);
+    prisma.customer.findFirst.mockResolvedValue(null);
+    await expect(service.softDelete('1', '1')).rejects.toBeInstanceOf(BusinessError);
   });
 });

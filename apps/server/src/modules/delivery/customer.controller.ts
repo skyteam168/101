@@ -165,8 +165,8 @@ export class CustomerController {
 
   @Public()
   @Post('public/delivery/auth/forgot-password')
-  forgot(@Body() dto: ForgotPasswordDto) {
-    return this.auth.forgotPassword(dto);
+  forgot(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    return this.auth.forgotPassword(dto, getClientMeta(req));
   }
 
   @Public()

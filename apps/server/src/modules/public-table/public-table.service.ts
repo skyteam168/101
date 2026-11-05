@@ -132,9 +132,21 @@ export class PublicTableService {
       });
     } else {
       if (table.store.qrRequirePin) {
+        const pinLockKey = `table:pin:lock:${table.id.toString()}`;
+        const pinFailKey = `table:pin:fail:${table.id.toString()}`;
+        if (await this.redis.get(pinLockKey)) {
+          throw new BusinessError('TABLE_PIN_LOCKED');
+        }
         if (!dto.pin || dto.pin !== session.pin) {
+          const fails = await this.redis.incr(pinFailKey, 600);
+          if (fails >= 10) {
+            await this.redis.del(pinFailKey);
+            await this.redis.set(pinLockKey, '1', 900);
+            throw new BusinessError('TABLE_PIN_LOCKED');
+          }
           throw new BusinessError('TABLE_PIN_INVALID');
         }
+        await this.redis.del(pinFailKey);
       }
       if (session.status !== SessionStatus.open) {
         throw new BusinessError('TABLE_NOT_DINING');

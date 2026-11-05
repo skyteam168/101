@@ -55,20 +55,24 @@ export class MemberController {
 
   @Get('search')
   @RequirePerm('menu:member')
-  search(@Query('keyword') keyword?: string) {
-    return this.members.searchActive(keyword);
+  search(@CurrentUser() user: AuthUser, @Query('keyword') keyword?: string) {
+    return this.members.searchActive(this.storeId(user), keyword);
   }
 
   @Get(':id')
   @RequirePerm('menu:member')
-  detail(@Param('id') id: string) {
-    return this.members.getMember(id);
+  detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.members.getMember(this.storeId(user), id);
   }
 
   @Patch(':id')
   @RequirePerm('member:edit')
-  update(@Param('id') id: string, @Body() dto: UpdateMemberDto) {
-    return this.members.updateMember(id, dto);
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateMemberDto,
+  ) {
+    return this.members.updateMember(this.storeId(user), id, dto);
   }
 
   @Put(':id/status')
@@ -78,37 +82,37 @@ export class MemberController {
     @Param('id') id: string,
     @Body('status') status: 'active' | 'banned',
   ) {
-    return this.members.setStatus(id, status, user.id);
+    return this.members.setStatus(this.storeId(user), id, status, user.id);
   }
 
   @Post(':id/soft-delete')
   @RequirePerm('member:edit')
   softDelete(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.members.softDelete(id, user.id);
+    return this.members.softDelete(this.storeId(user), id, user.id);
   }
 
   @Post(':id/points')
   @RequirePerm('member:edit')
   points(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AdjustPointsDto) {
-    return this.members.adjustPoints(id, user.id, dto);
+    return this.members.adjustPoints(this.storeId(user), id, user.id, dto);
   }
 
   @Post(':id/balance')
   @RequirePerm('member:edit')
   balance(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AdjustBalanceDto) {
-    return this.members.adjustBalance(id, user.id, dto);
+    return this.members.adjustBalance(this.storeId(user), id, user.id, dto);
   }
 
   @Post(':id/birthday-bonus')
   @RequirePerm('member:edit')
   birthday(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.members.grantBirthdayBonus(id, user.id);
+    return this.members.grantBirthdayBonus(this.storeId(user), id, user.id);
   }
 
   /** 生日到店赠菜已由门店安排 */
   @Post(':id/birthday-gift')
   @RequirePerm('member:edit')
-  redeemGift(@Param('id') id: string) {
-    return this.members.redeemBirthdayGift(id);
+  redeemGift(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.members.redeemBirthdayGift(this.storeId(user), id);
   }
 }

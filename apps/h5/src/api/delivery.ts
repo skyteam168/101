@@ -172,6 +172,7 @@ export function forgotPassword(dto: {
   email: string;
   code: string;
   newPassword: string;
+  cfTurnstileToken?: string;
 }): Promise<AuthResult> {
   return apiPost('/public/delivery/auth/forgot-password', dto);
 }

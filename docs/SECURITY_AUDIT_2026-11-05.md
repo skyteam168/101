@@ -99,6 +99,8 @@
 2. 外链/Webhook/AI Base SSRF 主机黑名单  
 3. AI `apiBase` 保存校验  
 4. H5 `ShopHomeView` / `TableOrderView` 改 join `menu`
+5. 邮箱验证码失败 5 次锁定 + 重置密码 Turnstile（跟进 [Auth public surface audit](18611cbf-4320-4af0-912a-130a3a11d03c)）
+6. 会员列表/读写按本店业务关联隔离；桌台 PIN 错误限速
 
 ## 建议下一步（未改代码）
 
@@ -106,7 +108,8 @@
 2. **上传**：魔数校验 + 体积上限统一审计  
 3. **健康检查**：收紧暴露面  
 4. **同桌购物车**：产品确认是否限制 owner  
-5. **定期**：依赖 `pnpm audit`、OSS/CF WAF 规则、备份与密钥轮换
+5. **顾客 JWT 吊销**：封禁后立即失效（现 7 天 access 无黑名单）  
+6. **定期**：依赖 `pnpm audit`、OSS/CF WAF 规则、备份与密钥轮换
 
 ## 验证清单（修复上线后）
 

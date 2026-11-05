@@ -29,6 +29,9 @@ import { isValidVnPhone } from './geo.util';
 const CODE_TTL = 600;
 const COOLDOWN = 60;
 const DAILY_LIMIT = 10;
+/** 验证码错误次数上限；超限作废验证码并短时锁定 */
+const CODE_MAX_FAILS = 5;
+const CODE_LOCK_SEC = 900;
 
 @Injectable()
 export class CustomerAuthService {
@@ -67,11 +70,21 @@ export class CustomerAuthService {
     const d = new Date().toISOString().slice(0, 10);
     return `delivery:code:day:${email.toLowerCase()}:${d}`;
   }
+  private failKey(email: string) {
+    return `delivery:code:fail:${email.toLowerCase()}`;
+  }
+  private lockKey(email: string) {
+    return `delivery:code:lock:${email.toLowerCase()}`;
+  }
 
   async sendCode(dto: SendCodeDto) {
     const email = dto.email.toLowerCase();
     const lang = dto.lang === 'zh' ? 'zh' : 'vi';
     const purpose = dto.purpose ?? 'register';
+
+    if (await this.redis.get(this.lockKey(email))) {
+      throw new BusinessError('EMAIL_CODE_LOCKED');
+    }
 
     if (purpose === 'login' || purpose === 'reset') {
       const existing = await this.prisma.customer.findUnique({ where: { email } });
@@ -91,6 +104,7 @@ export class CustomerAuthService {
 
     const code = String(randomInt(100000, 999999));
     await this.redis.set(this.codeKey(email), code, CODE_TTL);
+    await this.redis.del(this.failKey(email));
     await this.redis.set(this.coolKey(email), '1', COOLDOWN);
     await this.redis.set(this.dayKey(email), String(dayCount + 1), 86400);
 
@@ -103,10 +117,23 @@ export class CustomerAuthService {
   }
 
   private async assertCode(email: string, code: string) {
-    const key = this.codeKey(email.toLowerCase());
+    const normalized = email.toLowerCase();
+    if (await this.redis.get(this.lockKey(normalized))) {
+      throw new BusinessError('EMAIL_CODE_LOCKED');
+    }
+    const key = this.codeKey(normalized);
     const saved = await this.redis.get(key);
-    if (!saved || saved !== code) throw new BusinessError('EMAIL_CODE_INVALID');
-    await this.redis.del(key);
+    if (!saved || saved !== code) {
+      const fails = await this.redis.incr(this.failKey(normalized), CODE_TTL);
+      if (fails >= CODE_MAX_FAILS) {
+        await this.redis.del(key, this.failKey(normalized));
+        await this.redis.set(this.lockKey(normalized), '1', CODE_LOCK_SEC);
+        this.logger.warn(`email code locked email=${normalized} fails=${fails}`);
+        throw new BusinessError('EMAIL_CODE_LOCKED');
+      }
+      throw new BusinessError('EMAIL_CODE_INVALID');
+    }
+    await this.redis.del(key, this.failKey(normalized));
   }
 
   private async issueToken(customer: {
@@ -564,8 +591,9 @@ export class CustomerAuthService {
     return { ok: true };
   }
 
-  async forgotPassword(dto: ForgotPasswordDto) {
+  async forgotPassword(dto: ForgotPasswordDto, meta: ClientMeta = {}) {
     const email = dto.email.toLowerCase();
+    await this.turnstile.assertValid(dto.cfTurnstileToken, meta.ip);
     await this.assertCode(email, dto.code);
     const row = await this.prisma.customer.findUnique({ where: { email } });
     if (!row) throw new BusinessError('CUSTOMER_NOT_FOUND');
@@ -575,6 +603,14 @@ export class CustomerAuthService {
     const updated = await this.prisma.customer.update({
       where: { id: row.id },
       data: { passwordHash, emailVerifiedAt: row.emailVerifiedAt || new Date() },
+    });
+    await this.loginLogs.write({
+      customerId: updated.id.toString(),
+      email: updated.email,
+      action: 'password_reset',
+      result: 'success',
+      ip: meta.ip,
+      userAgent: meta.userAgent,
     });
     return this.issueToken(updated);
   }

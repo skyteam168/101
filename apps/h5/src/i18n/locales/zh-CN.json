@@ -240,6 +240,8 @@
     "EMAIL_CODE_INVALID": "验证码错误或已过期",
     "EMAIL_CODE_TOO_FREQUENT": "验证码发送过于频繁",
     "EMAIL_CODE_DAILY_LIMIT": "今日验证码次数已用完",
+    "EMAIL_CODE_LOCKED": "验证码错误次数过多，请稍后再试",
+    "TABLE_PIN_LOCKED": "桌台 PIN 错误过多，请稍后再试",
     "EMAIL_ALREADY_REGISTERED": "该邮箱已注册",
     "TURNSTILE_REQUIRED": "请先完成人机验证",
     "TURNSTILE_FAILED": "人机验证失败，请重试",
