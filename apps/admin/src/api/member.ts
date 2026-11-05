@@ -1,4 +1,4 @@
-import { apiGet, apiPatch, apiPost, apiPut } from './http';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './http';
 
 export type MemberLevel = {
   id: string;
@@ -41,6 +41,14 @@ export const createLevelApi = (data: Record<string, unknown>) =>
   apiPost<MemberLevel>('/members/levels', data);
 export const updateLevelApi = (id: string, data: Record<string, unknown>) =>
   apiPatch<MemberLevel>(`/members/levels/${id}`, data);
+export const deleteLevelApi = (id: string) =>
+  apiDelete<{
+    ok: boolean;
+    migratedCount: number;
+    fallbackLevelId: string | null;
+    fallbackNameZh: string | null;
+    fallbackNameVi: string | null;
+  }>(`/members/levels/${id}`);
 
 export const listMembersApi = (params?: { keyword?: string; status?: string }) =>
   apiGet<Member[]>('/members', params);

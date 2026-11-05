@@ -598,6 +598,10 @@
     "delta": "Thay đổi",
     "ban": "Khóa đăng nhập",
     "confirmDelete": "Xóa mềm hội viên?",
+    "confirmDeleteLevelMigrate": "Xóa hạng「{name}」? Hội viên đang dùng hạng này sẽ chuyển sang「{fallback}」(đơn cũ không đổi).",
+    "confirmDeleteLevelClear": "Xóa hạng「{name}」? Đây là hạng cuối, hội viên sẽ tạm không có hạng (vẫn là thành viên, mất giảm giá; tạo hạng mới có thể nâng lại).",
+    "levelDeletedMigrated": "Đã xóa, {n} hội viên chuyển sang「{fallback}」",
+    "levelCleared": "Không hạng",
     "status": {
       "active": "Hoạt động",
       "banned": "Đã khóa",

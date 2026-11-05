@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePerm } from '../../common/decorators/require-perm.decorator';
@@ -45,6 +45,12 @@ export class MemberController {
     @Body() dto: UpdateMemberLevelDto,
   ) {
     return this.members.updateLevel(this.storeId(user), id, dto);
+  }
+
+  @Delete('levels/:id')
+  @RequirePerm('member:edit')
+  deleteLevel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.members.deleteLevel(this.storeId(user), id, user.id);
   }
 
   @Get()

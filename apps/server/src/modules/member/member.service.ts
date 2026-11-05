@@ -137,6 +137,65 @@ export class MemberService {
     return this.mapLevel(row);
   }
 
+  /**
+   * 删除会员等级（安全策略）：
+   * - 仍有会员挂在该等级：先迁移到本店「剩余等级中 minSpend 最低」的档位；若无其它等级则清空 memberLevelId（保留入会状态）。
+   * - 清空后会员暂时无折扣/配送减免等权益，下次消费升级逻辑可按累计消费重新挂档。
+   * - 历史订单金额不受影响（结账时已按当时折扣写入）。
+   * - 停用请用 isActive=false，不必删除。
+   */
+  async deleteLevel(storeId: string, id: string, operatorId?: string) {
+    const sid = BigInt(storeId);
+    const lid = BigInt(id);
+    const existing = await this.prisma.memberLevel.findFirst({
+      where: { id: lid, storeId: sid },
+    });
+    if (!existing) throw new BusinessError('MEMBER_LEVEL_NOT_FOUND');
+
+    const memberCount = await this.prisma.customer.count({
+      where: { memberLevelId: lid },
+    });
+
+    const fallbacks = await this.prisma.memberLevel.findMany({
+      where: { storeId: sid, id: { not: lid } },
+      orderBy: [{ minSpend: 'asc' }, { sort: 'asc' }, { id: 'asc' }],
+    });
+    const fallback = fallbacks[0] ?? null;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (memberCount > 0) {
+        await tx.customer.updateMany({
+          where: { memberLevelId: lid },
+          data: { memberLevelId: fallback?.id ?? null },
+        });
+      }
+      await tx.memberLevel.delete({ where: { id: lid } });
+    });
+
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'member',
+      action: 'member_level.delete',
+      targetType: 'member_level',
+      targetId: id,
+      before: {
+        nameZh: existing.nameZh,
+        nameVi: existing.nameVi,
+        memberCount,
+        fallbackLevelId: fallback?.id?.toString() ?? null,
+      },
+    });
+
+    return {
+      ok: true,
+      migratedCount: memberCount,
+      fallbackLevelId: fallback?.id?.toString() ?? null,
+      fallbackNameZh: fallback?.nameZh ?? null,
+      fallbackNameVi: fallback?.nameVi ?? null,
+    };
+  }
+
   /** 本店相关顾客：会员等级 / 订单 / 聊天 / 预订 / 团餐询价 */
   private storeCustomerScope(storeId: string): Prisma.CustomerWhereInput {
     const sid = BigInt(storeId);

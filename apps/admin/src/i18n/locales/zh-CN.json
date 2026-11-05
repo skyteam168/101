@@ -598,6 +598,10 @@
     "delta": "变动值",
     "ban": "禁止登录",
     "confirmDelete": "确认软删除该会员？",
+    "confirmDeleteLevelMigrate": "确认删除等级「{name}」？仍使用该等级的会员将自动改到「{fallback}」（历史订单金额不变）。",
+    "confirmDeleteLevelClear": "确认删除等级「{name}」？这是本店最后一个等级，相关会员将暂时清空等级（保留入会，无折扣/减免，可再新建后自动升级）。",
+    "levelDeletedMigrated": "已删除，{n} 名会员已迁移到「{fallback}」",
+    "levelCleared": "无等级",
     "status": {
       "active": "正常",
       "banned": "已禁登",

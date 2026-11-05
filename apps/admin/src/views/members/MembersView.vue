@@ -8,6 +8,7 @@ import {
   adjustPointsApi,
   redeemBirthdayGiftApi,
   createLevelApi,
+  deleteLevelApi,
   listLevelsApi,
   listMembersApi,
   setMemberStatusApi,
@@ -101,6 +102,32 @@ async function saveLevel() {
   else await createLevelApi(payload);
   ElMessage.success(t('common.saved'));
   levelDialog.value = false;
+  await refresh();
+}
+
+async function removeLevel(row: MemberLevel) {
+  const others = levels.value
+    .filter((l) => l.id !== row.id)
+    .slice()
+    .sort((a, b) => a.minSpend - b.minSpend || a.sort - b.sort);
+  const fallback = others[0];
+  const tip = fallback
+    ? t('member.confirmDeleteLevelMigrate', { name: nameOf(row), fallback: nameOf(fallback) })
+    : t('member.confirmDeleteLevelClear', { name: nameOf(row) });
+  await ElMessageBox.confirm(tip, t('common.confirm'), { type: 'warning' });
+  const res = await deleteLevelApi(row.id);
+  if (res.migratedCount > 0) {
+    ElMessage.success(
+      t('member.levelDeletedMigrated', {
+        n: res.migratedCount,
+        fallback: res.fallbackNameZh
+          ? nameOf({ nameZh: res.fallbackNameZh, nameVi: res.fallbackNameVi || res.fallbackNameZh })
+          : t('member.levelCleared'),
+      }),
+    );
+  } else {
+    ElMessage.success(t('common.deleted'));
+  }
   await refresh();
 }
 
@@ -252,9 +279,10 @@ async function setLevel(row: Member, levelId: string) {
               {{ row.isActive ? t('common.enabled') : t('common.disabled') }}
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.actions')" width="100">
+          <el-table-column :label="t('common.actions')" width="140">
             <template #default="{ row }">
               <el-button link type="primary" @click="openLevel(row)">{{ t('common.edit') }}</el-button>
+              <el-button link type="danger" @click="removeLevel(row)">{{ t('common.delete') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
