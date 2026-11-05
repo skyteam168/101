@@ -10,7 +10,12 @@ import {
   placeGroupOrder,
   type GroupCombo,
 } from '../../api/group-meal';
-import { listAddresses, type CustomerAddress } from '../../api/delivery';
+import {
+  getStoreInfo,
+  listAddresses,
+  type CustomerAddress,
+  type StoreInfo,
+} from '../../api/delivery';
 import { getCustomerToken } from '../../utils/customer-storage';
 
 const { t, locale } = useI18n();
@@ -28,6 +33,8 @@ const payMethod = ref<'cash' | 'bank_transfer'>('cash');
 const orderRemark = ref('');
 const ordering = ref(false);
 const inquiryOk = ref(false);
+/** 门店收款码（与外卖结算一致） */
+const store = ref<StoreInfo | null>(null);
 
 const inquiry = reactive({
   contactName: '',
@@ -100,6 +107,10 @@ const unitPrice = computed(() => {
 
 async function loadCombos() {
   combos.value = await listGroupCombos().catch(() => []);
+}
+
+async function loadStore() {
+  store.value = await getStoreInfo().catch(() => null);
 }
 
 async function loadAddresses() {
@@ -183,8 +194,7 @@ async function submitInquiry() {
 }
 
 onMounted(async () => {
-  await loadCombos();
-  await loadAddresses();
+  await Promise.all([loadCombos(), loadStore(), loadAddresses()]);
 });
 </script>
 
@@ -313,6 +323,10 @@ onMounted(async () => {
           <van-radio name="cash">{{ t('shop.checkout.cash') }}</van-radio>
           <van-radio name="bank_transfer">{{ t('shop.checkout.bankTransfer') }}</van-radio>
         </van-radio-group>
+        <div v-if="payMethod === 'bank_transfer' && store?.bankTransferQr" class="qr-box">
+          <p class="qr-hint">{{ t('shop.checkout.scanQr') }}</p>
+          <img :src="store.bankTransferQr" class="qr-img" alt="" />
+        </div>
         <van-field v-model="orderRemark" :label="t('group.remark')" />
         <div class="sheet-footer">
           <strong>{{ formatVND(unitPrice * qty) }}</strong>
@@ -349,6 +363,20 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.qr-box {
+  text-align: center;
+  padding: 4px 16px 12px;
+}
+.qr-hint {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #969799;
+}
+.qr-img {
+  max-width: 200px;
+  border-radius: 8px;
+  border: 1px solid #eee;
 }
 .combo-card {
   border: none;

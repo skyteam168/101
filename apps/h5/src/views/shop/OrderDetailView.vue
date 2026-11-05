@@ -47,6 +47,14 @@ const showAddress = computed(() => channel.value === 'delivery' || channel.value
 
 const showEReceiptBtn = computed(() => (order.value ? canShowEReceipt(order.value) : false));
 
+/** 未支付且选银行转账时展示收款码（外卖/团餐一致） */
+const showBankQr = computed(() => {
+  const o = order.value;
+  if (!o || !store.value?.bankTransferQr) return false;
+  if (o.payMethod !== 'bank_transfer') return false;
+  return o.status === 'pending' || o.paymentStatus === 'unpaid';
+});
+
 async function loadOrder() {
   loading.value = true;
   try {
@@ -208,6 +216,10 @@ function payMethodLabel(method?: string | null): string {
         <van-cell :title="t('shop.order.payMethod')" :value="payMethodLabel(order.payMethod)" />
         <van-cell v-if="order.remark" :title="t('shop.checkout.remark')" :value="order.remark" />
       </van-cell-group>
+      <div v-if="showBankQr" class="qr-box">
+        <p class="qr-hint">{{ t('shop.checkout.scanQr') }}</p>
+        <img :src="store!.bankTransferQr!" class="qr-img" alt="" />
+      </div>
       <div class="action-stack">
         <van-button
           v-if="showEReceiptBtn"
@@ -253,6 +265,23 @@ function payMethodLabel(method?: string | null): string {
 </template>
 
 <style scoped>
+.qr-box {
+  margin: 12px 16px 0;
+  padding: 12px;
+  text-align: center;
+  background: #fff;
+  border-radius: 12px;
+}
+.qr-hint {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #969799;
+}
+.qr-img {
+  max-width: 200px;
+  border-radius: 8px;
+  border: 1px solid #eee;
+}
 .order-detail-page {
   min-height: 100vh;
   background: #f7f8fa;
