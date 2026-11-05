@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePerm } from '../../common/decorators/require-perm.decorator';
@@ -46,6 +46,19 @@ export class MarketingController {
     return this.marketing.updateTemplate(this.storeId(user), id, dto);
   }
 
+  @Delete('templates/:id')
+  @RequirePerm('marketing:edit')
+  deleteTemplate(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.marketing.deleteTemplate(this.storeId(user), id, user.id);
+  }
+
+  @Get('analytics')
+  @RequirePerm('menu:marketing')
+  analytics(@CurrentUser() user: AuthUser, @Query('days') days?: string) {
+    const n = days ? Number(days) : 30;
+    return this.marketing.couponAnalytics(this.storeId(user), Number.isFinite(n) ? n : 30);
+  }
+
   @Post('coupons/issue')
   @RequirePerm('marketing:edit')
   issue(@CurrentUser() user: AuthUser, @Body() dto: IssueCouponDto) {
@@ -54,8 +67,13 @@ export class MarketingController {
 
   @Get('coupons')
   @RequirePerm('menu:marketing')
-  coupons(@CurrentUser() user: AuthUser, @Query('customerId') customerId?: string) {
-    return this.marketing.listCoupons(this.storeId(user), customerId);
+  coupons(
+    @CurrentUser() user: AuthUser,
+    @Query('customerId') customerId?: string,
+    @Query('templateId') templateId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.marketing.listCoupons(this.storeId(user), { customerId, templateId, status });
   }
 
   @Get('rules')
@@ -78,5 +96,11 @@ export class MarketingController {
     @Body() dto: UpdatePromoRuleDto,
   ) {
     return this.marketing.updateRule(this.storeId(user), id, dto);
+  }
+
+  @Delete('rules/:id')
+  @RequirePerm('marketing:edit')
+  deleteRule(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.marketing.deleteRule(this.storeId(user), id, user.id);
   }
 }

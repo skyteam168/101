@@ -86,13 +86,60 @@ export class MarketingService {
     };
   }
 
-  listTemplates(storeId: string) {
-    return this.prisma.couponTemplate
-      .findMany({
+  /** 将已过期未用券标为 expired，保证统计口径准确 */
+  private async expireOverdue(storeId: string) {
+    await this.prisma.coupon.updateMany({
+      where: {
+        template: { storeId: BigInt(storeId) },
+        status: CouponStatus.unused,
+        expiresAt: { lt: new Date() },
+      },
+      data: { status: CouponStatus.expired },
+    });
+  }
+
+  private emptyStats() {
+    return { issued: 0, unused: 0, used: 0, expired: 0, useRate: 0 };
+  }
+
+  private attachStats(
+    templateId: bigint,
+    groups: { templateId: bigint; status: CouponStatus; _count: number }[],
+  ) {
+    const stats = this.emptyStats();
+    for (const g of groups) {
+      if (g.templateId !== templateId) continue;
+      stats.issued += g._count;
+      if (g.status === CouponStatus.unused) stats.unused = g._count;
+      else if (g.status === CouponStatus.used) stats.used = g._count;
+      else if (g.status === CouponStatus.expired) stats.expired = g._count;
+    }
+    stats.useRate = stats.issued > 0 ? Math.round((stats.used / stats.issued) * 1000) / 10 : 0;
+    return stats;
+  }
+
+  async listTemplates(storeId: string) {
+    await this.expireOverdue(storeId);
+    const [rows, groups] = await Promise.all([
+      this.prisma.couponTemplate.findMany({
         where: { storeId: BigInt(storeId) },
         orderBy: { id: 'desc' },
-      })
-      .then((rows) => rows.map((r) => this.mapTemplate(r)));
+      }),
+      this.prisma.coupon.groupBy({
+        by: ['templateId', 'status'],
+        where: { template: { storeId: BigInt(storeId) } },
+        _count: true,
+      }),
+    ]);
+    const countRows = groups.map((g) => ({
+      templateId: g.templateId,
+      status: g.status,
+      _count: g._count,
+    }));
+    return rows.map((r) => ({
+      ...this.mapTemplate(r),
+      stats: this.attachStats(r.id, countRows),
+    }));
   }
 
   /** H5 可领取：启用中的模板 */
@@ -189,6 +236,43 @@ export class MarketingService {
     return this.mapTemplate(row);
   }
 
+  /**
+   * 删除优惠券模板：已有核销记录则禁止（订单仍引用券）；
+   * 否则先清未用/过期领取记录再删模板。
+   */
+  async deleteTemplate(storeId: string, id: string, operatorId?: string) {
+    const existing = await this.prisma.couponTemplate.findFirst({
+      where: { id: BigInt(id), storeId: BigInt(storeId) },
+    });
+    if (!existing) throw new BusinessError('COUPON_TEMPLATE_NOT_FOUND');
+
+    const usedCount = await this.prisma.coupon.count({
+      where: { templateId: existing.id, status: CouponStatus.used },
+    });
+    if (usedCount > 0) throw new BusinessError('COUPON_TEMPLATE_HAS_USED');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.coupon.deleteMany({
+        where: {
+          templateId: existing.id,
+          status: { in: [CouponStatus.unused, CouponStatus.expired] },
+        },
+      });
+      await tx.couponTemplate.delete({ where: { id: existing.id } });
+    });
+
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'marketing',
+      action: 'coupon_template.delete',
+      targetType: 'coupon_template',
+      targetId: id,
+      before: { nameZh: existing.nameZh, nameVi: existing.nameVi },
+    });
+    return { ok: true };
+  }
+
   async issueCoupons(storeId: string, issuerId: string | undefined, dto: IssueCouponDto) {
     const tpl = await this.prisma.couponTemplate.findFirst({
       where: { id: BigInt(dto.templateId), storeId: BigInt(storeId), isActive: true },
@@ -258,26 +342,143 @@ export class MarketingService {
     return { count: created.length, list: created };
   }
 
-  async listCoupons(storeId: string, customerId?: string) {
+  async listCoupons(
+    storeId: string,
+    query: { customerId?: string; templateId?: string; status?: string; take?: number } = {},
+  ) {
+    await this.expireOverdue(storeId);
+    const take = Math.min(Math.max(query.take ?? 200, 1), 500);
+    const status =
+      query.status === 'unused' || query.status === 'used' || query.status === 'expired'
+        ? (query.status as CouponStatus)
+        : undefined;
     const rows = await this.prisma.coupon.findMany({
       where: {
         template: { storeId: BigInt(storeId) },
-        ...(customerId ? { customerId: BigInt(customerId) } : {}),
+        ...(query.customerId ? { customerId: BigInt(query.customerId) } : {}),
+        ...(query.templateId ? { templateId: BigInt(query.templateId) } : {}),
+        ...(status ? { status } : {}),
       },
-      include: { template: true, customer: { select: { id: true, name: true, email: true } } },
+      include: { template: true, customer: { select: { id: true, name: true, email: true, phone: true } } },
       orderBy: { id: 'desc' },
-      take: 200,
+      take,
     });
     return rows.map((r) => ({
       id: r.id.toString(),
       code: r.code,
       status: r.status,
       expiresAt: r.expiresAt.toISOString(),
+      createdAt: r.createdAt.toISOString(),
+      usedOrderId: r.usedOrderId ? r.usedOrderId.toString() : null,
       customerId: r.customerId.toString(),
       customerName: r.customer.name,
       customerEmail: r.customer.email,
+      customerPhone: r.customer.phone,
       template: this.mapTemplate(r.template),
     }));
+  }
+
+  /** 领取/核销数据分析：汇总 + 分模板 + 近 N 日趋势 */
+  async couponAnalytics(storeId: string, days = 30) {
+    await this.expireOverdue(storeId);
+    const sid = BigInt(storeId);
+    const dayCount = Math.min(Math.max(days, 1), 90);
+    const since = new Date();
+    since.setHours(0, 0, 0, 0);
+    since.setDate(since.getDate() - (dayCount - 1));
+
+    const [templates, groups, claimers, recentClaims, usedCoupons] = await Promise.all([
+      this.prisma.couponTemplate.findMany({
+        where: { storeId: sid },
+        orderBy: { id: 'desc' },
+      }),
+      this.prisma.coupon.groupBy({
+        by: ['templateId', 'status'],
+        where: { template: { storeId: sid } },
+        _count: true,
+      }),
+      this.prisma.coupon.findMany({
+        where: { template: { storeId: sid } },
+        select: { customerId: true },
+        distinct: ['customerId'],
+      }),
+      this.prisma.coupon.findMany({
+        where: { template: { storeId: sid }, createdAt: { gte: since } },
+        select: { createdAt: true },
+      }),
+      this.prisma.coupon.findMany({
+        where: {
+          template: { storeId: sid },
+          status: CouponStatus.used,
+          updatedAt: { gte: since },
+        },
+        select: { updatedAt: true },
+      }),
+    ]);
+
+    const countRows = groups.map((g) => ({
+      templateId: g.templateId,
+      status: g.status,
+      _count: g._count,
+    }));
+
+    const byTemplate = templates.map((r) => {
+      const stats = this.attachStats(r.id, countRows);
+      return {
+        id: r.id.toString(),
+        nameZh: r.nameZh,
+        nameVi: r.nameVi,
+        isActive: r.isActive,
+        ...stats,
+      };
+    });
+
+    const summary = byTemplate.reduce(
+      (acc, row) => {
+        acc.issued += row.issued;
+        acc.unused += row.unused;
+        acc.used += row.used;
+        acc.expired += row.expired;
+        return acc;
+      },
+      { issued: 0, unused: 0, used: 0, expired: 0 },
+    );
+
+    const dayKey = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const dailyMap = new Map<string, { date: string; claimed: number; used: number }>();
+    for (let i = 0; i < dayCount; i++) {
+      const d = new Date(since);
+      d.setDate(since.getDate() + i);
+      const key = dayKey(d);
+      dailyMap.set(key, { date: key, claimed: 0, used: 0 });
+    }
+    for (const c of recentClaims) {
+      const key = dayKey(c.createdAt);
+      const row = dailyMap.get(key);
+      if (row) row.claimed += 1;
+    }
+    for (const c of usedCoupons) {
+      const key = dayKey(c.updatedAt);
+      const row = dailyMap.get(key);
+      if (row) row.used += 1;
+    }
+
+    return {
+      summary: {
+        templateCount: templates.length,
+        activeTemplates: templates.filter((t) => t.isActive).length,
+        ...summary,
+        useRate: summary.issued > 0 ? Math.round((summary.used / summary.issued) * 1000) / 10 : 0,
+        uniqueClaimers: claimers.length,
+      },
+      byTemplate,
+      daily: [...dailyMap.values()],
+    };
   }
 
   async myCoupons(customerId: string) {
@@ -350,6 +551,24 @@ export class MarketingService {
       },
     });
     return this.mapRule(row);
+  }
+
+  async deleteRule(storeId: string, id: string, operatorId?: string) {
+    const existing = await this.prisma.promoRule.findFirst({
+      where: { id: BigInt(id), storeId: BigInt(storeId) },
+    });
+    if (!existing) throw new BusinessError('PROMO_RULE_NOT_FOUND');
+    await this.prisma.promoRule.delete({ where: { id: existing.id } });
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'marketing',
+      action: 'promo_rule.delete',
+      targetType: 'promo_rule',
+      targetId: id,
+      before: { nameZh: existing.nameZh, nameVi: existing.nameVi },
+    });
+    return { ok: true };
   }
 
   async activeRulesAsSpecs(storeId: string): Promise<DiscountSpec[]> {
