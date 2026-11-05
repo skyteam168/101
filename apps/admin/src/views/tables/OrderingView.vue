@@ -173,11 +173,43 @@ async function saveDiscount() {
 /** 现金快捷面额（点击填入实收并立即结账） */
 const CASH_QUICK_AMOUNTS = [50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000, 3_000_000];
 
+async function checkoutZero() {
+  if (!order.value) return;
+  await ElMessageBox.confirm(t('cashier.confirmFreeCheckout'), t('order.checkout'), {
+    type: 'warning',
+  });
+  await checkoutOrderApi(order.value.id, [{ method: 'cash', amount: 0, received: 0 }]);
+  checkoutVisible.value = false;
+  ElMessage.success(t('order.paidNeedClear'));
+  try {
+    const store = await getStoreSettingsApi();
+    receiptPayload.value = buildReceiptPayload(
+      {
+        ...order.value,
+        paidAmount: 0,
+        payments: [
+          { id: '0', method: 'cash', amount: 0, received: 0, change: 0, createdAt: new Date().toISOString() },
+        ],
+      },
+      store,
+    );
+    receiptVisible.value = true;
+  } catch {
+    router.replace('/tables');
+  }
+}
+
 function openCheckout() {
-  if (!order.value || order.value.total <= 0) {
+  if (!order.value) {
     ElMessage.warning(t('order.emptyCheckout'));
     return;
   }
+  // 免单 / 全额优惠后应付为 0：仍需结账关单，桌台才能进入待清台
+  if (Number(order.value.total) === 0) {
+    void checkoutZero();
+    return;
+  }
+  if (order.value.total < 0) return;
   payForm.method = 'cash';
   payForm.receivedText = formatThousands(order.value.total);
   checkoutVisible.value = true;

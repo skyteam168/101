@@ -436,14 +436,38 @@ async function doFree() {
   if (!order.value) return;
   await ElMessageBox.confirm(t('cashier.confirmFree'));
   order.value = await freeOrderApi(order.value.id);
+  // 免单只改金额，订单仍为 open；引导立即零元结账，否则桌台无法清台
+  try {
+    await ElMessageBox.confirm(t('cashier.confirmFreeCheckout'), t('order.checkout'), {
+      type: 'info',
+      confirmButtonText: t('order.checkout'),
+      cancelButtonText: t('common.cancel'),
+    });
+    await confirmCheckout();
+  } catch {
+    /* 稍后点结账亦可 */
+  }
 }
 
 /** 现金快捷面额（点击填入实收并立即结账；仅单笔现金时） */
 const CASH_QUICK_AMOUNTS = [50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000, 3_000_000];
 
-function openCheckout() {
+async function openCheckout() {
   if (!order.value || order.value.total < 0) return;
-  const due = order.value.total;
+  const due = Number(order.value.total) || 0;
+  // 应付 0（免单等）：跳过收款弹窗，确认后零元结账关单
+  if (due === 0) {
+    try {
+      await ElMessageBox.confirm(t('cashier.confirmFreeCheckout'), t('order.checkout'), {
+        type: 'warning',
+        confirmButtonText: t('order.checkout'),
+      });
+    } catch {
+      return;
+    }
+    await confirmCheckout();
+    return;
+  }
   payLines.value = [
     {
       method: 'cash',
