@@ -1,7 +1,7 @@
 import {
   ApiProperty,
   ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -15,6 +15,13 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+
+/** 空串 / null 视为未传，避免 Number(null)=0 把「不限库存」变成 0 */
+function optionalInt({ value }: { value: unknown }) {
+  if (value === null || value === undefined || value === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : value;
+}
 
 export class DishOptionDto {
   @ApiPropertyOptional()
@@ -83,7 +90,13 @@ export class CreateDishDto {
   @MaxLength(128)
   nameZh!: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: '越文名；可空，空则后端回落到中文名' })
+  @Transform(({ value, obj }) => {
+    const v = typeof value === 'string' ? value.trim() : value;
+    if (v) return v;
+    const zh = typeof obj?.nameZh === 'string' ? obj.nameZh.trim() : '';
+    return zh || value;
+  })
   @IsString()
   @IsNotEmpty()
   @MaxLength(128)
@@ -104,7 +117,7 @@ export class CreateDishDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MaxLength(512)
+  @MaxLength(2048)
   image?: string;
 
   @ApiProperty({ description: '堂食价，越南盾整数' })
@@ -132,14 +145,14 @@ export class CreateDishDto {
 
   @ApiPropertyOptional({ description: 'NULL 表示不限库存' })
   @IsOptional()
-  @Type(() => Number)
+  @Transform(optionalInt)
   @IsInt()
   @Min(0)
   stock?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Number)
+  @Transform(optionalInt)
   @IsInt()
   @Min(0)
   dailyStock?: number | null;
@@ -188,6 +201,13 @@ export class UpdateDishDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @Transform(({ value, obj }) => {
+    if (value === undefined) return undefined;
+    const v = typeof value === 'string' ? value.trim() : value;
+    if (v) return v;
+    const zh = typeof obj?.nameZh === 'string' ? obj.nameZh.trim() : '';
+    return zh || value;
+  })
   @IsString()
   @MaxLength(128)
   nameVi?: string;
@@ -207,7 +227,7 @@ export class UpdateDishDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MaxLength(512)
+  @MaxLength(2048)
   image?: string | null;
 
   @ApiPropertyOptional()
@@ -237,14 +257,14 @@ export class UpdateDishDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Number)
+  @Transform(optionalInt)
   @IsInt()
   @Min(0)
   stock?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()
-  @Type(() => Number)
+  @Transform(optionalInt)
   @IsInt()
   @Min(0)
   dailyStock?: number | null;

@@ -535,7 +535,7 @@ model Dish {
   nameVi        String     @map("name_vi") @db.VarChar(128)
   descZh        String?    @map("desc_zh") @db.Text
   descVi        String?    @map("desc_vi") @db.Text
-  image         String?    @db.VarChar(512)
+  image         String?    @db.VarChar(2048)
   price         BigInt
   takeawayPrice BigInt     @map("takeaway_price")
   unit          String     @default("份") @db.VarChar(32)

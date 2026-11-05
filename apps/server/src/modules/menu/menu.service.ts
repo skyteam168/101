@@ -248,15 +248,17 @@ export class MenuService {
     if (!cat) throw new BusinessError('CATEGORY_NOT_FOUND');
 
     const row = await this.prisma.$transaction(async (tx) => {
+      const nameZh = dto.nameZh.trim();
+      const nameVi = (dto.nameVi || '').trim() || nameZh;
       const dish = await tx.dish.create({
         data: {
           storeId: BigInt(storeId),
           categoryId: cat.id,
-          nameZh: dto.nameZh,
-          nameVi: dto.nameVi,
+          nameZh,
+          nameVi,
           descZh: dto.descZh,
-          descVi: dto.descVi,
-          image: dto.image,
+          descVi: dto.descVi?.trim() ? dto.descVi : dto.descZh,
+          image: dto.image || null,
           price: BigInt(dto.price),
           takeawayPrice: BigInt(dto.takeawayPrice),
           unit: dto.unit ?? '份',

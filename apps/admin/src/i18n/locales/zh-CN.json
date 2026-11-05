@@ -959,6 +959,8 @@
     "on": "上架",
     "off": "下架",
     "name": "名称",
+    "nameRequired": "请填写菜品名称",
+    "categoryRequired": "请选择分类",
     "desc": "描述",
     "price": "堂食价",
     "takeawayPrice": "外卖价",

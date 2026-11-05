@@ -253,9 +253,29 @@ async function onUpload(file: File) {
 }
 
 async function saveDish() {
+  const nameZh = dishForm.nameZh.trim();
+  if (!nameZh) {
+    ElMessage.warning(t('menuMgmt.nameRequired'));
+    return;
+  }
+  if (!dishForm.categoryId) {
+    ElMessage.warning(t('menuMgmt.categoryRequired'));
+    return;
+  }
+  // 未填越文时回落中文，避免只填中文 Tab 时校验失败
+  if (!dishForm.nameVi.trim()) dishForm.nameVi = nameZh;
+  if (!dishForm.descVi.trim() && dishForm.descZh.trim()) {
+    dishForm.descVi = dishForm.descZh.trim();
+  }
+  dishForm.nameZh = nameZh;
   dishForm.price = parseThousands(priceText.value);
   dishForm.takeawayPrice = parseThousands(takeawayText.value);
-  const payload = { ...dishForm };
+  const payload = {
+    ...dishForm,
+    image: dishForm.image || undefined,
+    stock: dishForm.stock == null ? undefined : dishForm.stock,
+    dailyStock: dishForm.dailyStock == null ? undefined : dishForm.dailyStock,
+  };
   let dishId = editingId.value;
   if (dishId) await updateDishApi(dishId, payload);
   else {

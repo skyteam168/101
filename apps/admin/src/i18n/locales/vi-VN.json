@@ -959,6 +959,8 @@
     "on": "Đang bán",
     "off": "Ngừng bán",
     "name": "Tên",
+    "nameRequired": "Vui lòng nhập tên món",
+    "categoryRequired": "Vui lòng chọn danh mục",
     "desc": "Mô tả",
     "price": "Giá tại chỗ",
     "takeawayPrice": "Giá mang đi",

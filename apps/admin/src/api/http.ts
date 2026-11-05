@@ -126,7 +126,17 @@ http.interceptors.response.use(
     const errCode = code || (status === 403 ? 'FORBIDDEN' : status === 401 ? 'UNAUTHORIZED' : 'HTTP_ERROR');
     const key = `errors.${errCode}`;
     const translated = i18n.global.t(key);
-    ElMessage.error(translated === key ? error.response?.data?.message || error.message : String(translated));
+    const serverMsg = error.response?.data?.message;
+    // HTTP_ERROR / 校验失败：优先展示后端具体原因，避免只看到「请求失败」
+    if (
+      (errCode === 'HTTP_ERROR' || errCode === 'INTERNAL_ERROR') &&
+      typeof serverMsg === 'string' &&
+      serverMsg.trim()
+    ) {
+      ElMessage.error(serverMsg);
+    } else {
+      ElMessage.error(translated === key ? serverMsg || error.message : String(translated));
+    }
     return Promise.reject(error);
   },
 );
