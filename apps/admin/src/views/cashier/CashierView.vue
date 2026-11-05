@@ -355,13 +355,15 @@ async function pickMember(m: Member) {
     return;
   }
   order.value = await bindCustomerApi(order.value.id, { customerId: m.id });
-  const list = (await listCouponsApi(m.id)) as {
-    id: string;
-    status: string;
-    code: string;
-    template: { nameZh: string; nameVi: string };
-  }[];
-  coupons.value = list.filter((c) => c.status === 'unused');
+  const list = await listCouponsApi({ customerId: m.id });
+  coupons.value = list
+    .filter((c) => c.status === 'unused')
+    .map((c) => ({
+      id: c.id,
+      status: c.status,
+      code: c.code,
+      template: { nameZh: c.template.nameZh, nameVi: c.template.nameVi },
+    }));
 }
 
 async function applyCoupon() {
