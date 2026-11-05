@@ -379,7 +379,7 @@ export class PublicTableService {
       where: { id: BigInt(guest.sessionId) },
       include: { table: true },
     });
-    if (!session || session.status !== SessionStatus.open) {
+    if (!session || session.status !== SessionStatus.open || !session.table) {
       throw new BusinessError('TABLE_NOT_DINING');
     }
     if (session.table.currentSessionId?.toString() !== guest.sessionId) {

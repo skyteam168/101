@@ -332,14 +332,47 @@ export class TableService {
   }
 
   async deleteTable(storeId: string, id: string) {
-    const existing = await this.prisma.table.findFirst({
-      where: { id: BigInt(id), storeId: BigInt(storeId) },
+    const sid = BigInt(storeId);
+    const tid = BigInt(id);
+
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.table.findFirst({
+        where: { id: tid, storeId: sid },
+      });
+      if (!existing) throw new BusinessError('TABLE_NOT_FOUND');
+      if (existing.status !== TableStatus.idle || existing.currentSessionId) {
+        throw new BusinessError('TABLE_NOT_IDLE');
+      }
+
+      // 残留未关闭会话（脏数据）也禁止删
+      const openSessions = await tx.tableSession.count({
+        where: { tableId: tid, status: SessionStatus.open },
+      });
+      if (openSessions > 0) throw new BusinessError('TABLE_NOT_IDLE');
+
+      // 仍有未入座预定绑着此桌 → 明确业务错误，避免 500
+      const activeReservations = await tx.reservation.count({
+        where: {
+          tableId: tid,
+          status: { in: ['pending', 'confirmed'] },
+        },
+      });
+      if (activeReservations > 0) {
+        throw new BusinessError('TABLE_HAS_ACTIVE_RESERVATION');
+      }
+
+      // 历史预定解绑；历史会话保留订单，仅断开桌台外键（table_id 可空）
+      await tx.reservation.updateMany({
+        where: { tableId: tid },
+        data: { tableId: null },
+      });
+      await tx.tableSession.updateMany({
+        where: { tableId: tid },
+        data: { tableId: null },
+      });
+      await tx.table.delete({ where: { id: tid } });
     });
-    if (!existing) throw new BusinessError('TABLE_NOT_FOUND');
-    if (existing.status !== TableStatus.idle || existing.currentSessionId) {
-      throw new BusinessError('TABLE_NOT_IDLE');
-    }
-    await this.prisma.table.delete({ where: { id: existing.id } });
+
     return { ok: true };
   }
 

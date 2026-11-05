@@ -646,7 +646,8 @@ model Table {
 
 model TableSession {
   id           BigInt        @id @default(autoincrement())
-  tableId      BigInt        @map("table_id")
+  /** 桌台删除后置空，保留历史订单会话 */
+  tableId      BigInt?       @map("table_id")
   openAt       DateTime      @default(now()) @map("open_at")
   closeAt      DateTime?     @map("close_at")
   guestCount   Int           @default(1) @map("guest_count")
@@ -657,7 +658,7 @@ model TableSession {
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  table        Table         @relation("TableSessions", fields: [tableId], references: [id])
+  table        Table?        @relation("TableSessions", fields: [tableId], references: [id])
   waiter       User?         @relation("SessionWaiter", fields: [waiterId], references: [id])
   currentOf    Table?        @relation("CurrentSession")
   orders       Order[]

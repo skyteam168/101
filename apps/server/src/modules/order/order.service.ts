@@ -1067,7 +1067,7 @@ export class OrderService {
       where: { id: tableSessionId },
       select: { id: true, tableId: true, status: true },
     });
-    if (!session) return;
+    if (!session?.tableId) return;
 
     if (session.status === SessionStatus.open) {
       await tx.tableSession.update({

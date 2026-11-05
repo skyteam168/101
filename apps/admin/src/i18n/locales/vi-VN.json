@@ -1033,6 +1033,7 @@
     "TABLE_NOT_DINING": "Bàn không đang dùng",
     "TABLE_NOT_CLEANING": "Bàn không chờ dọn",
     "TABLE_HAS_OPEN_ORDER": "Còn đơn chưa thanh toán",
+    "TABLE_HAS_ACTIVE_RESERVATION": "Bàn còn đặt chỗ chưa hoàn tất, hãy đổi/hủy đặt chỗ trước khi xóa",
     "TABLE_TRANSFER_SAME": "Không đổi cùng bàn",
     "TABLE_MERGE_SAME": "Không gộp cùng bàn",
     "ORDER_NOT_FOUND": "Không tìm thấy đơn",

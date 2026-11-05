@@ -1106,6 +1106,7 @@
     "TABLE_NOT_DINING": "桌台不是用餐中",
     "TABLE_NOT_CLEANING": "桌台不是待清台",
     "TABLE_HAS_OPEN_ORDER": "仍有未结订单，无法清台",
+    "TABLE_HAS_ACTIVE_RESERVATION": "该桌台仍有未完成预定，请先改期或取消预定后再删除",
     "TABLE_TRANSFER_SAME": "不能换到同一桌",
     "TABLE_MERGE_SAME": "不能并到同一桌",
     "ORDER_NOT_FOUND": "订单不存在",
