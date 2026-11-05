@@ -27,7 +27,10 @@ export class UserController {
   @Patch(':id')
   @RequirePerm('menu:system:user')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.userService.update(id, dto, user.id);
+    return this.userService.update(id, dto, user.id, {
+      operatorStoreId: user.storeId,
+      isSuperAdmin: user.isSuperAdmin,
+    });
   }
 
   @Put(':id/status')
@@ -37,12 +40,22 @@ export class UserController {
     @Param('id') id: string,
     @Body('status') status: 'active' | 'disabled',
   ) {
-    return this.userService.setStatus(id, status, user.id);
+    return this.userService.setStatus(id, status, user.id, {
+      operatorStoreId: user.storeId,
+      isSuperAdmin: user.isSuperAdmin,
+    });
   }
 
   @Put(':id/password')
   @RequirePerm('menu:system:user')
-  resetPassword(@Param('id') id: string, @Body() dto: ResetPasswordDto) {
-    return this.userService.resetPassword(id, dto);
+  resetPassword(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: ResetPasswordDto,
+  ) {
+    return this.userService.resetPassword(id, dto, user.id, {
+      operatorStoreId: user.storeId,
+      isSuperAdmin: user.isSuperAdmin,
+    });
   }
 }

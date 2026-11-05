@@ -97,9 +97,28 @@ export class UserService {
     return mapped;
   }
 
-  async update(id: string, dto: UpdateUserDto, operatorId?: string) {
+  /** 非超管只能改本店员工；禁止跨店改他店账号 */
+  private assertCanManageUser(
+    target: { storeId: bigint | null; username: string },
+    opts: { operatorStoreId?: string | null; isSuperAdmin?: boolean },
+  ) {
+    if (opts.isSuperAdmin) return;
+    const opStore = opts.operatorStoreId;
+    if (!opStore) throw new BusinessError('STORE_REQUIRED');
+    if (!target.storeId || target.storeId.toString() !== opStore) {
+      throw new BusinessError('USER_NOT_FOUND');
+    }
+  }
+
+  async update(
+    id: string,
+    dto: UpdateUserDto,
+    operatorId?: string,
+    opts?: { operatorStoreId?: string | null; isSuperAdmin?: boolean },
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: BigInt(id) } });
     if (!user) throw new BusinessError('USER_NOT_FOUND');
+    this.assertCanManageUser(user, opts ?? {});
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -151,9 +170,15 @@ export class UserService {
     return mapped;
   }
 
-  async setStatus(id: string, status: 'active' | 'disabled', operatorId?: string) {
+  async setStatus(
+    id: string,
+    status: 'active' | 'disabled',
+    operatorId?: string,
+    opts?: { operatorStoreId?: string | null; isSuperAdmin?: boolean },
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: BigInt(id) } });
     if (!user) throw new BusinessError('USER_NOT_FOUND');
+    this.assertCanManageUser(user, opts ?? {});
     if (user.username === 'admin' && status === 'disabled') {
       throw new BusinessError('USER_ADMIN_PROTECTED');
     }
@@ -179,14 +204,29 @@ export class UserService {
     return mapped;
   }
 
-  async resetPassword(id: string, dto: ResetPasswordDto) {
+  async resetPassword(
+    id: string,
+    dto: ResetPasswordDto,
+    operatorId?: string,
+    opts?: { operatorStoreId?: string | null; isSuperAdmin?: boolean },
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: BigInt(id) } });
     if (!user) throw new BusinessError('USER_NOT_FOUND');
+    this.assertCanManageUser(user, opts ?? {});
     assertPasswordComplexity(dto.password);
     const passwordHash = await bcrypt.hash(dto.password, 10);
     await this.prisma.user.update({
       where: { id: user.id },
       data: { passwordHash },
+    });
+    await this.audit.log({
+      userId: operatorId,
+      storeId: user.storeId?.toString() ?? null,
+      module: 'rbac',
+      action: 'user.reset_password',
+      targetType: 'user',
+      targetId: id,
+      after: { username: user.username },
     });
     return { ok: true };
   }

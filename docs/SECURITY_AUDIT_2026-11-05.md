@@ -101,6 +101,7 @@
 4. H5 `ShopHomeView` / `TableOrderView` 改 join `menu`
 5. 邮箱验证码失败 5 次锁定 + 重置密码 Turnstile（跟进 [Auth public surface audit](18611cbf-4320-4af0-912a-130a3a11d03c)）
 6. 会员列表/读写按本店业务关联隔离；桌台 PIN 错误限速
+7. 员工改密/启停跨店隔离；审计日志强制本店；入会绑定本店等级（跟进 [IDOR 越权审计](16b34702-cb78-458f-be5e-1d2cc1b8a01b)）
 
 ## 建议下一步（未改代码）
 

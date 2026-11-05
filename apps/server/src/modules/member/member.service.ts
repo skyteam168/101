@@ -435,25 +435,35 @@ export class MemberService {
     };
   }
 
-  async join(customerId: string, dto: { birthday: string; agree: boolean }) {
+  async join(storeId: string, customerId: string, dto: { birthday: string; agree: boolean }) {
     if (!dto.agree) throw new BusinessError('MEMBER_AGREE_REQUIRED');
     if (!dto.birthday) throw new BusinessError('MEMBER_BIRTHDAY_REQUIRED');
     const existing = await this.prisma.customer.findUnique({
       where: { id: BigInt(customerId) },
+      include: { memberLevel: true },
     });
     if (!existing || existing.status !== CustomerStatus.active) {
       throw new BusinessError('CUSTOMER_NOT_FOUND');
     }
-    const base = await this.prisma.memberLevel.findFirst({
-      where: { isActive: true },
-      orderBy: [{ minSpend: 'asc' }, { sort: 'asc' }],
-    });
+    const sid = BigInt(storeId);
+    // 已挂他店等级则保留；未入会时只绑定本店最低档
+    const keepLevel =
+      existing.memberLevelId && existing.memberLevel?.storeId === sid
+        ? existing.memberLevelId
+        : null;
+    const base =
+      keepLevel != null
+        ? null
+        : await this.prisma.memberLevel.findFirst({
+            where: { storeId: sid, isActive: true },
+            orderBy: [{ minSpend: 'asc' }, { sort: 'asc' }],
+          });
     await this.prisma.customer.update({
       where: { id: existing.id },
       data: {
         birthday: new Date(dto.birthday),
         memberJoinedAt: existing.memberJoinedAt ?? new Date(),
-        memberLevelId: existing.memberLevelId ?? base?.id ?? null,
+        memberLevelId: keepLevel ?? base?.id ?? null,
       },
     });
     return this.membershipOf(customerId);

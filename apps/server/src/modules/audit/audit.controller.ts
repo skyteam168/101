@@ -1,6 +1,9 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePerm } from '../../common/decorators/require-perm.decorator';
+import { BusinessError } from '../../common/errors/business.error';
+import { AuthUser } from '../auth/auth.types';
 import { CustomerLoginLogService } from '../security/customer-login-log.service';
 import { AuditService } from './audit.service';
 import {
@@ -20,21 +23,30 @@ export class AuditController {
     private readonly audit: AuditService,
   ) {}
 
+  private scopedStoreId(user: AuthUser): string | undefined {
+    if (user.isSuperAdmin) return undefined;
+    if (!user.storeId) throw new BusinessError('STORE_REQUIRED');
+    return user.storeId;
+  }
+
   @Get('login-logs')
   @RequirePerm('audit:view')
-  listLoginLogs(@Query() query: LoginLogQueryDto) {
-    return this.loginLogs.list(query);
+  listLoginLogs(@CurrentUser() user: AuthUser, @Query() query: LoginLogQueryDto) {
+    return this.loginLogs.list({ ...query, storeId: this.scopedStoreId(user) });
   }
 
   @Get('customer-login-logs')
   @RequirePerm('audit:view')
-  listCustomerLoginLogs(@Query() query: CustomerLoginLogQueryDto) {
-    return this.customerLoginLogs.list(query);
+  listCustomerLoginLogs(@CurrentUser() user: AuthUser, @Query() query: CustomerLoginLogQueryDto) {
+    return this.customerLoginLogs.list({ ...query, storeId: this.scopedStoreId(user) });
   }
 
   @Get('operation-logs')
   @RequirePerm('audit:view')
-  listOperationLogs(@Query() query: OperationLogQueryDto) {
-    return this.audit.listOperationLogs(query);
+  listOperationLogs(@CurrentUser() user: AuthUser, @Query() query: OperationLogQueryDto) {
+    return this.audit.listOperationLogs({
+      ...query,
+      storeId: this.scopedStoreId(user),
+    });
   }
 }

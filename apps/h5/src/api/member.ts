@@ -34,5 +34,6 @@ export function getMyMembership() {
 }
 
 export function joinMemberApi(dto: { birthday: string; agree: boolean }) {
-  return apiPost<Membership>('/public/member/join', dto);
+  const storeId = encodeURIComponent(getPublicStoreId());
+  return apiPost<Membership>(`/public/member/join?storeId=${storeId}`, dto);
 }

@@ -109,8 +109,12 @@ export class CustomerController {
   @UseGuards(CustomerAuthGuard)
   @ApiBearerAuth()
   @Post('public/member/join')
-  joinMember(@CurrentCustomer() c: CustomerUser, @Body() dto: JoinMemberDto) {
-    return this.members.join(c.customerId, dto);
+  joinMember(
+    @CurrentCustomer() c: CustomerUser,
+    @Body() dto: JoinMemberDto,
+    @Query('storeId') storeId?: string,
+  ) {
+    return this.members.join(this.storeId(storeId), c.customerId, dto);
   }
 
   @Public()

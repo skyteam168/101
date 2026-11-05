@@ -13,6 +13,7 @@ export type LoginLogInput = {
 };
 
 export type LoginLogQuery = {
+  storeId?: string;
   page?: number;
   pageSize?: number;
   username?: string;
@@ -54,6 +55,7 @@ export class LoginLogService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));
     const where: Prisma.LoginLogWhereInput = {};
+    if (query.storeId) where.storeId = BigInt(query.storeId);
 
     if (query.username) {
       where.username = { contains: query.username };

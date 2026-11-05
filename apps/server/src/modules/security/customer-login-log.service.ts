@@ -20,6 +20,8 @@ export type CustomerLoginLogInput = {
 };
 
 export type CustomerLoginLogQuery = {
+  /** 按本店关联顾客过滤；无 storeId 时仅超管可看全量 */
+  storeId?: string;
   page?: number;
   pageSize?: number;
   email?: string;
@@ -62,6 +64,19 @@ export class CustomerLoginLogService {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));
     const where: Prisma.CustomerLoginLogWhereInput = {};
+
+    if (query.storeId) {
+      const sid = BigInt(query.storeId);
+      where.customer = {
+        OR: [
+          { memberLevel: { storeId: sid } },
+          { orders: { some: { storeId: sid } } },
+          { chatConversations: { some: { storeId: sid } } },
+          { reservations: { some: { storeId: sid } } },
+          { groupMealInquiries: { some: { storeId: sid } } },
+        ],
+      };
+    }
 
     if (query.email) where.email = { contains: query.email };
     if (query.action) where.action = query.action;
