@@ -48,6 +48,37 @@ const payForm = reactive({
   receivedText: '',
 });
 
+/** 优惠明细：规则/券/会员/手动/抹零 */
+const discountBreakdown = computed(() => {
+  const o = order.value;
+  if (!o) return [] as { key: string; label: string; amount: number }[];
+  const s = o.promoSnapshot || {};
+  const rows: { key: string; label: string; amount: number }[] = [];
+  for (const r of s.rules || []) {
+    if (r.amount > 0) rows.push({ key: `rule-${r.id}`, label: r.nameZh, amount: r.amount });
+  }
+  if (s.coupon?.amount) {
+    rows.push({ key: 'coupon', label: s.coupon.nameZh, amount: s.coupon.amount });
+  }
+  const memberAmt = Number(s.memberDiscount) || 0;
+  if (memberAmt > 0) {
+    const pct = s.memberPercent ? ` ${s.memberPercent}%` : '';
+    rows.push({ key: 'member', label: `${t('cashier.memberDiscount')}${pct}`, amount: memberAmt });
+  }
+  const manual = Number(s.manualDiscount) || 0;
+  if (manual > 0) rows.push({ key: 'manual', label: t('order.discountAmount'), amount: manual });
+  const round = Number(o.roundOff) || 0;
+  if (round > 0) rows.push({ key: 'round', label: t('cashier.roundOff'), amount: round });
+  const summed = rows.reduce((n, r) => n + r.amount, 0);
+  const residual = Math.max(0, (Number(o.discount) || 0) - summed);
+  if (residual > 0 && rows.length === 0) {
+    rows.push({ key: 'discount', label: t('order.discount'), amount: Number(o.discount) || 0 });
+  } else if (residual > 0) {
+    rows.push({ key: 'other', label: t('order.discount'), amount: residual });
+  }
+  return rows;
+});
+
 function nameOf(row: { nameZh: string; nameVi: string }) {
   return localeField(row as unknown as Record<string, unknown>, 'name', loc.value);
 }
@@ -178,21 +209,12 @@ async function checkoutZero() {
   await ElMessageBox.confirm(t('cashier.confirmFreeCheckout'), t('order.checkout'), {
     type: 'warning',
   });
-  await checkoutOrderApi(order.value.id, [{ method: 'cash', amount: 0, received: 0 }]);
+  const paid = await checkoutOrderApi(order.value.id, [{ method: 'cash', amount: 0, received: 0 }]);
   checkoutVisible.value = false;
   ElMessage.success(t('order.paidNeedClear'));
   try {
     const store = await getStoreSettingsApi();
-    receiptPayload.value = buildReceiptPayload(
-      {
-        ...order.value,
-        paidAmount: 0,
-        payments: [
-          { id: '0', method: 'cash', amount: 0, received: 0, change: 0, createdAt: new Date().toISOString() },
-        ],
-      },
-      store,
-    );
+    receiptPayload.value = buildReceiptPayload(paid, store);
     receiptVisible.value = true;
   } catch {
     router.replace('/tables');
@@ -239,27 +261,12 @@ async function confirmCheckout() {
     payForm.method === 'cash'
       ? [{ method: 'cash', amount: due, received }]
       : [{ method: payForm.method, amount: due }];
-  await checkoutOrderApi(order.value.id, payments);
+  const paid = await checkoutOrderApi(order.value.id, payments);
   checkoutVisible.value = false;
   ElMessage.success(t('order.paidNeedClear'));
-  const snapOrder: Order = {
-    ...order.value,
-    paidAmount: order.value.total,
-    payments: payments.map((p, i) => {
-      const recv = 'received' in p ? (p.received as number) : p.amount;
-      return {
-        id: String(i),
-        method: p.method,
-        amount: p.amount,
-        received: recv,
-        change: Math.max(0, recv - p.amount),
-        createdAt: new Date().toISOString(),
-      };
-    }),
-  };
   try {
     const store = await getStoreSettingsApi();
-    receiptPayload.value = buildReceiptPayload(snapOrder, store);
+    receiptPayload.value = buildReceiptPayload(paid, store);
     receiptVisible.value = true;
   } catch {
     router.replace('/tables');
@@ -328,6 +335,10 @@ onMounted(refresh);
           class="dish"
           @click="addToCart(d)"
         >
+          <div
+            class="dish-cover"
+            :style="d.image ? { backgroundImage: `url(${d.image})` } : undefined"
+          />
           <div class="d-name">{{ nameOf(d) }}</div>
           <div class="d-price">{{ formatVND(d.price) }}</div>
         </button>
@@ -371,7 +382,18 @@ onMounted(refresh);
 
         <div class="totals">
           <div><span>{{ t('order.cartTotal') }}</span><strong>{{ formatVND(cartTotal) }}</strong></div>
-          <div v-if="order"><span>{{ t('order.billTotal') }}</span><strong>{{ formatVND(order.total) }}</strong></div>
+          <template v-if="order">
+            <div><span>{{ t('cashier.origin') }}</span><span>{{ formatVND(order.subtotal) }}</span></div>
+            <div v-for="row in discountBreakdown" :key="row.key" class="promo-row">
+              <span>{{ row.label }}</span>
+              <span>-{{ formatVND(row.amount) }}</span>
+            </div>
+            <div v-if="order.serviceCharge">
+              <span>{{ t('order.serviceCharge') }}</span>
+              <span>{{ formatVND(order.serviceCharge) }}</span>
+            </div>
+            <div><span>{{ t('order.billTotal') }}</span><strong>{{ formatVND(order.total) }}</strong></div>
+          </template>
         </div>
         <el-button
           v-if="userStore.hasPerm(order ? 'order:add-item' : 'order:create')"
@@ -531,17 +553,27 @@ onMounted(refresh);
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   background: #fff;
-  padding: 12px;
+  padding: 8px;
   text-align: left;
   cursor: pointer;
-  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .dish:hover {
   border-color: #409eff;
 }
+.dish-cover {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  background: #f3f4f6 center / cover no-repeat;
+  flex-shrink: 0;
+}
 .d-name {
   font-weight: 600;
-  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.3;
 }
 .d-price {
   color: #c45656;
@@ -602,6 +634,10 @@ onMounted(refresh);
   display: flex;
   justify-content: space-between;
   margin-bottom: 4px;
+}
+.totals .promo-row {
+  color: #f56c6c;
+  font-size: 13px;
 }
 .submit {
   margin-top: 10px;

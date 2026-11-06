@@ -43,9 +43,11 @@ async function handleSendCode() {
       purpose: 'login',
       lang: locale.value === 'zh-CN' ? 'zh' : 'vi',
     });
-    showToast(
-      res.devCode ? `${t('shop.auth.codeSent')} (${res.devCode})` : t('shop.auth.codeSent'),
-    );
+    const base = res.devCode
+      ? `${t('shop.auth.codeSent')} (${res.devCode})`
+      : t('shop.auth.codeSent');
+    const gmail = /@(gmail|googlemail)\.com$/i.test(form.email.trim());
+    showToast(gmail ? `${base}\n${t('shop.auth.gmailSpamHint')}` : base);
     countdown.value = 60;
     timer = setInterval(() => {
       countdown.value--;

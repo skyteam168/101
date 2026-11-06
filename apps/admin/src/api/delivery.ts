@@ -25,7 +25,14 @@ export type DeliveryOrder = {
   courierId?: string | null;
   courierName?: string | null;
   createdAt: string;
-  items: { id: string; nameZh: string; nameVi: string; qty: number; amount: number }[];
+  items: {
+    id: string;
+    nameZh: string;
+    nameVi: string;
+    qty: number;
+    amount: number;
+    optionsSnapshot?: unknown;
+  }[];
 };
 
 export type DeliveryCustomer = {

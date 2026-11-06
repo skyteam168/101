@@ -9,6 +9,11 @@ function bi(zh?: string | null, vi?: string | null): string {
   return z || v || '';
 }
 
+/** 字段标签中越双语（与 TicketPreview 对齐，避免预览有越语、实打只有中文） */
+function L(zh: string, vi: string) {
+  return bi(zh, vi);
+}
+
 function fmtTime(iso?: string) {
   if (!iso) return '';
   try {
@@ -25,26 +30,32 @@ function buildLines(payload: PrintTicketPayload): string[] {
   if (store) lines.push(store);
   if (d.address) lines.push(d.address);
   if (d.phone) lines.push(d.phone);
-  lines.push(bi(d.titleZh, d.titleVi) || '小票');
+  lines.push(bi(d.titleZh, d.titleVi) || L('小票', 'Hóa đơn'));
   lines.push('--------------------------------');
-  if (d.tableCode) lines.push(`桌台: ${d.tableCode}${d.guestCount ? `  ${d.guestCount}位` : ''}`);
-  if (d.orderNo) lines.push(`单号: ${d.orderNo}`);
-  if (d.roundNo) lines.push(`轮次: ${d.roundNo}`);
-  if (d.createdAt) lines.push(`下单: ${fmtTime(d.createdAt)}`);
-  if (d.paidAt) lines.push(`结账: ${fmtTime(d.paidAt)}`);
-  if (d.refundedAt) lines.push(`退款: ${fmtTime(d.refundedAt)}`);
-  if (d.remark) lines.push(`备注: ${d.remark}`);
+  if (d.tableCode) {
+    const guests =
+      d.guestCount != null && d.guestCount > 0
+        ? `  ${d.guestCount} ${L('位', 'khách')}`
+        : '';
+    lines.push(`${L('桌台', 'Bàn')}: ${d.tableCode}${guests}`);
+  }
+  if (d.orderNo) lines.push(`${L('单号', 'Mã đơn')}: ${d.orderNo}`);
+  if (d.roundNo) lines.push(`${L('轮次', 'Lượt')}: ${d.roundNo}`);
+  if (d.createdAt) lines.push(`${L('下单', 'Đặt')}: ${fmtTime(d.createdAt)}`);
+  if (d.paidAt) lines.push(`${L('结账', 'Thanh toán')}: ${fmtTime(d.paidAt)}`);
+  if (d.refundedAt) lines.push(`${L('退款', 'Hoàn tiền')}: ${fmtTime(d.refundedAt)}`);
+  if (d.remark) lines.push(`${L('备注', 'Ghi chú')}: ${d.remark}`);
   if (d.stationNameZh || d.stationNameVi) {
-    lines.push(`档口: ${bi(d.stationNameZh, d.stationNameVi)}`);
+    lines.push(`${L('档口', 'Quầy')}: ${bi(d.stationNameZh, d.stationNameVi)}`);
   }
   if (payload.template === 'refund') {
     lines.push('--------------------------------');
-    if (d.refundAmount != null) lines.push(`退款金额: ${formatVND(d.refundAmount)}`);
-    if (d.refundMethod) lines.push(`退回方式: ${d.refundMethod}`);
-    if (d.refundReason) lines.push(`原因: ${d.refundReason}`);
-    if (d.total != null) lines.push(`原账单: ${formatVND(d.total)}`);
-    if (d.refundedAmount != null) lines.push(`累计已退: ${formatVND(d.refundedAmount)}`);
-    if (d.paidAmount != null) lines.push(`剩余已付: ${formatVND(d.paidAmount)}`);
+    if (d.refundAmount != null) lines.push(`${L('退款金额', 'Số hoàn')}: ${formatVND(d.refundAmount)}`);
+    if (d.refundMethod) lines.push(`${L('退回方式', 'Cách hoàn')}: ${d.refundMethod}`);
+    if (d.refundReason) lines.push(`${L('原因', 'Lý do')}: ${d.refundReason}`);
+    if (d.total != null) lines.push(`${L('原账单', 'Hóa đơn gốc')}: ${formatVND(d.total)}`);
+    if (d.refundedAmount != null) lines.push(`${L('累计已退', 'Đã hoàn')}: ${formatVND(d.refundedAmount)}`);
+    if (d.paidAmount != null) lines.push(`${L('剩余已付', 'Còn lại')}: ${formatVND(d.paidAmount)}`);
   } else {
     lines.push('--------------------------------');
     for (const it of d.items || []) {
@@ -58,12 +69,12 @@ function buildLines(payload: PrintTicketPayload): string[] {
     }
     if (d.subtotal != null || d.total != null) {
       lines.push('--------------------------------');
-      if (d.subtotal != null) lines.push(`小计: ${formatVND(d.subtotal)}`);
-      if (d.discount) lines.push(`优惠: -${formatVND(d.discount)}`);
-      if (d.serviceCharge) lines.push(`服务费: ${formatVND(d.serviceCharge)}`);
-      if (d.deliveryFee) lines.push(`配送费: ${formatVND(d.deliveryFee)}`);
-      if (d.total != null) lines.push(`合计: ${formatVND(d.total)}`);
-      if (d.paidAmount != null) lines.push(`实收: ${formatVND(d.paidAmount)}`);
+      if (d.subtotal != null) lines.push(`${L('小计', 'Tạm tính')}: ${formatVND(d.subtotal)}`);
+      if (d.discount) lines.push(`${L('优惠', 'Giảm giá')}: -${formatVND(d.discount)}`);
+      if (d.serviceCharge) lines.push(`${L('服务费', 'Phí phục vụ')}: ${formatVND(d.serviceCharge)}`);
+      if (d.deliveryFee) lines.push(`${L('配送费', 'Phí giao')}: ${formatVND(d.deliveryFee)}`);
+      if (d.total != null) lines.push(`${L('合计', 'TỔNG')}: ${formatVND(d.total)}`);
+      if (d.paidAmount != null) lines.push(`${L('实收', 'Thực thu')}: ${formatVND(d.paidAmount)}`);
     }
     if (d.payments?.length) {
       for (const p of d.payments) {
@@ -73,10 +84,10 @@ function buildLines(payload: PrintTicketPayload): string[] {
   }
   if (d.shift) {
     lines.push('--------------------------------');
-    if (d.shift.cashierName) lines.push(`收银: ${d.shift.cashierName}`);
+    if (d.shift.cashierName) lines.push(`${L('收银', 'Thu ngân')}: ${d.shift.cashierName}`);
     if (d.shift.from || d.shift.to) lines.push(`${d.shift.from || ''} ~ ${d.shift.to || ''}`);
-    if (d.shift.orderCount != null) lines.push(`单数: ${d.shift.orderCount}`);
-    if (d.shift.totalSales != null) lines.push(`营业额: ${formatVND(d.shift.totalSales)}`);
+    if (d.shift.orderCount != null) lines.push(`${L('单数', 'Số đơn')}: ${d.shift.orderCount}`);
+    if (d.shift.totalSales != null) lines.push(`${L('营业额', 'Doanh thu')}: ${formatVND(d.shift.totalSales)}`);
   }
   lines.push('--------------------------------');
   const footer = bi(d.footerZh, d.footerVi);

@@ -417,6 +417,10 @@ onMounted(async () => {
             <template v-for="c in categories" :key="c.id">
               <div v-show="activeCategory === c.id">
                 <div v-for="d in c.dishes" :key="d.id" class="dish-row">
+                  <div
+                    class="dish-thumb"
+                    :style="d.image ? { backgroundImage: `url(${d.image})` } : undefined"
+                  />
                   <div class="dish-info">
                     <div class="dish-name">{{ dishName(d) }}</div>
                     <div class="dish-price">{{ formatVND(d.price) }}</div>
@@ -609,6 +613,17 @@ onMounted(async () => {
   gap: 10px;
   padding: 12px 0;
   border-bottom: 1px solid #f7f8fa;
+}
+.dish-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: #f2f3f5 center / cover no-repeat;
+}
+.dish-info {
+  flex: 1;
+  min-width: 0;
 }
 .dish-name {
   font-size: 14px;

@@ -543,13 +543,19 @@ onMounted(async () => {
       v-model:show="showJoin"
       position="bottom"
       round
+      close-on-click-overlay
       teleport="body"
       :style="{ height: 'min(88vh, 720px)' }"
       class="sheet-popup"
     >
       <div class="join-sheet">
-        <div class="join-sheet-scroll">
+        <div class="join-sheet-head">
           <h3>{{ t('home.joinTitle') }}</h3>
+          <button type="button" class="notice-close" @click="showJoin = false">
+            <van-icon name="cross" size="16" />
+          </button>
+        </div>
+        <div class="join-sheet-scroll">
           <p class="join-lead">{{ t('home.joinLead') }}</p>
           <article v-for="lv in joinLevels" :key="lv.id" class="join-level">
             <strong>{{ levelName(lv) }}</strong>
@@ -1229,12 +1235,24 @@ onMounted(async () => {
   padding: 0;
   box-sizing: border-box;
 }
+.join-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 0;
+  flex-shrink: 0;
+}
+.join-sheet-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
 .join-sheet-scroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 18px 16px 12px;
+  padding: 12px 16px 12px;
 }
 .join-sheet-footer {
   flex-shrink: 0;
@@ -1247,7 +1265,7 @@ onMounted(async () => {
   font-size: 18px;
 }
 .join-lead {
-  margin: 8px 0 12px;
+  margin: 0 0 12px;
   color: #78716c;
   font-size: 13px;
   line-height: 1.45;

@@ -301,7 +301,7 @@ async function addDish(
   optionsSnapshot: unknown[],
 ) {
   cart.value = await addCartApi([{ dishId: dish.id, qty, optionsSnapshot }]);
-  showToast(t('menu.add'));
+  showToast(t('menu.added'));
 }
 
 async function changeQty(item: CartLine, qty: number) {
@@ -495,6 +495,7 @@ watch(locale, () => syncDocTitle());
       <p v-if="peek?.status === 'cleaning'" class="warn">{{ t('join.cleaning') }}</p>
       <template v-else>
         <van-field v-model="joinForm.nickname" :label="t('join.nickname')" :placeholder="t('join.nicknamePlaceholder')" />
+        <p v-if="peek?.needPin" class="pin-hint">{{ t('join.pinHint') }}</p>
         <van-field
           v-if="peek?.needPin"
           v-model="joinForm.pin"
@@ -652,6 +653,15 @@ watch(locale, () => syncDocTitle());
 .pad { padding: 12px 16px; }
 .join h2 { margin: 8px 0; }
 .warn { color: #e6a23c; }
+.pin-hint {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  background: #fff7e6;
+  color: #ad6800;
+  font-size: 13px;
+  line-height: 1.45;
+  border-radius: 8px;
+}
 .hint { color: #888; font-size: 13px; text-align: center; }
 .lang { color: #1989fa; font-size: 13px; }
 .actions {

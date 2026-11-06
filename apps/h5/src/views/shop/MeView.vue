@@ -141,7 +141,6 @@ async function handleCancelAccount() {
           ref="avatarInput"
           type="file"
           accept="image/*"
-          capture="user"
           class="file-hidden"
           @change="onAvatarChange"
         />

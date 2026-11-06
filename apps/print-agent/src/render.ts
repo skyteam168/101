@@ -83,6 +83,7 @@ export interface ReceiptData {
   orderNo: string;
   tableCode?: string;
   guestCount?: number;
+  remark?: string;
   items: ReceiptItem[];
   subtotal: number;
   discount: number;
@@ -505,22 +506,22 @@ function renderRefund(
   r.separator();
   if (data.tableCode) {
     const guests =
-      data.guestCount != null && data.guestCount > 0 ? `${data.guestCount} 位` : '';
-    r.rowText(`桌台: ${data.tableCode}`, guests, r.sz.small);
+      data.guestCount != null && data.guestCount > 0 ? `${data.guestCount} 位/khách` : '';
+    r.rowText(`桌台/Bàn: ${data.tableCode}`, guests, r.sz.small);
   }
-  r.leftText(`单号: ${data.orderNo}`, r.sz.small);
-  if (data.createdAt) r.leftText(`下单: ${fmtDateTime(data.createdAt)}`, r.sz.small);
-  if (data.refundedAt) r.leftText(`退款: ${fmtDateTime(data.refundedAt)}`, r.sz.small);
+  r.leftText(`单号/Mã đơn: ${data.orderNo}`, r.sz.small);
+  if (data.createdAt) r.leftText(`下单/Đặt: ${fmtDateTime(data.createdAt)}`, r.sz.small);
+  if (data.refundedAt) r.leftText(`退款/Hoàn tiền: ${fmtDateTime(data.refundedAt)}`, r.sz.small);
   r.separator();
   if (data.refundAmount != null) {
-    r.rowText('退款金额:', fmtVND(data.refundAmount), r.sz.medium, true);
+    r.rowText('退款金额/Số hoàn:', fmtVND(data.refundAmount), r.sz.medium, true);
   }
-  if (data.refundMethod) r.rowText('退回方式:', data.refundMethod, r.sz.normal);
-  if (data.refundReason) r.leftText(`原因: ${data.refundReason}`, r.sz.normal);
+  if (data.refundMethod) r.rowText('退回方式/Cách hoàn:', data.refundMethod, r.sz.normal);
+  if (data.refundReason) r.leftText(`原因/Lý do: ${data.refundReason}`, r.sz.normal);
   r.separator();
-  if (data.total != null) r.rowText('原账单:', fmtVND(data.total), r.sz.normal);
-  if (data.refundedAmount != null) r.rowText('累计已退:', fmtVND(data.refundedAmount), r.sz.normal);
-  if (data.paidAmount != null) r.rowText('剩余已付:', fmtVND(data.paidAmount), r.sz.normal);
+  if (data.total != null) r.rowText('原账单/Hóa đơn gốc:', fmtVND(data.total), r.sz.normal);
+  if (data.refundedAmount != null) r.rowText('累计已退/Đã hoàn:', fmtVND(data.refundedAmount), r.sz.normal);
+  if (data.paidAmount != null) r.rowText('剩余已付/Còn lại:', fmtVND(data.paidAmount), r.sz.normal);
   r.gap(16);
   const footer =
     data.footerZh || data.footerVi
@@ -539,31 +540,33 @@ function renderReceipt(r: TicketRenderer, data: ReceiptData): void {
   r.separator();
   if (data.tableCode) {
     const guests =
-      data.guestCount != null && data.guestCount > 0 ? `${data.guestCount} 位` : '';
-    r.rowText(`桌台: ${data.tableCode}`, guests, r.sz.small);
+      data.guestCount != null && data.guestCount > 0 ? `${data.guestCount} 位/khách` : '';
+    r.rowText(`桌台/Bàn: ${data.tableCode}`, guests, r.sz.small);
   }
-  r.leftText(`单号: ${data.orderNo}`, r.sz.small);
-  r.leftText(`下单: ${fmtDateTime(data.createdAt)}`, r.sz.small);
-  if (data.paidAt) r.leftText(`结账: ${fmtDateTime(data.paidAt)}`, r.sz.small);
-  if (data.cashier) r.leftText(`收银: ${data.cashier}`, r.sz.small);
+  r.leftText(`单号/Mã đơn: ${data.orderNo}`, r.sz.small);
+  r.leftText(`下单/Đặt: ${fmtDateTime(data.createdAt)}`, r.sz.small);
+  if (data.paidAt) r.leftText(`结账/Thanh toán: ${fmtDateTime(data.paidAt)}`, r.sz.small);
+  if (data.cashier) r.leftText(`收银/Thu ngân: ${data.cashier}`, r.sz.small);
+  if (data.remark) r.leftText(`备注/Ghi chú: ${data.remark}`, r.sz.small);
   r.separator();
   r.renderReceiptItems(data.items);
   r.separator();
-  r.rowText('小计  Tạm tính:', fmtVND(data.subtotal), r.sz.normal);
-  if (data.discount > 0) r.rowText('折扣  Giảm giá:', `-${fmtVND(data.discount)}`, r.sz.normal);
-  if (data.serviceCharge > 0) r.rowText('服务费  Phí phục vụ:', fmtVND(data.serviceCharge), r.sz.normal);
-  if (data.deliveryFee && data.deliveryFee > 0) r.rowText('配送费  Phí giao hàng:', fmtVND(data.deliveryFee), r.sz.normal);
+  r.rowText('小计/Tạm tính:', fmtVND(data.subtotal), r.sz.normal);
+  if (data.discount > 0) r.rowText('优惠/Giảm giá:', `-${fmtVND(data.discount)}`, r.sz.normal);
+  if (data.serviceCharge > 0) r.rowText('服务费/Phí phục vụ:', fmtVND(data.serviceCharge), r.sz.normal);
+  if (data.deliveryFee && data.deliveryFee > 0) r.rowText('配送费/Phí giao:', fmtVND(data.deliveryFee), r.sz.normal);
   r.separator();
-  r.rowText('合计  TỔNG CỘNG:', fmtVND(data.total), r.sz.medium, true);
+  r.rowText('合计/TỔNG:', fmtVND(data.total), r.sz.medium, true);
+  r.rowText('实收/Thực thu:', fmtVND(data.paidAmount ?? data.total), r.sz.normal);
   r.separator();
   if (data.payments?.length) {
     for (const p of data.payments) {
-      r.rowText(`支付 ${p.method}:`, fmtVND(p.amount), r.sz.normal);
+      r.rowText(`支付/Thanh toán ${p.method}:`, fmtVND(p.amount), r.sz.normal);
     }
   } else {
-    r.rowText(`支付 ${data.paymentMethod || ''}:`, fmtVND(data.paidAmount), r.sz.normal);
+    r.rowText(`支付/Thanh toán ${data.paymentMethod || ''}:`, fmtVND(data.paidAmount), r.sz.normal);
   }
-  if (data.change > 0) r.rowText('找零  Tiền thừa:', fmtVND(data.change), r.sz.normal);
+  if (data.change > 0) r.rowText('找零/Tiền thừa:', fmtVND(data.change), r.sz.normal);
   r.gap(16);
   const footer =
     data.footerZh || data.footerVi
@@ -577,16 +580,16 @@ function renderDelivery(r: TicketRenderer, data: DeliveryData): void {
   if (data.storeName) r.centerText(data.storeName, r.sz.medium, true);
   r.invertedBanner('外卖 / GIAO HÀNG', r.sz.large);
   r.separator();
-  r.rowText(`单号: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
-  r.leftText(`客户: ${data.customer}  ${data.phone}`, r.sz.normal);
-  r.leftText(`地址: ${data.address}`, r.sz.normal);
-  if (data.remark) r.leftText(`备注: ${data.remark}`, r.sz.small);
+  r.rowText(`单号/Mã đơn: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
+  r.leftText(`客户/KH: ${data.customer}  ${data.phone}`, r.sz.normal);
+  r.leftText(`地址/Địa chỉ: ${data.address}`, r.sz.normal);
+  if (data.remark) r.leftText(`备注/Ghi chú: ${data.remark}`, r.sz.small);
   r.separator();
   r.renderReceiptItems(data.items);
   r.separator();
-  r.rowText('小计:', fmtVND(data.subtotal), r.sz.normal);
-  r.rowText('配送费:', fmtVND(data.deliveryFee), r.sz.normal);
-  r.rowText('合计  TỔNG:', fmtVND(data.total), r.sz.medium, true);
+  r.rowText('小计/Tạm tính:', fmtVND(data.subtotal), r.sz.normal);
+  r.rowText('配送费/Phí giao:', fmtVND(data.deliveryFee), r.sz.normal);
+  r.rowText('合计/TỔNG:', fmtVND(data.total), r.sz.medium, true);
   r.gap(24);
 }
 

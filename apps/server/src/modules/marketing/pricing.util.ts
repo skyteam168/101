@@ -46,6 +46,7 @@ export type PricingResult = {
     rules: { id: string; nameZh: string; amount: number }[];
     coupon: { id: string; nameZh: string; amount: number } | null;
     memberPercent: number;
+    memberDiscount: number;
   };
 };
 
@@ -140,6 +141,7 @@ export function computePricing(input: PricingInput): PricingResult {
       rules: matchedRules,
       coupon: couponSnap,
       memberPercent,
+      memberDiscount,
     },
   };
 }

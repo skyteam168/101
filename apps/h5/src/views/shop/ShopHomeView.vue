@@ -800,8 +800,9 @@ function galleryCaption(g: { captionZh?: string; captionVi?: string }) {
   scroll-behavior: auto;
   position: relative;
 }
-.shop-home.has-cart-bar .dish-list {
-  padding-bottom: 72px;
+.shop-home.has-cart-bar .dish-list,
+.shop-home.has-cart-bar .cat-sidebar {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
 }
 .cat-section {
   scroll-margin-top: 0;

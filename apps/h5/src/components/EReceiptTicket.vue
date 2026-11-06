@@ -84,6 +84,27 @@ function payLabel(method: string) {
   return pair ? bi(pair[0], pair[1]) : method;
 }
 
+const showPreview = ref(false);
+
+async function tryShare(dataUrl: string) {
+  try {
+    if (!navigator.share || !navigator.canShare) return false;
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const file = new File([blob], `receipt-${data.value.orderNo || Date.now()}.png`, {
+      type: 'image/png',
+    });
+    if (!navigator.canShare({ files: [file] })) return false;
+    await navigator.share({
+      files: [file],
+      title: t('shop.order.viewEReceipt'),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function exportImage() {
   if (!ticketRef.value || saving.value) return;
   saving.value = true;
@@ -94,11 +115,15 @@ async function exportImage() {
       backgroundColor: '#ffffff',
     });
     previewImg.value = dataUrl;
-    // 尝试触发下载（桌面/部分 Android）；iOS 仍可长按图片保存
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `receipt-${data.value.orderNo || Date.now()}.png`;
-    a.click();
+    showPreview.value = true;
+    const shared = await tryShare(dataUrl);
+    if (!shared) {
+      // 桌面 / Android：尝试 download；iOS 依赖全屏图长按保存
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `receipt-${data.value.orderNo || Date.now()}.png`;
+      a.click();
+    }
     showToast(t('shop.order.receiptSavedHint'));
   } catch {
     showToast(t('shop.order.receiptSaveFailed'));
@@ -197,9 +222,15 @@ defineExpose({ exportImage });
       <p class="hint">{{ t('shop.order.receiptLongPressHint') }}</p>
     </div>
 
-    <div v-if="previewImg" class="img-preview">
+    <div v-if="previewImg && !showPreview" class="img-preview">
       <p class="hint">{{ t('shop.order.receiptLongPressHint') }}</p>
       <img :src="previewImg" alt="receipt" class="receipt-img" />
+    </div>
+
+    <div v-if="showPreview && previewImg" class="preview-overlay" @click.self="showPreview = false">
+      <button type="button" class="preview-close" @click="showPreview = false">×</button>
+      <p class="preview-hint">{{ t('shop.order.receiptLongPressHint') }}</p>
+      <img :src="previewImg" alt="receipt" class="preview-full" />
     </div>
   </div>
 </template>
@@ -318,6 +349,43 @@ defineExpose({ exportImage });
   width: 100%;
   border-radius: 8px;
   border: 1px solid #eee;
+  background: #fff;
+  -webkit-touch-callout: default;
+  user-select: none;
+}
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px 24px;
+  box-sizing: border-box;
+}
+.preview-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 32px;
+  line-height: 1;
+  cursor: pointer;
+}
+.preview-hint {
+  margin: 0 0 12px;
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+}
+.preview-full {
+  max-width: 100%;
+  max-height: calc(100vh - 120px);
+  border-radius: 8px;
   background: #fff;
   -webkit-touch-callout: default;
   user-select: none;

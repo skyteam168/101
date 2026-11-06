@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
@@ -30,6 +30,8 @@ const loading = ref(false);
 const orders = ref<DeliveryOrder[]>([]);
 const customers = ref<DeliveryCustomer[]>([]);
 const staff = ref<UserRow[]>([]);
+/** 展开菜品明细的订单 id */
+const expanded = reactive<Record<string, boolean>>({});
 let socket: Socket | null = null;
 
 const columns = [
@@ -54,6 +56,63 @@ const byStatus = computed(() => {
 
 function nameOf(row: { nameZh: string; nameVi: string }) {
   return localeField(row as unknown as Record<string, unknown>, 'name', locale.value === 'vi-VN' ? 'vi' : 'zh');
+}
+
+function shortNo(orderNo: string) {
+  if (!orderNo) return '';
+  return orderNo.length > 10 ? `…${orderNo.slice(-8)}` : orderNo;
+}
+
+function fmtTime(iso: string) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(locale.value === 'vi-VN' ? 'vi-VN' : 'zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function itemQtyTotal(o: DeliveryOrder) {
+  return (o.items || []).reduce((s, it) => s + (it.qty || 0), 0);
+}
+
+function snapshotLines(snapshot: unknown): string[] {
+  if (!Array.isArray(snapshot) || !snapshot.length) return [];
+  const vi = locale.value === 'vi-VN';
+  const lines: string[] = [];
+  for (const row of snapshot) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as {
+      dishNameZh?: string;
+      dishNameVi?: string;
+      optionNameZh?: string;
+      optionNameVi?: string;
+      groupNameZh?: string;
+      groupNameVi?: string;
+    };
+    const dish = vi
+      ? r.dishNameVi || r.dishNameZh || r.optionNameVi || r.optionNameZh
+      : r.dishNameZh || r.dishNameVi || r.optionNameZh || r.optionNameVi;
+    if (!dish) continue;
+    const group = vi ? r.groupNameVi || r.groupNameZh : r.groupNameZh || r.groupNameVi;
+    lines.push(group ? `${group}: ${dish}` : dish);
+  }
+  return lines;
+}
+
+function visibleItems(o: DeliveryOrder) {
+  const items = o.items || [];
+  if (expanded[o.id] || items.length <= 3) return items;
+  return items.slice(0, 3);
+}
+
+function toggleItems(id: string) {
+  expanded[id] = !expanded[id];
 }
 
 async function load() {
@@ -155,9 +214,15 @@ onUnmounted(() => {
             </div>
             <div v-for="o in byStatus[col.status]" :key="o.id" class="card">
               <div class="card-hd">
-                <strong>{{ o.orderNo }}</strong>
+                <div class="card-hd-l">
+                  <strong :title="o.orderNo">{{ shortNo(o.orderNo) }}</strong>
+                  <span class="time">{{ fmtTime(o.createdAt) }}</span>
+                </div>
+                <strong class="price">{{ formatVND(o.total) }}</strong>
+              </div>
+              <div class="card-meta">
                 <el-tag v-if="o.memberPriority" size="small" type="warning">{{ t('member.priority') }}</el-tag>
-                <span>{{ formatVND(o.total) }}</span>
+                <el-tag size="small" type="info">{{ t(`delivery.status.${o.status}`, o.status) }}</el-tag>
               </div>
               <div class="muted">{{ o.customer?.name || o.customer?.email }} · {{ o.customer?.phone }}</div>
               <div class="muted">
@@ -178,8 +243,28 @@ onUnmounted(() => {
                 <span>{{ t('delivery.landmarkPhoto') }}</span>
               </a>
               <ul class="items">
-                <li v-for="it in o.items" :key="it.id">{{ nameOf(it) }} ×{{ it.qty }}</li>
+                <li v-for="it in visibleItems(o)" :key="it.id">
+                  <div>{{ nameOf(it) }} ×{{ it.qty }}</div>
+                  <div v-for="(line, idx) in snapshotLines(it.optionsSnapshot)" :key="idx" class="snap">
+                    · {{ line }}
+                  </div>
+                </li>
               </ul>
+              <button
+                v-if="(o.items || []).length > 3"
+                type="button"
+                class="expand-btn"
+                @click="toggleItems(o.id)"
+              >
+                {{
+                  expanded[o.id]
+                    ? t('delivery.collapseItems')
+                    : t('delivery.expandItems', { n: itemQtyTotal(o) })
+                }}
+              </button>
+              <div class="muted count" v-else-if="o.items?.length">
+                {{ t('delivery.itemCount', { n: itemQtyTotal(o) }) }}
+              </div>
               <div class="muted" v-if="o.courierName">{{ t('delivery.courier') }}: {{ o.courierName }}</div>
               <div class="actions" v-perm="'delivery:accept'">
                 <el-button v-if="o.status === 'pending'" size="small" type="primary" @click="act(o, 'accept')">
@@ -259,22 +344,30 @@ h3 {
 }
 .board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(200px, 1fr));
+  grid-template-columns: repeat(5, minmax(220px, 1fr));
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 8px;
+  align-items: start;
 }
 .col {
   background: #f5f7fa;
   border-radius: 8px;
   padding: 8px;
   min-height: 320px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
 }
 .col-title {
   display: flex;
   justify-content: space-between;
   font-weight: 600;
   margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  background: #f5f7fa;
+  z-index: 1;
+  padding-bottom: 4px;
 }
 .card {
   background: #fff;
@@ -286,6 +379,34 @@ h3 {
 .card-hd {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.card-hd-l {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.card-hd-l strong {
+  word-break: break-all;
+  font-size: 14px;
+}
+.time {
+  color: #909399;
+  font-size: 12px;
+}
+.price {
+  flex-shrink: 0;
+  color: #c45656;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   margin-bottom: 4px;
 }
 .muted {
@@ -310,9 +431,25 @@ h3 {
   border: 1px solid #eee;
 }
 .items {
-  margin: 6px 0;
+  margin: 6px 0 2px;
   padding-left: 16px;
   font-size: 13px;
+}
+.items .snap {
+  color: #909399;
+  font-size: 12px;
+  padding-left: 4px;
+}
+.expand-btn {
+  border: 0;
+  background: transparent;
+  color: #409eff;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 0 4px;
+}
+.count {
+  margin-bottom: 4px;
 }
 .actions {
   display: flex;

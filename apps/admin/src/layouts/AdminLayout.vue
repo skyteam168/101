@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, type Component } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch, type Component } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import {
@@ -9,6 +9,7 @@ import {
   Dish,
   Expand,
   Fold,
+  FullScreen,
   Grid,
   HomeFilled,
   KnifeFork,
@@ -43,7 +44,24 @@ const userStore = useUserStore();
 const brandStore = useBrandStore();
 const opsAlert = useOpsAlertStore();
 const collapsed = ref(false);
+const isFullscreen = ref(false);
 const { unlocked, muted, unlockVoice, setVoiceMuted, start: startVoice } = useVoiceAlert();
+
+function syncFullscreen() {
+  isFullscreen.value = !!document.fullscreenElement;
+}
+
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await document.documentElement.requestFullscreen();
+    }
+  } catch {
+    /* 浏览器拒绝或未支持 */
+  }
+}
 const {
   enabled: printStationOn,
   connecting: printStationConnecting,
@@ -175,6 +193,11 @@ onMounted(() => {
   void startVoice();
   void brandStore.fetchBrand();
   void startPrintStation();
+  syncFullscreen();
+  document.addEventListener('fullscreenchange', syncFullscreen);
+});
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', syncFullscreen);
 });
 </script>
 
@@ -315,6 +338,15 @@ onMounted(() => {
             <el-option label="中文" value="zh-CN" />
             <el-option label="Tiếng Việt" value="vi-VN" />
           </el-select>
+          <el-button
+            text
+            size="small"
+            :icon="FullScreen"
+            :title="isFullscreen ? t('common.exitFullscreen') : t('common.fullscreen')"
+            @click="toggleFullscreen"
+          >
+            {{ isFullscreen ? t('common.exitFullscreen') : t('common.fullscreen') }}
+          </el-button>
           <el-button text :icon="SwitchButton" @click="onLogout">{{ t('auth.logout') }}</el-button>
         </div>
       </el-header>

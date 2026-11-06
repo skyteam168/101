@@ -31,11 +31,11 @@ async function handleSendCode() {
   codeSending.value = true;
   try {
     const res = await sendCode({ email: form.email, purpose: 'register' });
-    showToast(
-      res.devCode
-        ? `${t('shop.auth.codeSent')} (${res.devCode})`
-        : t('shop.auth.codeSent'),
-    );
+    const base = res.devCode
+      ? `${t('shop.auth.codeSent')} (${res.devCode})`
+      : t('shop.auth.codeSent');
+    const gmail = /@(gmail|googlemail)\.com$/i.test(form.email.trim());
+    showToast(gmail ? `${base}\n${t('shop.auth.gmailSpamHint')}` : base);
     countdown.value = 60;
     timer = setInterval(() => {
       countdown.value--;

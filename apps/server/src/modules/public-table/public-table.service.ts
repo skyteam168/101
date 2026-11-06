@@ -137,7 +137,10 @@ export class PublicTableService {
         if (await this.redis.get(pinLockKey)) {
           throw new BusinessError('TABLE_PIN_LOCKED');
         }
-        if (!dto.pin || dto.pin !== session.pin) {
+        if (!dto.pin) {
+          throw new BusinessError('TABLE_SESSION_NEED_PIN');
+        }
+        if (dto.pin !== session.pin) {
           const fails = await this.redis.incr(pinFailKey, 600);
           if (fails >= 10) {
             await this.redis.del(pinFailKey);

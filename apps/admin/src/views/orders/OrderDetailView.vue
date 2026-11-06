@@ -54,6 +54,30 @@ function nameOf(row: { nameZh: string; nameVi: string }) {
   return localeField(row as unknown as Record<string, unknown>, 'name', loc);
 }
 
+function snapshotLines(snapshot: unknown): string[] {
+  if (!Array.isArray(snapshot) || !snapshot.length) return [];
+  const vi = locale.value === 'vi-VN';
+  const lines: string[] = [];
+  for (const row of snapshot) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as {
+      dishNameZh?: string;
+      dishNameVi?: string;
+      optionNameZh?: string;
+      optionNameVi?: string;
+      groupNameZh?: string;
+      groupNameVi?: string;
+    };
+    const dish = vi
+      ? r.dishNameVi || r.dishNameZh || r.optionNameVi || r.optionNameZh
+      : r.dishNameZh || r.dishNameVi || r.optionNameZh || r.optionNameVi;
+    if (!dish) continue;
+    const group = vi ? r.groupNameVi || r.groupNameZh : r.groupNameZh || r.groupNameVi;
+    lines.push(group ? `${group}: ${dish}` : dish);
+  }
+  return lines;
+}
+
 function methodLabel(method: string) {
   if (method === 'bank_transfer') return t('order.bank');
   if (method === 'cash') return t('order.cash');
@@ -170,8 +194,17 @@ onMounted(load);
       <div v-for="batch in order.batches" :key="batch.id" class="batch">
         <div class="batch-h">{{ t('order.round', { n: batch.roundNo }) }}</div>
         <el-table :data="batch.items" size="small">
-          <el-table-column :label="t('order.itemName')">
-            <template #default="{ row }">{{ nameOf(row) }}</template>
+          <el-table-column :label="t('order.itemName')" min-width="180">
+            <template #default="{ row }">
+              <div>{{ nameOf(row) }}</div>
+              <div
+                v-for="(line, idx) in snapshotLines(row.optionsSnapshot)"
+                :key="idx"
+                class="snap"
+              >
+                · {{ line }}
+              </div>
+            </template>
           </el-table-column>
           <el-table-column prop="qty" :label="t('order.qty')" width="70" />
           <el-table-column :label="t('order.unitPrice')" width="120">
@@ -184,6 +217,32 @@ onMounted(load);
           <el-table-column prop="voidReason" :label="t('order.voidReason')" min-width="120" />
         </el-table>
       </div>
+      <el-table
+        v-if="!order.batches?.length && order.items?.length"
+        :data="order.items"
+        size="small"
+      >
+        <el-table-column :label="t('order.itemName')" min-width="180">
+          <template #default="{ row }">
+            <div>{{ nameOf(row) }}</div>
+            <div
+              v-for="(line, idx) in snapshotLines(row.optionsSnapshot)"
+              :key="idx"
+              class="snap"
+            >
+              · {{ line }}
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="qty" :label="t('order.qty')" width="70" />
+        <el-table-column :label="t('order.unitPrice')" width="120">
+          <template #default="{ row }">{{ formatVND(row.unitPrice) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('order.amount')" width="120">
+          <template #default="{ row }">{{ formatVND(row.amount) }}</template>
+        </el-table-column>
+        <el-table-column prop="status" :label="t('order.filterStatus')" width="100" />
+      </el-table>
 
       <h3 v-if="order.payments.length">{{ t('order.payments') }}</h3>
       <el-table v-if="order.payments.length" :data="order.payments" size="small">
@@ -289,6 +348,11 @@ onMounted(load);
 .batch-h {
   font-weight: 600;
   margin: 8px 0;
+}
+.snap {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.4;
 }
 h3 {
   margin: 20px 0 8px;

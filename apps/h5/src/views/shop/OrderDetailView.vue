@@ -16,9 +16,38 @@ import EReceiptTicket from '../../components/EReceiptTicket.vue';
 import { getCustomerToken } from '../../utils/customer-storage';
 import { buildEReceiptPayload, canShowEReceipt } from '../../utils/build-e-receipt';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const router = useRouter();
 const route = useRoute();
+
+function itemTitle(item: { nameZh: string; nameVi?: string }) {
+  const vi = String(locale.value).startsWith('vi');
+  return vi ? item.nameVi || item.nameZh : item.nameZh || item.nameVi || '';
+}
+
+function snapshotLines(snapshot: unknown): string[] {
+  if (!Array.isArray(snapshot) || !snapshot.length) return [];
+  const vi = String(locale.value).startsWith('vi');
+  const lines: string[] = [];
+  for (const row of snapshot) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as {
+      dishNameZh?: string;
+      dishNameVi?: string;
+      optionNameZh?: string;
+      optionNameVi?: string;
+      groupNameZh?: string;
+      groupNameVi?: string;
+    };
+    const dish = vi
+      ? r.dishNameVi || r.dishNameZh || r.optionNameVi || r.optionNameZh
+      : r.dishNameZh || r.dishNameVi || r.optionNameZh || r.optionNameVi;
+    if (!dish) continue;
+    const group = vi ? r.groupNameVi || r.groupNameZh : r.groupNameZh || r.groupNameVi;
+    lines.push(group ? `${group}: ${dish}` : dish);
+  }
+  return lines;
+}
 
 const orderId = computed(() => String(route.params.id));
 const order = ref<DeliveryOrder | null>(null);
@@ -201,7 +230,8 @@ function payMethodLabel(method?: string | null): string {
         <van-cell
           v-for="item in order.items"
           :key="item.id"
-          :title="item.nameZh"
+          :title="itemTitle(item)"
+          :label="snapshotLines(item.optionsSnapshot).join(' · ') || undefined"
           :value="`${formatVND(item.unitPrice)} × ${item.qty}`"
         />
       </van-cell-group>

@@ -73,6 +73,7 @@ export type Order = {
     rules?: { id: string; nameZh: string; amount: number }[];
     coupon?: { id: string; nameZh: string; amount: number } | null;
     memberPercent?: number;
+    memberDiscount?: number;
     manualDiscount?: number;
   } | null;
   createdAt: string;

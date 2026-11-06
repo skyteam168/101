@@ -216,6 +216,9 @@
     "courier": "Shipper",
     "orderCount": "Số đơn",
     "landmarkPhoto": "Ảnh cổng/số nhà",
+    "expandItems": "Mở rộng · {n} món",
+    "collapseItems": "Thu gọn",
+    "itemCount": "Tổng {n} món",
     "status": {
       "pending": "Chờ nhận",
       "accepted": "Đã nhận",
@@ -503,7 +506,9 @@
     "backHome": "Về trang chủ",
     "confirmDelete": "Xác nhận xóa?",
     "refresh": "Làm mới",
-    "deleted": "Đã xóa"
+    "deleted": "Đã xóa",
+    "fullscreen": "Toàn màn hình",
+    "exitFullscreen": "Thoát toàn màn hình"
   },
   "hr": {
     "title": "Nhân sự & chi phí nhân công",
@@ -661,6 +666,7 @@
     "gift": "Tặng",
     "origin": "Giá gốc",
     "due": "Phải thu",
+    "memberDiscount": "Giảm thành viên",
     "roundOff": "Làm tròn",
     "free": "Miễn phí",
     "coupon": "Coupon",
