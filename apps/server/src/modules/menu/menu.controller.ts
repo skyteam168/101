@@ -98,7 +98,7 @@ export class MenuController {
   }
 
   @Put('dishes/batch/sold-out')
-  @RequirePerm('menu:dish:edit')
+  @RequirePerm('menu:dish:sold-out')
   batchSoldOut(@CurrentUser() user: AuthUser, @Body() dto: BatchSoldOutDto) {
     return this.menuService.batchSoldOut(this.storeId(user), dto);
   }

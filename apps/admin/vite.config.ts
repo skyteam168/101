@@ -2,9 +2,9 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { resolve } from 'path';
 
-export default defineConfig({
-  // 生产可挂在同域 /admin/（宝塔单站点）；本地开发保持 /
-  base: process.env.VITE_BASE || '/',
+export default defineConfig(({ command }) => ({
+  // 生产挂同域 /admin/；本地 dev 保持 /
+  base: process.env.VITE_BASE || (command === 'build' ? '/admin/' : '/'),
   plugins: [vue()],
   resolve: {
     alias: {
@@ -29,4 +29,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

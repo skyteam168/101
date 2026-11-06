@@ -438,13 +438,13 @@ function onCashierKey(e: KeyboardEvent) {
     if (order.value && userStore.hasPerm('order:discount')) openDiscount();
   } else if (e.key === 'F8') {
     e.preventDefault();
-    tempVisible.value = true;
+    if (userStore.hasPerm('order:add-item')) tempVisible.value = true;
   } else if (e.key === 'F9') {
     e.preventDefault();
     if (order.value && userStore.hasPerm('order:checkout')) openCheckout();
   } else if (e.key === 'F12') {
     e.preventDefault();
-    if (cart.value.length) void submitCart();
+    if (cart.value.length && userStore.hasPerm('order:create')) void submitCart();
   } else if (e.ctrlKey && (e.key === '0' || e.code === 'Digit0')) {
     e.preventDefault();
     if (order.value && userStore.hasPerm('order:discount')) openRoundOff();
@@ -705,7 +705,13 @@ function closeReceipt() {
       <section class="left">
         <div class="sec-title">
           <strong>{{ t('cashier.ordered') }}</strong>
-          <el-button size="small" type="danger" plain @click="tempVisible = true">
+          <el-button
+            v-if="userStore.hasPerm('order:add-item')"
+            size="small"
+            type="danger"
+            plain
+            @click="tempVisible = true"
+          >
             + {{ t('cashier.tempDish') }}
           </el-button>
         </div>
@@ -720,9 +726,24 @@ function closeReceipt() {
             <div class="price">{{ formatVND(it.amount) }}</div>
           </div>
           <div class="line-actions">
-            <el-button link type="warning" @click="discountItem(it)">{{ t('order.discount') }}</el-button>
-            <el-button link type="success" @click="giftItem(it)">{{ t('cashier.gift') }}</el-button>
-            <el-button link type="danger" @click="voidItem(it)">{{ t('common.delete') }}</el-button>
+            <el-button
+              v-if="userStore.hasPerm('order:discount')"
+              link
+              type="warning"
+              @click="discountItem(it)"
+            >{{ t('order.discount') }}</el-button>
+            <el-button
+              v-if="userStore.hasPerm('order:discount')"
+              link
+              type="success"
+              @click="giftItem(it)"
+            >{{ t('cashier.gift') }}</el-button>
+            <el-button
+              v-if="userStore.hasPerm('order:void-item')"
+              link
+              type="danger"
+              @click="voidItem(it)"
+            >{{ t('common.delete') }}</el-button>
             <span>×{{ it.qty }}</span>
           </div>
         </div>
@@ -850,7 +871,12 @@ function closeReceipt() {
         <span>{{ t('cashier.free') }}</span>
         <em>(Ctrl+M)</em>
       </button>
-      <button type="button" class="act" @click="tempVisible = true">
+      <button
+        v-if="userStore.hasPerm('order:add-item')"
+        type="button"
+        class="act"
+        @click="tempVisible = true"
+      >
         <el-icon :size="22"><EditPen /></el-icon>
         <span>{{ t('cashier.tempDish') }}</span>
         <em>(F8)</em>
@@ -858,7 +884,7 @@ function closeReceipt() {
       <button
         type="button"
         class="act primary"
-        :disabled="!cart.length"
+        :disabled="!cart.length || !userStore.hasPerm('order:create')"
         @click="submitCart"
       >
         <el-icon :size="22"><DocumentChecked /></el-icon>

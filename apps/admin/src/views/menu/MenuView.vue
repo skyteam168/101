@@ -406,7 +406,11 @@ onUnmounted(() => {
             <el-button v-perm="'menu:dish:edit'" @click="doBatchStatus('on')">{{ t('menuMgmt.batchOn') }}</el-button>
             <el-button v-perm="'menu:dish:edit'" @click="doBatchStatus('off')">{{ t('menuMgmt.batchOff') }}</el-button>
             <el-button v-perm="'menu:dish:edit'" @click="doBatchPrice">{{ t('menuMgmt.batchPrice') }}</el-button>
-            <el-button v-perm="'menu:dish:edit'" type="warning" @click="doSoldOut">{{ t('menuMgmt.soldOut') }}</el-button>
+            <el-button
+              v-if="userStore.hasPerm('menu:dish:edit') || userStore.hasPerm('menu:dish:sold-out')"
+              type="warning"
+              @click="doSoldOut"
+            >{{ t('menuMgmt.soldOut') }}</el-button>
             <el-button @click="refreshAll">{{ t('common.refresh') }}</el-button>
           </div>
         </div>

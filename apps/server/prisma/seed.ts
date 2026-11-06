@@ -217,6 +217,13 @@ const PERMISSION_TREE: PermDef[] = [
         sort: 1,
       },
       {
+        code: 'menu:dish:sold-out',
+        nameZh: '菜品估清',
+        nameVi: 'Báo hết món',
+        type: PermissionType.button,
+        sort: 1,
+      },
+      {
         code: 'table:open',
         nameZh: '开台',
         nameVi: 'Mở bàn',
@@ -433,6 +440,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:system:user',
     'menu:system:settings',
     'menu:dish:edit',
+    'menu:dish:sold-out',
     'chat:reply',
     'chat:mute',
     'table:open',
@@ -471,6 +479,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:member',
     'menu:delivery',
     'menu:print',
+    'menu:dish:sold-out',
     'table:open',
     'order:create',
     'order:add-item',
@@ -504,7 +513,8 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'reservation:view',
     'group_meal:view',
   ],
-  kitchen: ['menu:kitchen', 'menu:order', 'menu:dish', 'menu:dish:edit'],
+  // 厨房：看板 + 估清；不可改价/增删菜
+  kitchen: ['menu:kitchen', 'menu:order', 'menu:dish', 'menu:dish:sold-out'],
 };
 
 const DISHES: Array<{
