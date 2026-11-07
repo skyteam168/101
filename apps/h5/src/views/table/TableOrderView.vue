@@ -123,13 +123,40 @@ const orderedQtyByDish = computed(() => {
   return map;
 });
 
+/** 共享购物车数量（按 dishId 汇总，含同伴未提交的） */
+const cartQtyByDish = computed(() => {
+  const map = new Map<string, number>();
+  for (const i of cart.value) {
+    const id = String(i.dishId);
+    map.set(id, (map.get(id) || 0) + i.qty);
+  }
+  return map;
+});
+
 function orderedQtyOf(dishId: string) {
   return orderedQtyByDish.value.get(String(dishId)) || 0;
 }
 
 function cartQtyOf(dishId: string) {
-  const id = String(dishId);
-  return cart.value.filter((i) => String(i.dishId) === id).reduce((s, i) => s + i.qty, 0);
+  return cartQtyByDish.value.get(String(dishId)) || 0;
+}
+
+/**
+ * 菜品「已点」展示数量：已下单 + 购物车，同桌一眼看出本桌已选份数。
+ * 有规格时购物车可能多行，已按 dishId 汇总。
+ */
+function markedQtyOf(dishId: string) {
+  return orderedQtyOf(dishId) + cartQtyOf(dishId);
+}
+
+/** 分类角标：该分类下「已下单 + 购物车」总份数（无则不显示，同外卖侧栏） */
+function catMarkQty(cat: MenuCategory): number | undefined {
+  const dishIds = cat.dishes.map((d) => String(d.id));
+  let qty = 0;
+  for (const id of dishIds) {
+    qty += markedQtyOf(id);
+  }
+  return qty > 0 ? qty : undefined;
 }
 
 function syncDocTitle() {
@@ -561,8 +588,13 @@ watch(locale, () => syncDocTitle());
       <van-tabs v-model:active="tab" sticky offset-top="46">
         <van-tab :title="t('menu.title')">
           <div class="menu-layout">
-            <van-sidebar v-model="activeCat" @change="selectCat">
-              <van-sidebar-item v-for="c in categories" :key="c.id" :title="nameOf(c)" />
+            <van-sidebar v-model="activeCat" class="cat-sidebar" @change="selectCat">
+              <van-sidebar-item
+                v-for="c in categories"
+                :key="c.id"
+                :title="nameOf(c)"
+                :badge="catMarkQty(c)"
+              />
             </van-sidebar>
             <div
               ref="dishListRef"
@@ -588,12 +620,14 @@ watch(locale, () => syncDocTitle());
                     <div v-else class="dish-img dish-img-ph">
                       <van-icon name="photo-o" size="28" color="#ccc" />
                     </div>
-                    <span v-if="orderedQtyOf(d.id) > 0" class="ordered-badge">
-                      {{ orderedQtyOf(d.id) }}
-                    </span>
                   </div>
                   <div class="dish-body">
-                    <div class="d-name">{{ nameOf(d) }}</div>
+                    <div class="d-name-row">
+                      <div class="d-name">{{ nameOf(d) }}</div>
+                      <span v-if="markedQtyOf(d.id) > 0" class="ordered-mark">
+                        {{ t('menu.orderedMark', { n: markedQtyOf(d.id) }) }}
+                      </span>
+                    </div>
                     <div v-if="d.options?.length" class="spec-hint">{{ t('shop.hasOptions') }}</div>
                     <div class="dish-price-row">
                       <div class="d-price">{{ formatVND(d.price) }}</div>
@@ -790,22 +824,6 @@ watch(locale, () => syncDocTitle());
   align-items: center;
   justify-content: center;
 }
-.ordered-badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: #ee0a24;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-  box-sizing: border-box;
-}
 .dish-body {
   flex: 1;
   min-width: 0;
@@ -813,10 +831,34 @@ watch(locale, () => syncDocTitle());
   flex-direction: column;
   justify-content: center;
 }
+.d-name-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
 .d-name {
+  flex: 1;
+  min-width: 0;
   font-weight: 600;
   font-size: 14px;
   line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 已点标记：小号、不抢菜名，贴在名称右侧留白 */
+.ordered-mark {
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #ee0a24;
+  white-space: nowrap;
+}
+.cat-sidebar :deep(.van-badge--top-right) {
+  transform: translate(50%, -40%);
 }
 .spec-hint {
   margin-top: 2px;

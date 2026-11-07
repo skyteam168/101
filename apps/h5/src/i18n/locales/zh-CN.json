@@ -172,6 +172,7 @@
   "menu": {
     "title": "点餐",
     "ordered": "已下单",
+    "orderedMark": "已点:{n}",
     "cart": "购物车",
     "submit": "提交点单",
     "emptyCart": "购物车为空",

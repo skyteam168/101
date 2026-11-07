@@ -172,6 +172,7 @@
   "menu": {
     "title": "Thực đơn",
     "ordered": "Đã gọi",
+    "orderedMark": "Đã gọi:{n}",
     "cart": "Giỏ hàng",
     "submit": "Gửi đơn",
     "emptyCart": "Giỏ trống",
