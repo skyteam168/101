@@ -4,11 +4,10 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BatchPrintStatus, OrderStatus, SessionStatus, TableStatus } from '@prisma/client';
 import { Events } from '@restaurant/shared';
 import { randomBytes, randomInt } from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
 import PDFDocument from 'pdfkit';
 import * as QRCode from 'qrcode';
 import { BusinessError } from '../../common/errors/business.error';
+import { registerPdfCjkFont } from '../../common/pdf-font.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CreateAreaDto,
@@ -615,46 +614,6 @@ export class TableService {
     return this.listFloor(storeId);
   }
 
-  /**
-   * 桌贴 PDF 字体（需支持中文 + 越南文声调）。
-   * 注意：PDFKit 不支持 .ttc（如 msyh.ttc），注册会失败并回退 Helvetica → 中文乱码。
-   */
-  private resolvePdfFontCandidates(): string[] {
-    const list = [
-      // 仓库内嵌字体（优先）
-      path.resolve(process.cwd(), 'assets/fonts/NotoSansSC-Regular.otf'),
-      path.resolve(process.cwd(), '../print-agent/assets/fonts/NotoSansSC-Regular.otf'),
-      path.resolve(__dirname, '../../../assets/fonts/NotoSansSC-Regular.otf'),
-      path.resolve(__dirname, '../../../../print-agent/assets/fonts/NotoSansSC-Regular.otf'),
-      // Windows 系统单文件字体（勿用 .ttc）
-      'C:\\Windows\\Fonts\\Noto Sans SC (TrueType).otf',
-      'C:\\Windows\\Fonts\\NotoSansSC-Regular.otf',
-      'C:\\Windows\\Fonts\\simhei.ttf',
-      'C:\\Windows\\Fonts\\simkai.ttf',
-      'C:\\Windows\\Fonts\\arialuni.ttf',
-      // Linux
-      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-      '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
-      '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
-    ];
-    return list.filter((f, i, arr) => arr.indexOf(f) === i && fs.existsSync(f));
-  }
-
-  private registerStickerFont(doc: InstanceType<typeof PDFDocument>): boolean {
-    for (const fontFile of this.resolvePdfFontCandidates()) {
-      try {
-        // .ttc 在多数 pdfkit 版本会抛 createSubset is not a function
-        if (/\.ttc$/i.test(fontFile)) continue;
-        doc.registerFont('StickerFont', fontFile);
-        doc.font('StickerFont');
-        return true;
-      } catch {
-        /* 试下一个 */
-      }
-    }
-    return false;
-  }
-
   async exportStickers(storeId: string, dto: ExportStickersDto): Promise<Buffer> {
     const store = await this.prisma.store.findUnique({ where: { id: BigInt(storeId) } });
     if (!store) throw new BusinessError('STORE_REQUIRED');
@@ -682,9 +641,9 @@ export class TableService {
     const chunks: Buffer[] = [];
     doc.on('data', (c) => chunks.push(c as Buffer));
 
-    const hasCjkFont = this.registerStickerFont(doc);
+    const stickerFont = registerPdfCjkFont(doc, 'StickerFont');
     const useFont = () => {
-      if (hasCjkFont) doc.font('StickerFont');
+      if (stickerFont) doc.font(stickerFont);
     };
 
     const midX = W / 2;

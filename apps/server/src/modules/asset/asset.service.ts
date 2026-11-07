@@ -4,6 +4,7 @@ import * as ExcelJS from 'exceljs';
 import * as QRCode from 'qrcode';
 import PDFDocument from 'pdfkit';
 import { BusinessError } from '../../common/errors/business.error';
+import { registerPdfCjkFont } from '../../common/pdf-font.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import {
@@ -996,6 +997,12 @@ export class AssetService {
       doc.on('error', reject);
     });
 
+    // 嵌入中越文字体，避免默认 Helvetica 导致 nameZh/nameVi/location 乱码
+    const cjkFont = registerPdfCjkFont(doc);
+    const useFont = () => {
+      if (cjkFont) doc.font(cjkFont);
+    };
+
     let i = 0;
     for (const a of assets) {
       if (i > 0 && i % 8 === 0) doc.addPage();
@@ -1005,10 +1012,16 @@ export class AssetService {
       const y = 36 + row * 180;
       const png = await QRCode.toBuffer(a.assetNo, { width: 120, margin: 1 });
       doc.image(png, x, y, { width: 100 });
+      useFont();
       doc.fontSize(12).text(a.assetNo, x + 110, y + 10, { width: 140 });
+      useFont();
       doc.fontSize(10).text(a.nameZh, x + 110, y + 32, { width: 140 });
+      useFont();
       doc.text(a.nameVi, x + 110, y + 48, { width: 140 });
-      if (a.location) doc.text(a.location, x + 110, y + 64, { width: 140 });
+      if (a.location) {
+        useFont();
+        doc.text(a.location, x + 110, y + 64, { width: 140 });
+      }
       i += 1;
     }
     doc.end();
