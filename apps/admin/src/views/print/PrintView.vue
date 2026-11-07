@@ -26,6 +26,7 @@ import {
   type Printer,
   type Station,
 } from '../../api/print';
+import { formatDateTimeLocal } from '../../utils/datetime';
 
 const { t } = useI18n();
 const tab = ref('jobs');
@@ -255,7 +256,9 @@ onMounted(loadAll);
           </el-table-column>
           <el-table-column prop="retries" :label="t('print.retries')" width="80" />
           <el-table-column prop="error" :label="t('print.error')" min-width="160" show-overflow-tooltip />
-          <el-table-column prop="createdAt" :label="t('print.createdAt')" width="170" />
+          <el-table-column :label="t('print.createdAt')" width="160">
+            <template #default="{ row }">{{ formatDateTimeLocal(row.createdAt) }}</template>
+          </el-table-column>
           <el-table-column :label="t('common.actions')" width="140" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openPreview(row)">
