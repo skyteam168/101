@@ -131,12 +131,18 @@ async function onGoogleCredential(idToken: string) {
       </div>
 
       <van-cell-group inset>
-        <van-field v-model="form.email" type="email" :label="t('shop.auth.email')" />
+        <van-field
+          v-model="form.email"
+          type="email"
+          :label="t('shop.auth.email')"
+          :placeholder="t('shop.auth.emailPlaceholder')"
+        />
         <van-field
           v-if="mode === 'password'"
           v-model="form.password"
           type="password"
           :label="t('shop.auth.password')"
+          :placeholder="t('shop.auth.passwordPlaceholder')"
         />
         <van-field
           v-else

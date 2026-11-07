@@ -23,6 +23,7 @@ import { RbacModule } from './modules/rbac/rbac.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ReservationModule } from './modules/reservation/reservation.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
+import { FinanceModule } from './modules/finance/finance.module';
 import { PrintModule } from './modules/print/print.module';
 import { ReportModule } from './modules/report/report.module';
 import { StoreModule } from './modules/store/store.module';
@@ -59,6 +60,7 @@ import { StorageModule } from './storage/storage.module';
     PrintModule,
     DeliveryModule,
     AssetModule,
+    FinanceModule,
     ReportModule,
     InventoryModule,
     HrModule,

@@ -36,12 +36,35 @@ import { searchMembersApi, type Member } from '../../api/member';
 import { getStoreSettingsApi } from '../../api/store';
 import TicketPreview from '../../components/print/TicketPreview.vue';
 import { useUserStore } from '../../stores/user';
+import {
+  useDishOptionPicker,
+  type OptionSnapshotLine,
+} from '../../composables/useDishOptions';
 import { buildReceiptPayload } from '../../utils/build-receipt-payload';
 import { formatThousands, parseThousands } from '../../utils/vnd-input';
 
 const { t, locale } = useI18n();
 const userStore = useUserStore();
 const loc = computed(() => (locale.value === 'vi-VN' ? 'vi' : 'zh'));
+const {
+  visible: optVisible,
+  dish: optDish,
+  groups: optGroups,
+  open: openDishOptions,
+  toggle: toggleOpt,
+  isSelected: isOptSelected,
+  cancel: cancelOpt,
+  confirm: confirmOpt,
+  groupLabel: optGroupLabel,
+  optionLabel: optOptionLabel,
+} = useDishOptionPicker(loc);
+
+type CartLine = {
+  key: string;
+  dish: Dish;
+  qty: number;
+  optionsSnapshot: OptionSnapshotLine[];
+};
 
 const loading = ref(false);
 /** 堂食 / 外带 */
@@ -61,7 +84,7 @@ const selectedCombo = ref<Combo | null>(null);
 /** 每个分组已选的 dishIds */
 const comboSelections = ref<Record<string, string[]>>({});
 const order = ref<Order | null>(null);
-const cart = ref<{ dish: Dish; qty: number }[]>([]);
+const cart = ref<CartLine[]>([]);
 const memberKeyword = ref('');
 const members = ref<Member[]>([]);
 const selectedMember = ref<Member | null>(null);
@@ -324,15 +347,44 @@ async function ensureDining() {
   return true;
 }
 
-function addToCart(dish: Dish) {
-  const line = cart.value.find((c) => c.dish.id === dish.id);
-  if (line) line.qty += 1;
-  else cart.value.push({ dish, qty: 1 });
+function cartLineKey(dishId: string, snapshot: OptionSnapshotLine[]) {
+  return `${dishId}::${JSON.stringify(snapshot)}`;
+}
+
+async function addToCart(dish: Dish) {
+  const picked = await openDishOptions(dish);
+  if (!picked) return;
+  const key = cartLineKey(dish.id, picked.snapshot);
+  const line = cart.value.find((c) => c.key === key);
+  if (line) line.qty += picked.qty;
+  else {
+    cart.value.push({
+      key,
+      dish,
+      qty: picked.qty,
+      optionsSnapshot: picked.snapshot,
+    });
+  }
+}
+
+function changeCartQty(key: string, delta: number) {
+  const idx = cart.value.findIndex((c) => c.key === key);
+  if (idx < 0) return;
+  cart.value[idx].qty += delta;
+  if (cart.value[idx].qty <= 0) cart.value.splice(idx, 1);
+}
+
+function removeCartLine(key: string) {
+  cart.value = cart.value.filter((c) => c.key !== key);
 }
 
 async function submitCart() {
   if (!cart.value.length) return;
-  const items = cart.value.map((c) => ({ dishId: c.dish.id, qty: c.qty }));
+  const items = cart.value.map((c) => ({
+    dishId: c.dish.id,
+    qty: c.qty,
+    optionsSnapshot: c.optionsSnapshot.length ? c.optionsSnapshot : undefined,
+  }));
   if (orderMode.value === 'takeaway') {
     if (order.value) {
       order.value = await addOrderItemsApi(order.value.id, items);
@@ -369,8 +421,9 @@ async function giftItem(item: OrderItem) {
 
 async function discountItem(item: OrderItem) {
   const { value } = await ElMessageBox.prompt(t('cashier.linePercent'), t('order.discount'), {
-    inputPattern: /^\d{1,3}$/,
-    inputValue: '10',
+    inputPattern: /^(?:0|[1-9]\d?|100)$/,
+    inputValue: '',
+    inputErrorMessage: t('cashier.linePercent'),
   });
   order.value = await updateLineItemApi(item.id, { percent: Number(value) });
 }
@@ -811,7 +864,29 @@ function closeReceipt() {
             </button>
           </div>
           <div class="cart" v-if="cart.length">
-            <div v-for="c in cart" :key="c.dish.id">{{ nameOf(c.dish) }} × {{ c.qty }}</div>
+            <div v-for="c in cart" :key="c.key" class="cart-line">
+              <div class="cart-line-main">
+                <span>
+                  {{ nameOf(c.dish) }}
+                  <small v-if="c.optionsSnapshot.length" class="opt-hint">
+                    {{
+                      c.optionsSnapshot
+                        .map((o) => (loc === 'vi' ? o.optionNameVi : o.optionNameZh))
+                        .join(' / ')
+                    }}
+                  </small>
+                </span>
+                <em>{{ formatVND(dishUnitPrice(c.dish) * c.qty) }}</em>
+              </div>
+              <div class="cart-line-ops">
+                <el-button size="small" @click="changeCartQty(c.key, -1)">-</el-button>
+                <span>{{ c.qty }}</span>
+                <el-button size="small" @click="changeCartQty(c.key, 1)">+</el-button>
+                <el-button size="small" type="danger" link @click="removeCartLine(c.key)">
+                  {{ t('common.delete') }}
+                </el-button>
+              </div>
+            </div>
             <el-button type="primary" @click="submitCart">{{ t('order.submit') }}</el-button>
           </div>
         </template>
@@ -902,6 +977,42 @@ function closeReceipt() {
         <em>(F9)</em>
       </button>
     </div>
+
+    <el-dialog
+      v-model="optVisible"
+      :title="optDish ? nameOf(optDish) : t('cashier.tabDishes')"
+      width="440px"
+      @close="cancelOpt()"
+    >
+      <div v-for="g in optGroups" :key="g.key" class="opt-group">
+        <div class="opt-group-title">
+          {{ optGroupLabel(g) }}
+          <em v-if="g.required">*</em>
+        </div>
+        <div class="opt-chips">
+          <button
+            v-for="o in g.opts"
+            :key="String(o.id)"
+            type="button"
+            class="opt-chip"
+            :class="{ on: isOptSelected(g.key, o.id!) }"
+            @click="toggleOpt(g.key, o.id!, g.multi)"
+          >
+            {{ optOptionLabel(o) }}
+            <span v-if="o.extraPrice">+{{ formatVND(o.extraPrice) }}</span>
+          </button>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="cancelOpt()">{{ t('common.cancel') }}</el-button>
+        <el-button
+          type="primary"
+          @click="confirmOpt((name) => ElMessage.warning(t('cashier.selectOption', { name })))"
+        >
+          {{ t('common.confirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="tempVisible" :title="t('cashier.tempDish')" width="420px">
       <el-form label-width="90px">
@@ -1145,7 +1256,47 @@ function closeReceipt() {
   flex-shrink: 0;
 }
 .dish em { font-style: normal; color: #ff6a00; }
-.cart { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.cart { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.cart-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+.cart-line-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.cart-line-main em { font-style: normal; color: #b45309; font-weight: 600; }
+.cart-line-ops {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.opt-hint {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.opt-group { margin-bottom: 12px; }
+.opt-group-title { font-weight: 600; margin-bottom: 6px; }
+.opt-group-title em { color: #dc2626; font-style: normal; }
+.opt-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.opt-chip {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.opt-chip.on { border-color: #f59e0b; background: #fffbeb; color: #b45309; }
+.opt-chip span { margin-left: 4px; color: #94a3b8; font-size: 12px; }
 .actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

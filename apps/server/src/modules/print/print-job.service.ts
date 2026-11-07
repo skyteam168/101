@@ -96,6 +96,20 @@ export class PrintJobService {
     return printers.filter((p) => p.role === role || p.acceptAllTickets);
   }
 
+  /**
+   * 厨房分单目标：有档口专属机时只用专属机，避免与 acceptAllTickets 机重复打两份。
+   */
+  private resolveKitchenTargets(kitchenPrinters: PrinterRow[], stationId: string): PrinterRow[] {
+    if (stationId === '_default') {
+      const unbound = kitchenPrinters.filter((p) => !p.stationId);
+      return unbound.length ? unbound : kitchenPrinters;
+    }
+    const bound = kitchenPrinters.filter((p) => p.stationId?.toString() === stationId);
+    if (bound.length) return bound;
+    const catchAll = kitchenPrinters.filter((p) => p.acceptAllTickets);
+    return catchAll.length ? catchAll : kitchenPrinters;
+  }
+
   private dedupePrinters(list: PrinterRow[]) {
     const map = new Map<string, PrinterRow>();
     for (const p of list) map.set(p.id.toString(), p);
@@ -614,14 +628,8 @@ export class PrintJobService {
 
     const kitchenPrinters = this.printersForRole(printers, PrinterRole.kitchen);
     for (const [stationId, items] of byStation) {
-      const targets =
-        stationId === '_default'
-          ? kitchenPrinters
-          : kitchenPrinters.filter(
-              (p) => p.acceptAllTickets || p.stationId?.toString() === stationId,
-            );
-      const fallback = targets.length ? targets : kitchenPrinters;
-      for (const printer of fallback) {
+      const targets = this.resolveKitchenTargets(kitchenPrinters, stationId);
+      for (const printer of targets) {
         if (store.printSplitItem) {
           for (const item of items) {
             for (let q = 0; q < item.qty; q++) {
@@ -686,12 +694,10 @@ export class PrintJobService {
     const stationMap = await this.dishStationMap([item.dishId]);
     const stationId = stationMap.get(item.dishId);
     const kitchenPrinters = this.printersForRole(printers, PrinterRole.kitchen);
-    const targets = stationId
-      ? kitchenPrinters.filter(
-          (p) => p.acceptAllTickets || p.stationId?.toString() === stationId,
-        )
-      : kitchenPrinters;
-    const list = targets.length ? targets : kitchenPrinters;
+    const list = this.resolveKitchenTargets(
+      kitchenPrinters,
+      stationId?.toString() || '_default',
+    );
     for (const printer of list) {
       const payload = this.buildPayload({
         kind: PrintJobKind.void,

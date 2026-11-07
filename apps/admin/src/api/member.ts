@@ -50,8 +50,43 @@ export const deleteLevelApi = (id: string) =>
     fallbackNameVi: string | null;
   }>(`/members/levels/${id}`);
 
+export type MemberAddress = {
+  id: string;
+  contactName: string;
+  phone: string;
+  addressText: string;
+  detail: string | null;
+  isDefault: boolean;
+};
+
+export type MemberRecentOrder = {
+  id: string;
+  orderNo: string;
+  type: string;
+  status: string;
+  amount: number;
+  date: string;
+};
+
+export type MemberRecentReservation = {
+  id: string;
+  reserveAt: string;
+  status: string;
+  guestCount: number;
+  amount: number;
+  date: string;
+};
+
+export type MemberDetail = Member & {
+  addresses: MemberAddress[];
+  recentOrders: MemberRecentOrder[];
+  recentReservations: MemberRecentReservation[];
+};
+
 export const listMembersApi = (params?: { keyword?: string; status?: string }) =>
   apiGet<Member[]>('/members', params);
+export const getMemberDetailApi = (id: string) =>
+  apiGet<MemberDetail>(`/members/${id}/detail`);
 export const searchMembersApi = (keyword?: string) =>
   apiGet<Member[]>('/members/search', keyword ? { keyword } : undefined);
 export const updateMemberApi = (id: string, data: Record<string, unknown>) =>

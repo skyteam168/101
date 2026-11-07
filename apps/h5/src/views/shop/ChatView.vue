@@ -51,7 +51,8 @@ const hasMore = ref(false);
 const translations = ref<Record<string, string>>({});
 const translatingId = ref<string | null>(null);
 const translateTarget = ref<ChatTranslateLang>(defaultTranslateLang());
-const autoTranslate = ref(localStorage.getItem(AUTO_KEY) === '1');
+/** 默认开启静默自动翻译，避免每次点「翻译」都闪 loading */
+const autoTranslate = ref(localStorage.getItem(AUTO_KEY) !== '0');
 const listRef = ref<HTMLElement | null>(null);
 const galleryInput = ref<HTMLInputElement | null>(null);
 const cameraInput = ref<HTMLInputElement | null>(null);
@@ -104,8 +105,8 @@ function rememberTranslation(m: ChatMessage, lang: ChatTranslateLang, text: stri
   }
 }
 
-/** 调 API：有 messageId 时服务端先查库缓存再决定是否调用模型 */
-async function ensureTranslated(m: ChatMessage) {
+/** 调 API：silent 时不驱动按钮 loading，避免自动翻译闪烁 */
+async function ensureTranslated(m: ChatMessage, opts?: { silent?: boolean }) {
   if (!isPeerText(m) || translations.value[m.id] || translatingIds.has(m.id)) return;
   const lang = translateTarget.value;
   const cached = m.translations?.[lang];
@@ -114,7 +115,7 @@ async function ensureTranslated(m: ChatMessage) {
     return;
   }
   translatingIds.add(m.id);
-  translatingId.value = m.id;
+  if (!opts?.silent) translatingId.value = m.id;
   try {
     const res = await translateChatText({
       messageId: m.id,
@@ -129,19 +130,31 @@ async function ensureTranslated(m: ChatMessage) {
   }
 }
 
+/** 自动翻译：先缓存回填，再静默补译未缓存消息（限并发） */
+async function autoFillMissingTranslations() {
+  if (!autoTranslate.value) return;
+  hydrateCachedTranslations();
+  const lang = translateTarget.value;
+  const pending = messages.value.filter(
+    (m) => isPeerText(m) && !translations.value[m.id] && !m.translations?.[lang],
+  );
+  const concurrency = 2;
+  for (let i = 0; i < pending.length; i += concurrency) {
+    await Promise.all(pending.slice(i, i + concurrency).map((m) => ensureTranslated(m, { silent: true })));
+  }
+}
+
 function onTranslateTargetChange(lang: ChatTranslateLang) {
   translateTarget.value = lang;
   localStorage.setItem(TRANSLATE_KEY, lang);
   translations.value = {};
-  // 切换语言：只展示该语言已缓存译文，不批量重译历史
-  hydrateCachedTranslations();
+  void autoFillMissingTranslations();
 }
 
 function onAutoTranslateChange(val: boolean) {
   autoTranslate.value = val;
   localStorage.setItem(AUTO_KEY, val ? '1' : '0');
-  // 打开自动翻译：历史只回显缓存，不整页重译
-  if (val) hydrateCachedTranslations();
+  if (val) void autoFillMissingTranslations();
   else translations.value = {};
 }
 
@@ -179,7 +192,7 @@ async function load() {
     await markChatRead();
     inbox.clear();
     await scrollBottom();
-    hydrateCachedTranslations();
+    void autoFillMissingTranslations();
   } catch {
     /* http 拦截器已 toast */
   } finally {
@@ -204,7 +217,7 @@ async function loadOlder() {
     hasMore.value = page.hasMore;
     await nextTick();
     if (el) el.scrollTop = el.scrollHeight - prevHeight + prevTop;
-    hydrateCachedTranslations();
+    void autoFillMissingTranslations();
   } catch {
     /* http 拦截器已 toast */
   } finally {
@@ -235,7 +248,7 @@ function connectSocket() {
       void markChatRead();
       inbox.clear();
       void scrollBottom();
-      if (autoTranslate.value && isPeerText(m)) void ensureTranslated(m);
+      if (autoTranslate.value && isPeerText(m)) void ensureTranslated(m, { silent: true });
     }
   });
 }
@@ -322,6 +335,9 @@ async function translate(m: ChatMessage) {
 }
 
 onMounted(async () => {
+  if (localStorage.getItem(AUTO_KEY) == null) {
+    localStorage.setItem(AUTO_KEY, '1');
+  }
   if (!getCustomerToken()) {
     router.replace({ name: 'shop-login', query: { redirect: '/shop/chat' } });
     return;

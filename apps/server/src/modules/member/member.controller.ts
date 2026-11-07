@@ -65,6 +65,12 @@ export class MemberController {
     return this.members.searchActive(this.storeId(user), keyword);
   }
 
+  @Get(':id/detail')
+  @RequirePerm('menu:member')
+  memberDetail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.members.getMemberDetail(this.storeId(user), id);
+  }
+
   @Get(':id')
   @RequirePerm('menu:member')
   detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {

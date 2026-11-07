@@ -57,8 +57,38 @@ export type CashierShift = {
 export const reportOverviewApi = (params?: { date?: string; from?: string; to?: string }) =>
   apiGet<ReportOverview>('/reports/overview', params);
 
+export const reportOpsTodayApi = () => apiGet<OpsToday>('/reports/ops-today');
+
 export const reportTrendApi = (params?: { from?: string; to?: string }) =>
   apiGet<{ cutHour: number; points: TrendPoint[] }>('/reports/trend', params);
+
+export type OpsToday = {
+  businessDate: string;
+  cutHour: number;
+  orderCounts: {
+    dine_in: number;
+    takeaway: number;
+    delivery: number;
+    reservation: number;
+  };
+  tables: {
+    idle: number;
+    dining: number;
+    cleaning: number;
+    paidToday: number;
+  };
+  pendingDelivery: number;
+  pendingReservation: number;
+  lowStockDishes: {
+    id: string;
+    nameZh: string;
+    nameVi: string;
+    stock: number;
+    dailyStock: number | null;
+    threshold: number;
+    status: string;
+  }[];
+};
 
 export type PeriodProfit = {
   period: 'month' | 'quarter' | 'half' | 'year';
@@ -77,6 +107,19 @@ export type PeriodProfit = {
   laborMonthsSettled?: string[];
   stocktakeConsumption: number;
   inventoryValue: number;
+  opsExpense?: number;
+  partnerSettlements?: number;
+  remainingAfterPartners?: number;
+  partnerSummary?: {
+    yearMonth: string;
+    revenue: number;
+    purchaseCost: number;
+    laborCost: number;
+    opsExpense: number;
+    costs: number;
+    settlements: number;
+    remaining: number;
+  } | null;
   netProfit: number;
   roughGross: number;
   costNote?: string;

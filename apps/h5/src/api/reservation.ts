@@ -27,6 +27,7 @@ export function saveReservePhone(phone: string) {
 export type ReservationItemInput = {
   dishId: string;
   qty: number;
+  optionsSnapshot?: unknown;
 };
 
 export type CreateReservationDto = {
@@ -64,6 +65,7 @@ export type PublicReservation = {
     nameVi: string;
     qty: number;
     unitPrice: number;
+    optionsSnapshot?: unknown;
   }>;
 };
 

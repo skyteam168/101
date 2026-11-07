@@ -448,6 +448,7 @@ export class PublicTableService {
         createdAt: b.createdAt,
         items: b.items.map((it) => ({
           id: it.id.toString(),
+          dishId: it.dishId?.toString() ?? null,
           nameZh: it.nameZh,
           nameVi: it.nameVi,
           unitPrice: Number(it.unitPrice),

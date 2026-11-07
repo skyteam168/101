@@ -255,6 +255,87 @@ export class MemberService {
     return this.mapCustomer(row);
   }
 
+  /** 会员详情：地址 + 近期订单/预定 */
+  async getMemberDetail(storeId: string, id: string) {
+    const customer = await this.requireStoreCustomer(storeId, id);
+    const sid = BigInt(storeId);
+    const cid = customer.id;
+
+    const [addresses, orders, reservations] = await Promise.all([
+      this.prisma.customerAddress.findMany({
+        where: { customerId: cid },
+        orderBy: [{ isDefault: 'desc' }, { id: 'desc' }],
+      }),
+      this.prisma.order.findMany({
+        where: {
+          storeId: sid,
+          customerId: cid,
+          type: { in: ['dine_in', 'delivery', 'takeaway'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: {
+          id: true,
+          orderNo: true,
+          type: true,
+          status: true,
+          paidAmount: true,
+          total: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.prisma.reservation.findMany({
+        where: { storeId: sid, customerId: cid },
+        orderBy: { reserveAt: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          reserveAt: true,
+          status: true,
+          guestCount: true,
+          deposit: true,
+          customerName: true,
+          phone: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      ...this.mapCustomer(customer),
+      addresses: addresses.map((a) => ({
+        id: a.id.toString(),
+        contactName: a.contactName,
+        phone: a.phone,
+        addressText: a.addressText,
+        detail: a.detail,
+        landmarkPhoto: a.landmarkPhoto,
+        lat: a.lat != null ? Number(a.lat) : null,
+        lng: a.lng != null ? Number(a.lng) : null,
+        isDefault: a.isDefault,
+      })),
+      recentOrders: orders.map((o) => ({
+        id: o.id.toString(),
+        orderNo: o.orderNo,
+        type: o.type,
+        status: o.status,
+        amount: Number(o.paidAmount || o.total || 0),
+        date: o.createdAt.toISOString(),
+      })),
+      recentReservations: reservations.map((r) => ({
+        id: r.id.toString(),
+        reserveAt: r.reserveAt.toISOString(),
+        status: r.status,
+        guestCount: r.guestCount,
+        amount: Number(r.deposit),
+        customerName: r.customerName,
+        phone: r.phone,
+        date: r.reserveAt.toISOString(),
+      })),
+    };
+  }
+
   async updateMember(storeId: string, id: string, dto: UpdateMemberDto) {
     const existing = await this.requireStoreCustomer(storeId, id);
     if (dto.memberLevelId) {

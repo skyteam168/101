@@ -151,6 +151,14 @@ const PERMISSION_TREE: PermDef[] = [
         sort: 70,
       },
       {
+        code: 'menu:finance',
+        nameZh: '财务运营',
+        nameVi: 'Tài chính vận hành',
+        type: PermissionType.menu,
+        path: '/finance',
+        sort: 72,
+      },
+      {
         code: 'menu:chat',
         nameZh: '顾客消息',
         nameVi: 'Tin nhắn khách',
@@ -436,6 +444,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'menu:inventory',
     'menu:hr',
     'menu:report',
+    'menu:finance',
     'menu:system',
     'menu:system:user',
     'menu:system:settings',

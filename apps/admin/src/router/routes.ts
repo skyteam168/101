@@ -20,6 +20,7 @@ export const viewModules: Record<string, () => Promise<unknown>> = {
   '/inventory': () => import('../views/inventory/InventoryView.vue'),
   '/hr': () => import('../views/hr/HrView.vue'),
   '/reports': () => import('../views/reports/ReportsView.vue'),
+  '/finance': () => import('../views/finance/FinanceView.vue'),
   '/system': () => import('../views/PlaceholderView.vue'),
   '/combos': () => import('../views/combo/CombosView.vue'),
   '/reservations': () => import('../views/reservation/ReservationsView.vue'),

@@ -110,6 +110,28 @@ function onDishListScroll() {
 const cartTotal = computed(() => cart.value.reduce((s, i) => s + i.amount, 0));
 const cartCount = computed(() => cart.value.reduce((s, i) => s + i.qty, 0));
 
+/** 当前订单已下单数量（按 dishId 汇总，排除退菜） */
+const orderedQtyByDish = computed(() => {
+  const map = new Map<string, number>();
+  for (const b of order.value?.batches || []) {
+    for (const it of b.items) {
+      if (it.status === 'voided' || !it.dishId) continue;
+      const id = String(it.dishId);
+      map.set(id, (map.get(id) || 0) + it.qty);
+    }
+  }
+  return map;
+});
+
+function orderedQtyOf(dishId: string) {
+  return orderedQtyByDish.value.get(String(dishId)) || 0;
+}
+
+function cartQtyOf(dishId: string) {
+  const id = String(dishId);
+  return cart.value.filter((i) => String(i.dishId) === id).reduce((s, i) => s + i.qty, 0);
+}
+
 function syncDocTitle() {
   if (peek.value) {
     const store =
@@ -215,27 +237,38 @@ async function refreshState() {
 function openOptions(dish: MenuCategory['dishes'][0]) {
   optDish.value = dish;
   optQty.value = 1;
-  const groups = new Map<string, typeof dish.options>();
-  for (const o of dish.options || []) {
-    const key = `${o.groupNameZh}|${o.groupNameVi}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(o);
-  }
+  const groups = optionGroups(dish);
   const initial: Record<string, string[]> = {};
-  for (const [, opts] of groups) {
-    const gkey = `${opts[0].groupNameZh}|${opts[0].groupNameVi}`;
-    if (opts[0].required && !opts[0].multi) {
-      initial[gkey] = [String(opts[0].id)];
+  for (const g of groups) {
+    if (g.required && !g.multi && g.opts[0]) {
+      initial[g.key] = [String(g.opts[0].id)];
     } else {
-      initial[gkey] = [];
+      initial[g.key] = [];
     }
   }
   optSelected.value = initial;
-  if (!(dish.options || []).length) {
-    addDish(dish, 1, []);
+  if (!groups.length) {
+    void addDish(dish, 1, []);
     return;
   }
   optVisible.value = true;
+}
+
+/** 无规格：直接改购物车数量；有规格：加号打开规格弹窗 */
+async function plusDish(dish: MenuCategory['dishes'][0]) {
+  if ((dish.options || []).length) {
+    openOptions(dish);
+    return;
+  }
+  await addDish(dish, 1, []);
+}
+
+async function minusDish(dish: MenuCategory['dishes'][0]) {
+  const id = String(dish.id);
+  const lines = cart.value.filter((i) => String(i.dishId) === id);
+  if (!lines.length) return;
+  const last = lines[lines.length - 1];
+  await changeQty(last, last.qty - 1);
 }
 
 function optionGroups(dish: MenuCategory['dishes'][0]) {
@@ -273,21 +306,28 @@ function toggleOptChip(groupKey: string, optionId: string | number, multi: boole
 
 async function confirmOptions() {
   if (!optDish.value) return;
-  const snapshot = [];
+  const snapshot: Array<{
+    groupNameZh: string;
+    groupNameVi: string;
+    optionNameZh: string;
+    optionNameVi: string;
+    extraPrice: number;
+  }> = [];
   for (const g of optionGroups(optDish.value)) {
     const ids = optSelected.value[g.key] || [];
     if (g.required && !ids.length) {
-      showToast(g.name);
+      showToast(t('shop.selectOption', { name: g.name }));
       return;
     }
     for (const id of ids) {
-      const o = g.opts.find((x) => String(x.id) === String(id))!;
+      const o = g.opts.find((x) => String(x.id) === String(id));
+      if (!o) continue;
       snapshot.push({
         groupNameZh: o.groupNameZh,
         groupNameVi: o.groupNameVi,
         optionNameZh: o.optionNameZh,
         optionNameVi: o.optionNameVi,
-        extraPrice: o.extraPrice,
+        extraPrice: Number(o.extraPrice || 0),
       });
     }
   }
@@ -548,10 +588,38 @@ watch(locale, () => syncDocTitle());
                     <div v-else class="dish-img dish-img-ph">
                       <van-icon name="photo-o" size="28" color="#ccc" />
                     </div>
+                    <span v-if="orderedQtyOf(d.id) > 0" class="ordered-badge">
+                      {{ orderedQtyOf(d.id) }}
+                    </span>
                   </div>
                   <div class="dish-body">
                     <div class="d-name">{{ nameOf(d) }}</div>
-                    <div class="d-price">{{ formatVND(d.price) }}</div>
+                    <div v-if="d.options?.length" class="spec-hint">{{ t('shop.hasOptions') }}</div>
+                    <div class="dish-price-row">
+                      <div class="d-price">{{ formatVND(d.price) }}</div>
+                      <div class="qty-ctrl" @click.stop>
+                        <button
+                          v-if="cartQtyOf(d.id) > 0"
+                          type="button"
+                          class="qty-btn qty-minus"
+                          aria-label="minus"
+                          @click="minusDish(d)"
+                        >
+                          <van-icon name="minus" size="12" />
+                        </button>
+                        <span v-if="cartQtyOf(d.id) > 0" class="qty-num">
+                          {{ cartQtyOf(d.id) }}
+                        </span>
+                        <button
+                          type="button"
+                          class="qty-btn qty-plus"
+                          aria-label="plus"
+                          @click="plusDish(d)"
+                        >
+                          <van-icon name="plus" size="14" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -704,6 +772,7 @@ watch(locale, () => syncDocTitle());
   margin-bottom: 8px;
 }
 .dish-img-wrap {
+  position: relative;
   width: 72px;
   height: 72px;
   flex-shrink: 0;
@@ -721,6 +790,22 @@ watch(locale, () => syncDocTitle());
   align-items: center;
   justify-content: center;
 }
+.ordered-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ee0a24;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-sizing: border-box;
+}
 .dish-body {
   flex: 1;
   min-width: 0;
@@ -733,11 +818,64 @@ watch(locale, () => syncDocTitle());
   font-size: 14px;
   line-height: 1.35;
 }
+.spec-hint {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #969799;
+}
+.dish-price-row {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .d-price {
   color: #ff6a00;
-  margin-top: 6px;
   font-weight: 700;
   font-size: 14px;
+}
+.qty-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qty-num {
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 16px;
+  text-align: center;
+  line-height: 1;
+  color: #323233;
+}
+.qty-btn {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  aspect-ratio: 1 / 1;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.qty-plus {
+  border: none;
+  background: #ff6a00;
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(255, 106, 0, 0.28);
+}
+.qty-minus {
+  border: 1px solid #ebedf0;
+  background: #fff;
+  color: #646566;
 }
 .table-submit-bar {
   position: fixed;

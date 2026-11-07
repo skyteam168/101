@@ -38,6 +38,7 @@ export type OrderBatch = {
   createdAt: string;
   items: Array<{
     id: string;
+    dishId: string | null;
     nameZh: string;
     nameVi: string;
     unitPrice: number;

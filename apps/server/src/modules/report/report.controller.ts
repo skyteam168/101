@@ -31,6 +31,13 @@ export class ReportController {
     return this.reports.overview(this.storeId(user), query);
   }
 
+  /** 今日运营概览（订单分渠道、桌台、待处理、低库存） */
+  @Get('ops-today')
+  @RequirePerm('report:view')
+  opsToday(@CurrentUser() user: AuthUser) {
+    return this.reports.opsToday(this.storeId(user));
+  }
+
   @Get('trend')
   @RequirePerm('report:view')
   trend(@CurrentUser() user: AuthUser, @Query() query: DateRangeDto) {

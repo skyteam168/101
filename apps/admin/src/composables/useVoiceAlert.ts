@@ -229,7 +229,17 @@ function bindEvents(s: Socket) {
       orderNo?: string;
     };
     const code = order.tableCode || tableCode(payload);
-    if (order.type === 'delivery' || order.type === 'takeaway') {
+    // 收银台「新开外卖/外带」：只播一次，避免未接单前 30s 循环骚扰
+    if (order.type === 'takeaway') {
+      enqueue(
+        'deliveryNew',
+        t('voice.deliveryNew', { no: order.orderNo || order.id || '' }),
+        t('voice.title.deliveryNew'),
+      );
+      return;
+    }
+    // 顾客外卖 delivery pending：可循环提醒直至状态变更
+    if (order.type === 'delivery') {
       const text = t('voice.deliveryNew', { no: order.orderNo || order.id || '' });
       startDeliveryRepeat(String(order.id || order.orderNo), text, t('voice.title.deliveryNew'));
       return;

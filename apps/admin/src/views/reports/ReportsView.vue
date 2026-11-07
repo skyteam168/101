@@ -405,9 +405,28 @@ async function doPrint(id: string) {
               <div class="stat-value">{{ formatVND(monthData.inventoryValue || 0) }}</div>
             </div>
           </el-col>
+          <el-col :span="6">
+            <div class="stat">
+              <div class="stat-title">{{ t('reports.opsExpense') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.opsExpense || 0) }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat">
+              <div class="stat-title">{{ t('reports.partnerSettlements') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.partnerSettlements || 0) }}</div>
+            </div>
+          </el-col>
+          <el-col :span="6">
+            <div class="stat">
+              <div class="stat-title">{{ t('reports.remainingAfterPartners') }}</div>
+              <div class="stat-value">{{ formatVND(monthData.remainingAfterPartners ?? 0) }}</div>
+            </div>
+          </el-col>
         </el-row>
         <p v-if="monthData" class="cost-note">{{ t('reports.costNote') }}</p>
         <p class="cost-note">{{ t('reports.costDetailHint') }}</p>
+        <p class="cost-note">{{ t('reports.partnerHint') }}</p>
         <div class="chart-box">
           <div class="chart-title">{{ t('reports.monthTrend') }}</div>
           <VChart class="chart" :option="monthLineOption" autoresize />

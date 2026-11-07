@@ -5,10 +5,13 @@ import {
   OrderType,
   PaymentStatus,
   Prisma,
+  ReservationStatus,
+  TableStatus,
 } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
+import { FinanceService } from '../finance/finance.service';
 import { PrintJobService } from '../print/print-job.service';
 import {
   businessDateOf,
@@ -20,6 +23,7 @@ import {
 import { CloseShiftDto, DateRangeDto, OpenShiftDto } from './dto/report.dto';
 
 const PAID_STATUSES: OrderStatus[] = [OrderStatus.paid, OrderStatus.completed];
+const LOW_STOCK_DEFAULT = 5;
 
 type AggResult = {
   businessDate: string;
@@ -56,6 +60,7 @@ export class ReportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly printJobs: PrintJobService,
+    private readonly finance: FinanceService,
   ) {}
 
   private async cutHour(storeId: string): Promise<number> {
@@ -296,6 +301,129 @@ export class ReportService {
     };
   }
 
+  /**
+   * 今日运营看板：各渠道订单数、桌台状态、待处理外卖/预定、低库存菜品。
+   */
+  async opsToday(storeId: string) {
+    const cut = await this.cutHour(storeId);
+    const businessDate = todayBusinessDate(cut);
+    const { start, end } = businessDayRange(businessDate, cut);
+    const sid = BigInt(storeId);
+
+    const [
+      orderGroups,
+      paidToday,
+      tableGroups,
+      pendingDelivery,
+      pendingReservation,
+      reservationToday,
+      dishes,
+    ] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ['type'],
+        where: {
+          storeId: sid,
+          createdAt: { gte: start, lt: end },
+          status: { notIn: [OrderStatus.cancelled, OrderStatus.rejected] },
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.order.count({
+        where: {
+          storeId: sid,
+          status: { in: PAID_STATUSES },
+          updatedAt: { gte: start, lt: end },
+        },
+      }),
+      this.prisma.table.groupBy({
+        by: ['status'],
+        where: { storeId: sid },
+        _count: { _all: true },
+      }),
+      this.prisma.order.count({
+        where: {
+          storeId: sid,
+          type: OrderType.delivery,
+          status: OrderStatus.pending,
+        },
+      }),
+      this.prisma.reservation.count({
+        where: { storeId: sid, status: ReservationStatus.pending },
+      }),
+      this.prisma.reservation.count({
+        where: {
+          storeId: sid,
+          reserveAt: { gte: start, lt: end },
+          status: { notIn: [ReservationStatus.cancelled, ReservationStatus.no_show] },
+        },
+      }),
+      this.prisma.dish.findMany({
+        where: { storeId: sid, stock: { not: null } },
+        select: {
+          id: true,
+          nameZh: true,
+          nameVi: true,
+          stock: true,
+          dailyStock: true,
+          status: true,
+        },
+        orderBy: { stock: 'asc' },
+        take: 200,
+      }),
+    ]);
+
+    const orderCounts = {
+      dine_in: 0,
+      takeaway: 0,
+      delivery: 0,
+      reservation: reservationToday,
+    };
+    for (const g of orderGroups) {
+      if (g.type === OrderType.dine_in) orderCounts.dine_in = g._count._all;
+      else if (g.type === OrderType.takeaway) orderCounts.takeaway = g._count._all;
+      else if (g.type === OrderType.delivery) orderCounts.delivery = g._count._all;
+    }
+
+    const tables = {
+      idle: 0,
+      dining: 0,
+      cleaning: 0,
+      paidToday,
+    };
+    for (const g of tableGroups) {
+      if (g.status === TableStatus.idle) tables.idle = g._count._all;
+      else if (g.status === TableStatus.dining) tables.dining = g._count._all;
+      else if (g.status === TableStatus.cleaning) tables.cleaning = g._count._all;
+    }
+
+    const lowStockDishes = dishes
+      .filter((d) => {
+        if (d.stock == null) return false;
+        const threshold = d.dailyStock ?? LOW_STOCK_DEFAULT;
+        return d.stock <= threshold;
+      })
+      .slice(0, 30)
+      .map((d) => ({
+        id: d.id.toString(),
+        nameZh: d.nameZh,
+        nameVi: d.nameVi,
+        stock: d.stock as number,
+        dailyStock: d.dailyStock,
+        threshold: d.dailyStock ?? LOW_STOCK_DEFAULT,
+        status: d.status,
+      }));
+
+    return {
+      businessDate,
+      cutHour: cut,
+      orderCounts,
+      tables,
+      pendingDelivery,
+      pendingReservation,
+      lowStockDishes,
+    };
+  }
+
   async overview(storeId: string, dto: DateRangeDto) {
     const cut = await this.cutHour(storeId);
     const range = this.resolveRange(dto, cut);
@@ -519,7 +647,24 @@ export class ReportService {
       0,
     );
 
-    const netProfit = revenue - purchaseCost - laborCost;
+    const opsExpense = await this.finance.sumExpensesByMonths(storeId, yearMonths);
+    const partnerSettlements = await this.finance.sumSettlementsByMonths(
+      storeId,
+      yearMonths,
+    );
+    const netProfit = revenue - purchaseCost - laborCost - opsExpense;
+    const remainingAfterPartners = netProfit - partnerSettlements;
+
+    const partnerSummary =
+      period === 'month'
+        ? await this.finance.monthlyPartnerSummary(
+            storeId,
+            label,
+            revenue,
+            purchaseCost,
+            laborCost,
+          )
+        : null;
 
     return {
       period,
@@ -539,16 +684,22 @@ export class ReportService {
         laborCostSettled,
         laborMonthsSettled,
         stocktakeConsumption,
+        opsExpense,
+        partnerSettlements,
       },
       inventoryValue,
       purchaseCost,
       laborCost,
       laborCostSettled,
       stocktakeConsumption,
+      opsExpense,
+      partnerSettlements,
+      remainingAfterPartners,
+      partnerSummary,
       roughGross: netProfit,
       netProfit,
       costNote:
-        'netProfit = revenue − purchaseCost − laborCost；人力取自人事月结快照（未月结月记 0）；盘点消耗与库存金额来自采购库存模块，供对照，不重复扣减进货。',
+        'netProfit = revenue − purchaseCost − laborCost − opsExpense；人力取自人事月结快照（未月结月记 0）；合伙人结算另计 remainingAfterPartners；盘点消耗与库存金额供对照，不重复扣减进货。',
     };
   }
 

@@ -117,6 +117,33 @@ auth / rbac / user / store-setting / menu / table / order / delivery / kitchen /
 
 详见原文分阶段提示词中的完整说明。外卖状态机、资产事件、营业日统计口径以此文档为准。
 
+## 合伙人出资与账目核算
+
+口径：**混合硬挂 + 双口径盈亏**（现金回报为主，权益份额为参考）。
+
+| 表 | 关键字段 |
+| --- | --- |
+| partners | invested_total（累计出资缓存，越南盾整数） |
+| partner_capital_entries | partner_id, entry_date, type(initial/increase/decrease), amount, category(rent/renovation/equipment/furniture/deposit/working_capital/other), ref_type?, ref_id?, note, created_by |
+
+### 核算公式
+
+- 个人累计出资 = Σ(initial+increase) − Σ(decrease)
+- 现金回报 `cashRoi` = 累计分红 − 累计出资
+- 权益参考：`equityShare = (资产账面 + 原料库存) × sharePercent/10000`；`equityGap = equityShare − invested`
+- 门店对账差额 `gap` = 累计出资 − (资产账面 + 原料库存 + 已硬挂的运营费用)；日常采购不强制硬挂
+
+### API
+
+- `GET/POST/PATCH/DELETE /finance/capital-entries`
+- `GET /finance/partners/:id/ledger`
+- `GET /finance/capital-recon`
+- 创建合伙人可带 `initialCapital` 一并写入期初流水
+
+### Migrate
+
+`20261107100000_partner_capital`
+
 ## 第二波功能（套餐 + 预定）
 
 ### 新增数据表

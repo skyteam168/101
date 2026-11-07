@@ -4,7 +4,13 @@ import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { showSuccessToast, showToast } from 'vant';
 import { formatVND, localeField } from '@restaurant/shared';
-import { getStoreInfo, type Dish, type MenuCategory, type StoreInfo } from '../../api/delivery';
+import {
+  getStoreInfo,
+  type Dish,
+  type DishOption,
+  type MenuCategory,
+  type StoreInfo,
+} from '../../api/delivery';
 import {
   createReservation,
   getMyReservation,
@@ -17,6 +23,22 @@ import {
 const { t, locale } = useI18n();
 const route = useRoute();
 const router = useRouter();
+
+type OptionSnapshotLine = {
+  groupNameZh: string;
+  groupNameVi: string;
+  optionNameZh: string;
+  optionNameVi: string;
+  extraPrice: number;
+};
+
+type CartLine = {
+  key: string;
+  dish: Dish;
+  qty: number;
+  optionsSnapshot: OptionSnapshotLine[];
+  optionLabel?: string;
+};
 
 const store = ref<StoreInfo | null>(null);
 const categories = ref<MenuCategory[]>([]);
@@ -38,8 +60,12 @@ const form = reactive({
 const isEdit = computed(() => Boolean(editId.value));
 const pageTitle = computed(() => (isEdit.value ? t('reserve.editTitle') : t('reserve.title')));
 
-/** dishId → qty */
-const cart = reactive<Record<string, number>>({});
+const cart = ref<CartLine[]>([]);
+
+const optVisible = ref(false);
+const optDish = ref<Dish | null>(null);
+const optQty = ref(1);
+const optSelected = ref<Record<string, string[]>>({});
 
 const loc = computed(() => (locale.value === 'vi-VN' ? 'vi' : 'zh'));
 
@@ -67,34 +93,196 @@ const flatDishes = computed(() => {
   return map;
 });
 
-const selectedLines = computed(() => {
-  const lines: Array<{ dish: Dish; qty: number }> = [];
-  for (const [id, qty] of Object.entries(cart)) {
-    if (qty <= 0) continue;
-    const dish = flatDishes.value.get(id);
-    if (dish) lines.push({ dish, qty });
-  }
-  return lines;
-});
+function cartLineKey(dishId: string, snapshot: OptionSnapshotLine[]) {
+  return `${dishId}::${JSON.stringify(snapshot)}`;
+}
+
+function snapshotExtra(snapshot: OptionSnapshotLine[]) {
+  return snapshot.reduce((s, o) => s + Number(o.extraPrice || 0), 0);
+}
+
+function lineUnitPrice(line: CartLine) {
+  return Number(line.dish.price) + snapshotExtra(line.optionsSnapshot);
+}
+
+function optionLabelOf(snapshot: OptionSnapshotLine[]) {
+  return snapshot
+    .map((o) => (loc.value === 'vi' ? o.optionNameVi : o.optionNameZh))
+    .join(' / ');
+}
+
+function normalizeSnapshot(raw: unknown): OptionSnapshotLine[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((o): o is Record<string, unknown> => !!o && typeof o === 'object')
+    .map((o) => ({
+      groupNameZh: String(o.groupNameZh ?? ''),
+      groupNameVi: String(o.groupNameVi ?? ''),
+      optionNameZh: String(o.optionNameZh ?? ''),
+      optionNameVi: String(o.optionNameVi ?? ''),
+      extraPrice: Number(o.extraPrice || 0),
+    }));
+}
+
+const selectedLines = computed(() => cart.value.filter((l) => l.qty > 0));
 
 const selectedCount = computed(() =>
   selectedLines.value.reduce((s, l) => s + l.qty, 0),
 );
 
 const selectedAmount = computed(() =>
-  selectedLines.value.reduce((s, l) => s + l.dish.price * l.qty, 0),
+  selectedLines.value.reduce((s, l) => s + lineUnitPrice(l) * l.qty, 0),
 );
 
-function setQty(dishId: string, qty: number) {
-  if (qty <= 0) {
-    delete cart[dishId];
-    return;
-  }
-  cart[dishId] = Math.min(99, qty);
+function cartQtyOf(dishId: string) {
+  const id = String(dishId);
+  return cart.value
+    .filter((l) => String(l.dish.id) === id)
+    .reduce((s, l) => s + l.qty, 0);
 }
 
-function addDish(dish: Dish) {
-  setQty(dish.id, (cart[dish.id] || 0) + 1);
+function setLineQty(key: string, qty: number) {
+  const idx = cart.value.findIndex((l) => l.key === key);
+  if (idx < 0) return;
+  if (qty <= 0) {
+    cart.value.splice(idx, 1);
+    return;
+  }
+  cart.value[idx].qty = Math.min(99, qty);
+}
+
+function pushOrBump(
+  dish: Dish,
+  qty: number,
+  snapshot: OptionSnapshotLine[],
+  optionLabel: string,
+) {
+  const key = cartLineKey(dish.id, snapshot);
+  const line = cart.value.find((l) => l.key === key);
+  if (line) {
+    line.qty = Math.min(99, line.qty + qty);
+    return;
+  }
+  cart.value.push({
+    key,
+    dish,
+    qty: Math.min(99, qty),
+    optionsSnapshot: snapshot,
+    optionLabel: optionLabel || undefined,
+  });
+}
+
+function optionGroups(dish: Dish) {
+  const map = new Map<string, DishOption[]>();
+  for (const o of dish.options || []) {
+    const key = `${o.groupNameZh}|${o.groupNameVi}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(o);
+  }
+  return [...map.entries()].map(([key, opts]) => ({
+    key,
+    name: loc.value === 'vi' ? opts[0].groupNameVi : opts[0].groupNameZh,
+    multi: opts[0].multi,
+    required: opts[0].required,
+    opts,
+  }));
+}
+
+function openDish(dish: Dish) {
+  optDish.value = dish;
+  optQty.value = 1;
+  const groups = optionGroups(dish);
+  const initial: Record<string, string[]> = {};
+  for (const g of groups) {
+    if (g.required && !g.multi && g.opts[0]) {
+      initial[g.key] = [String(g.opts[0].id)];
+    } else {
+      initial[g.key] = [];
+    }
+  }
+  optSelected.value = initial;
+  if (!groups.length) {
+    pushOrBump(dish, 1, [], '');
+    return;
+  }
+  optVisible.value = true;
+}
+
+const optExtra = computed(() => {
+  if (!optDish.value) return 0;
+  let sum = 0;
+  for (const g of optionGroups(optDish.value)) {
+    for (const id of optSelected.value[g.key] || []) {
+      const o = g.opts.find((x) => String(x.id) === String(id));
+      if (o) sum += Number(o.extraPrice || 0);
+    }
+  }
+  return sum;
+});
+
+const optUnitPrice = computed(() => {
+  if (!optDish.value) return 0;
+  return Number(optDish.value.price) + optExtra.value;
+});
+
+function isOptSelected(groupKey: string, optionId: string | number) {
+  const id = String(optionId);
+  return (optSelected.value[groupKey] || []).some((x) => String(x) === id);
+}
+
+function toggleOptChip(groupKey: string, optionId: string | number, multi: boolean) {
+  const id = String(optionId);
+  const prev = (optSelected.value[groupKey] || []).map(String);
+  const next = multi
+    ? prev.includes(id)
+      ? prev.filter((x) => x !== id)
+      : [...prev, id]
+    : [id];
+  optSelected.value = { ...optSelected.value, [groupKey]: next };
+}
+
+function confirmOptions() {
+  if (!optDish.value) return;
+  const snapshot: OptionSnapshotLine[] = [];
+  const labels: string[] = [];
+  for (const g of optionGroups(optDish.value)) {
+    const selected = optSelected.value[g.key] || [];
+    if (g.required && !selected.length) {
+      showToast(t('shop.selectOption', { name: g.name }));
+      return;
+    }
+    for (const id of selected) {
+      const o = g.opts.find((x) => String(x.id) === String(id));
+      if (!o) continue;
+      snapshot.push({
+        groupNameZh: o.groupNameZh,
+        groupNameVi: o.groupNameVi,
+        optionNameZh: o.optionNameZh,
+        optionNameVi: o.optionNameVi,
+        extraPrice: Number(o.extraPrice || 0),
+      });
+      labels.push(loc.value === 'vi' ? o.optionNameVi : o.optionNameZh);
+    }
+  }
+  pushOrBump(optDish.value, optQty.value, snapshot, labels.join(' / '));
+  optVisible.value = false;
+}
+
+/** 无规格：改数量；有规格：加号打开规格弹窗 */
+function plusDish(dish: Dish) {
+  if ((dish.options || []).length) {
+    openDish(dish);
+    return;
+  }
+  pushOrBump(dish, 1, [], '');
+}
+
+function minusDish(dish: Dish) {
+  const id = String(dish.id);
+  const lines = cart.value.filter((l) => String(l.dish.id) === id);
+  if (!lines.length) return;
+  const last = lines[lines.length - 1];
+  setLineQty(last.key, last.qty - 1);
 }
 
 function openMenu() {
@@ -149,7 +337,7 @@ function clearFields() {
   form.guestCount = '';
   form.remark = '';
   reserveAtIso.value = '';
-  for (const k of Object.keys(cart)) delete cart[k];
+  cart.value = [];
 }
 
 async function handleSubmit() {
@@ -179,7 +367,11 @@ async function handleSubmit() {
       guestCount: guests,
       reserveAt: reserveAtIso.value,
       remark: form.remark.trim() || undefined,
-      items: selectedLines.value.map((l) => ({ dishId: l.dish.id, qty: l.qty })),
+      items: selectedLines.value.map((l) => ({
+        dishId: l.dish.id,
+        qty: l.qty,
+        optionsSnapshot: l.optionsSnapshot.length ? l.optionsSnapshot : undefined,
+      })),
     };
     if (isEdit.value) {
       await updateMyReservation(editId.value, payload);
@@ -217,9 +409,13 @@ async function loadEdit() {
     form.guestCount = String(row.guestCount);
     form.remark = row.remark || '';
     reserveAtIso.value = new Date(row.reserveAt).toISOString();
-    for (const k of Object.keys(cart)) delete cart[k];
+    cart.value = [];
     for (const it of row.items || []) {
-      if (it.dishId && it.qty > 0) cart[it.dishId] = it.qty;
+      if (!it.dishId || it.qty <= 0) continue;
+      const dish = flatDishes.value.get(String(it.dishId));
+      if (!dish) continue;
+      const snapshot = normalizeSnapshot(it.optionsSnapshot);
+      pushOrBump(dish, it.qty, snapshot, optionLabelOf(snapshot));
     }
   } catch {
     editId.value = '';
@@ -338,17 +534,18 @@ onMounted(async () => {
           {{ t('reserve.preorderOptional') }}
         </div>
         <ul v-else class="preorder-list">
-          <li v-for="line in selectedLines" :key="line.dish.id" class="preorder-line">
+          <li v-for="line in selectedLines" :key="line.key" class="preorder-line">
             <div class="line-main">
               <span class="line-name">{{ dishName(line.dish) }}</span>
-              <span class="line-price">{{ formatVND(line.dish.price) }}</span>
+              <span v-if="line.optionLabel" class="line-opt">{{ line.optionLabel }}</span>
+              <span class="line-price">{{ formatVND(lineUnitPrice(line)) }}</span>
             </div>
             <van-stepper
               :model-value="line.qty"
               integer
               :min="0"
               :max="99"
-              @change="(v: number) => setQty(line.dish.id, Number(v))"
+              @change="(v: number) => setLineQty(line.key, Number(v))"
             />
           </li>
           <li class="preorder-total">
@@ -423,19 +620,31 @@ onMounted(async () => {
                   />
                   <div class="dish-info">
                     <div class="dish-name">{{ dishName(d) }}</div>
+                    <div v-if="d.options?.length" class="spec-hint">{{ t('shop.hasOptions') }}</div>
                     <div class="dish-price">{{ formatVND(d.price) }}</div>
                   </div>
-                  <van-stepper
-                    v-if="cart[d.id]"
-                    :model-value="cart[d.id]"
-                    integer
-                    :min="0"
-                    :max="99"
-                    @change="(v: number) => setQty(d.id, Number(v))"
-                  />
-                  <van-button v-else size="mini" type="primary" round @click="addDish(d)">
-                    {{ t('reserve.add') }}
-                  </van-button>
+                  <div class="qty-ctrl">
+                    <button
+                      v-if="cartQtyOf(d.id) > 0"
+                      type="button"
+                      class="qty-btn qty-minus"
+                      aria-label="minus"
+                      @click="minusDish(d)"
+                    >
+                      <van-icon name="minus" size="12" />
+                    </button>
+                    <span v-if="cartQtyOf(d.id) > 0" class="qty-num">
+                      {{ cartQtyOf(d.id) }}
+                    </span>
+                    <button
+                      type="button"
+                      class="qty-btn qty-plus"
+                      aria-label="plus"
+                      @click="plusDish(d)"
+                    >
+                      <van-icon name="plus" size="14" />
+                    </button>
+                  </div>
                 </div>
                 <div v-if="!(c.dishes || []).length" class="preorder-empty">
                   {{ t('reserve.menuEmpty') }}
@@ -451,6 +660,41 @@ onMounted(async () => {
           </div>
           <van-button type="primary" round @click="showMenu = false">
             {{ t('reserve.donePick') }}
+          </van-button>
+        </div>
+      </div>
+    </van-popup>
+
+    <van-popup v-model:show="optVisible" position="bottom" round :style="{ maxHeight: '85%' }">
+      <div class="opt" v-if="optDish">
+        <div class="opt-head">
+          <h3>{{ dishName(optDish) }}</h3>
+          <div class="opt-price">{{ formatVND(optUnitPrice) }}</div>
+        </div>
+        <div v-for="g in optionGroups(optDish)" :key="g.key" class="og">
+          <div class="og-t">
+            {{ g.name }}
+            <span v-if="g.required" class="req">*</span>
+            <span v-if="g.multi" class="og-hint">{{ t('shop.multiSelect') }}</span>
+          </div>
+          <div class="og-chips" role="group" :aria-label="g.name">
+            <button
+              v-for="o in g.opts"
+              :key="o.id"
+              type="button"
+              class="chip"
+              :class="{ active: isOptSelected(g.key, o.id) }"
+              @click.stop="toggleOptChip(g.key, o.id, !!g.multi)"
+            >
+              <span class="chip-name">{{ loc === 'vi' ? o.optionNameVi : o.optionNameZh }}</span>
+              <span v-if="o.extraPrice" class="chip-extra">+{{ formatVND(o.extraPrice) }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="opt-foot">
+          <van-stepper v-model="optQty" :min="1" />
+          <van-button type="danger" round class="opt-add" @click="confirmOptions">
+            {{ t('reserve.add') }} · {{ formatVND(optUnitPrice * optQty) }}
           </van-button>
         </div>
       </div>
@@ -541,6 +785,12 @@ onMounted(async () => {
   font-size: 14px;
   color: #323233;
 }
+.line-opt {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #969799;
+}
 .line-price {
   font-size: 12px;
   color: #969799;
@@ -629,11 +879,139 @@ onMounted(async () => {
   font-size: 14px;
   color: #323233;
 }
+.spec-hint {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #969799;
+}
 .dish-price {
   margin-top: 4px;
   font-size: 13px;
   color: #ff6a00;
 }
+.qty-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.qty-num {
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 16px;
+  text-align: center;
+  line-height: 1;
+  color: #323233;
+}
+.qty-btn {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  margin: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  aspect-ratio: 1 / 1;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.qty-plus {
+  border: none;
+  background: #ff6a00;
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(255, 106, 0, 0.28);
+}
+.qty-minus {
+  border: 1px solid #ebedf0;
+  background: #fff;
+  color: #646566;
+}
+.opt {
+  padding: 16px 16px 24px;
+}
+.opt-head h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.opt-price {
+  color: #ff6a00;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.og {
+  margin-bottom: 14px;
+  padding: 12px;
+  background: #f7f8fa;
+  border-radius: 12px;
+}
+.og-t {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.og-hint {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: #969799;
+}
+.req { color: #ee0a24; }
+.og-chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 6px;
+  border: 1.5px solid #ebedf0;
+  border-radius: 10px;
+  background: #fff;
+  color: #323233;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  box-sizing: border-box;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.chip.active {
+  border-color: #ff6a00 !important;
+  background: #fff5eb !important;
+  color: #ff6a00 !important;
+  box-shadow: 0 0 0 1px #ff6a00;
+}
+.chip-name { text-align: center; }
+.chip-extra {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ff6a00;
+  white-space: nowrap;
+}
+.opt-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.opt-add { flex: 1; }
 .menu-footer {
   display: flex;
   align-items: center;

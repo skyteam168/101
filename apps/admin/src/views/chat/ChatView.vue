@@ -48,7 +48,8 @@ const loadingMore = ref(false);
 const hasMore = ref(false);
 const translations = ref<Record<string, string>>({});
 const translateTarget = ref<ChatTranslateLang>(defaultTranslateLang());
-const autoTranslate = ref(localStorage.getItem(AUTO_KEY) === '1');
+/** 默认开启：顾客消息自动补译；仅当用户显式关掉才为 false */
+const autoTranslate = ref(localStorage.getItem(AUTO_KEY) !== '0');
 const listRef = ref<HTMLElement | null>(null);
 const nowTick = ref(Date.now());
 const translatingIds = new Set<string>();
@@ -112,19 +113,31 @@ async function ensureTranslated(m: ChatMessage) {
   }
 }
 
+/** 自动翻译：缓存回填 + 静默补译未缓存顾客消息 */
+async function autoFillMissingTranslations() {
+  if (!autoTranslate.value) return;
+  hydrateCachedTranslations();
+  const lang = translateTarget.value;
+  const pending = messages.value.filter(
+    (m) => isPeerText(m) && !translations.value[m.id] && !m.translations?.[lang],
+  );
+  const concurrency = 2;
+  for (let i = 0; i < pending.length; i += concurrency) {
+    await Promise.all(pending.slice(i, i + concurrency).map((m) => ensureTranslated(m)));
+  }
+}
+
 function onTranslateTargetChange(lang: ChatTranslateLang) {
   translateTarget.value = lang;
   localStorage.setItem(TRANSLATE_KEY, lang);
   translations.value = {};
-  // 切换语言：只展示该语言已缓存译文，不批量重译历史
-  hydrateCachedTranslations();
+  void autoFillMissingTranslations();
 }
 
 function onAutoTranslateChange(val: boolean) {
   autoTranslate.value = val;
   localStorage.setItem(AUTO_KEY, val ? '1' : '0');
-  // 打开自动翻译：历史只回显缓存，不整页重译
-  if (val) hydrateCachedTranslations();
+  if (val) void autoFillMissingTranslations();
   else translations.value = {};
 }
 
@@ -180,7 +193,7 @@ async function openConversation(id: string) {
     const c = conversations.value.find((x) => x.id === id);
     if (c) c.unreadStaff = 0;
     await scrollBottom();
-    hydrateCachedTranslations();
+    void autoFillMissingTranslations();
   } catch {
     /* http 拦截器已提示 */
   } finally {
@@ -207,7 +220,7 @@ async function loadOlder() {
     hasMore.value = page.hasMore;
     await nextTick();
     if (el) el.scrollTop = el.scrollHeight - prevHeight + prevTop;
-    hydrateCachedTranslations();
+    void autoFillMissingTranslations();
   } catch {
     /* http 拦截器已提示 */
   } finally {
@@ -304,6 +317,9 @@ function connectSocket() {
 }
 
 onMounted(async () => {
+  if (localStorage.getItem(AUTO_KEY) == null) {
+    localStorage.setItem(AUTO_KEY, '1');
+  }
   await loadConversations();
   connectSocket();
   tickTimer = setInterval(() => {

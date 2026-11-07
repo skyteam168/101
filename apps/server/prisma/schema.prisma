@@ -167,6 +167,44 @@ enum StocktakeStatus {
   confirmed
 }
 
+/** 运营费用类型：水/电/房租/其他 */
+enum OpsExpenseType {
+  water
+  electricity
+  rent
+  other
+}
+
+enum PartnerStatus {
+  active
+  inactive
+}
+
+/** 合伙人出资流水类型 */
+enum PartnerCapitalEntryType {
+  initial
+  increase
+  decrease
+}
+
+/** 出资用途分类（开店投入口径） */
+enum PartnerCapitalCategory {
+  rent
+  renovation
+  equipment
+  furniture
+  deposit
+  working_capital
+  other
+}
+
+/** 出资硬挂目标类型 */
+enum PartnerCapitalRefType {
+  asset
+  asset_event
+  ops_expense
+}
+
 enum CustomerStatus {
   active
   banned
@@ -257,8 +295,9 @@ model User {
   pointsLedgers     PointsLedger[]
   balanceLedgers    BalanceLedger[]
   issuedCoupons     Coupon[]         @relation("CouponIssuer")
-  createdReservations Reservation[]  @relation("ReservationCreator")
-  employeeProfile     Employee?
+  createdReservations     Reservation[]           @relation("ReservationCreator")
+  employeeProfile         Employee?
+  partnerCapitalEntries   PartnerCapitalEntry[]
 
   @@index([storeId])
   @@map("users")
@@ -416,6 +455,10 @@ model Store {
   employees            Employee[]
   employeeAttendances  EmployeeAttendance[]
   employeePayrollRuns  EmployeePayrollRun[]
+  opsExpenses            OpsExpense[]
+  partners               Partner[]
+  partnerSettlements     PartnerSettlement[]
+  partnerCapitalEntries  PartnerCapitalEntry[]
 
   @@map("stores")
 }
@@ -1694,4 +1737,100 @@ model EmployeePayrollRun {
   @@unique([storeId, yearMonth])
   @@index([storeId, yearMonth])
   @@map("employee_payroll_runs")
+}
+
+// ========== 运营费用 / 合伙人 ==========
+
+/** 水费、电费、房租等月度运营支出 */
+model OpsExpense {
+  id         BigInt         @id @default(autoincrement())
+  storeId    BigInt         @map("store_id")
+  /** YYYY-MM */
+  yearMonth  String         @map("year_month") @db.VarChar(7)
+  type       OpsExpenseType
+  /** 用量（如度数、吨数） */
+  quantity   Decimal?       @db.Decimal(14, 3)
+  unit       String?        @db.VarChar(32)
+  /** 金额（越南盾整数） */
+  amount     BigInt
+  remark     String?        @db.VarChar(512)
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, yearMonth])
+  @@index([storeId, type])
+  @@map("ops_expenses")
+}
+
+model Partner {
+  id           BigInt        @id @default(autoincrement())
+  storeId      BigInt        @map("store_id")
+  name         String        @db.VarChar(128)
+  /** 证件号 */
+  idNumber     String?       @map("id_number") @db.VarChar(64)
+  address      String?       @db.VarChar(255)
+  /** 分成比例，万分比（0–10000，10000=100%） */
+  sharePercent Int           @default(0) @map("share_percent")
+  /** 累计出资缓存：Σ(initial+increase)−Σ(decrease)，越南盾整数 */
+  investedTotal BigInt       @default(0) @map("invested_total")
+  status       PartnerStatus @default(active)
+  remark       String?       @db.VarChar(512)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  store          Store                  @relation(fields: [storeId], references: [id])
+  settlements    PartnerSettlement[]
+  capitalEntries PartnerCapitalEntry[]
+
+  @@index([storeId, status])
+  @@map("partners")
+}
+
+/** 合伙人出资流水（期初/增资/减资） */
+model PartnerCapitalEntry {
+  id         BigInt                 @id @default(autoincrement())
+  storeId    BigInt                 @map("store_id")
+  partnerId  BigInt                 @map("partner_id")
+  entryDate  DateTime               @map("entry_date") @db.Date
+  type       PartnerCapitalEntryType
+  /** 金额（越南盾整数，始终为正；decrease 表示退资） */
+  amount     BigInt
+  category   PartnerCapitalCategory @default(other)
+  refType    PartnerCapitalRefType? @map("ref_type")
+  refId      BigInt?                @map("ref_id")
+  note       String?                @db.VarChar(512)
+  createdBy  BigInt?                @map("created_by")
+  createdAt  DateTime               @default(now()) @map("created_at")
+  updatedAt  DateTime               @updatedAt @map("updated_at")
+
+  store   Store   @relation(fields: [storeId], references: [id])
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  creator User?   @relation(fields: [createdBy], references: [id])
+
+  @@index([storeId, entryDate])
+  @@index([partnerId, entryDate])
+  @@map("partner_capital_entries")
+}
+
+model PartnerSettlement {
+  id         BigInt   @id @default(autoincrement())
+  storeId    BigInt   @map("store_id")
+  partnerId  BigInt   @map("partner_id")
+  settleDate DateTime @map("settle_date") @db.Date
+  /** YYYY-MM，归属月份 */
+  yearMonth  String   @map("year_month") @db.VarChar(7)
+  /** 结算金额（越南盾整数） */
+  amount     BigInt
+  note       String?  @db.VarChar(512)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  store   Store   @relation(fields: [storeId], references: [id])
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, yearMonth])
+  @@index([partnerId, settleDate])
+  @@map("partner_settlements")
 }

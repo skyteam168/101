@@ -9,6 +9,7 @@ import {
   redeemBirthdayGiftApi,
   createLevelApi,
   deleteLevelApi,
+  getMemberDetailApi,
   listLevelsApi,
   listMembersApi,
   setMemberStatusApi,
@@ -16,6 +17,7 @@ import {
   updateLevelApi,
   updateMemberApi,
   type Member,
+  type MemberDetail,
   type MemberLevel,
 } from '../../api/member';
 import { issueCouponsApi, listTemplatesApi, type CouponTemplate } from '../../api/marketing';
@@ -50,6 +52,9 @@ const issueDialog = ref(false);
 const issueForm = reactive({ memberId: '', templateId: '' });
 const adjustDialog = ref(false);
 const adjustForm = reactive({ id: '', kind: 'points' as 'points' | 'balance', deltaText: '', remark: '' });
+const detailDrawer = ref(false);
+const detailLoading = ref(false);
+const detail = ref<MemberDetail | null>(null);
 
 function nameOf(row: { nameZh: string; nameVi: string }) {
   return localeField(row as unknown as Record<string, unknown>, 'name', loc());
@@ -190,6 +195,17 @@ async function setLevel(row: Member, levelId: string) {
   ElMessage.success(t('common.saved'));
   await refresh();
 }
+
+async function openDetail(row: Member) {
+  detailDrawer.value = true;
+  detailLoading.value = true;
+  detail.value = null;
+  try {
+    detail.value = await getMemberDetailApi(row.id);
+  } finally {
+    detailLoading.value = false;
+  }
+}
 </script>
 
 <template>
@@ -245,8 +261,9 @@ async function setLevel(row: Member, levelId: string) {
           <el-table-column :label="t('common.status')" width="90">
             <template #default="{ row }">{{ t(`member.status.${row.status}`, row.status) }}</template>
           </el-table-column>
-          <el-table-column :label="t('common.actions')" width="280" fixed="right">
+          <el-table-column :label="t('common.actions')" width="340" fixed="right">
             <template #default="{ row }">
+              <el-button link type="primary" @click="openDetail(row)">{{ t('member.detail') }}</el-button>
               <el-button link type="success" @click="redeemGift(row)">{{ t('member.redeemGift') }}</el-button>
               <el-button link type="primary" @click="openIssue(row)">{{ t('member.issueCoupon') }}</el-button>
               <el-button link @click="openAdjust(row, 'points')">{{ t('member.adjPoints') }}</el-button>
@@ -333,6 +350,58 @@ async function setLevel(row: Member, levelId: string) {
         <el-button type="primary" @click="saveAdjust">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="detailDrawer" :title="t('member.detail')" size="520px">
+      <div v-loading="detailLoading">
+        <template v-if="detail">
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item :label="t('member.name')">{{ detail.name || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="Email">{{ detail.email }}</el-descriptions-item>
+            <el-descriptions-item :label="t('common.phone')">{{ detail.phone || '—' }}</el-descriptions-item>
+            <el-descriptions-item :label="t('member.points')">{{ detail.points }}</el-descriptions-item>
+            <el-descriptions-item :label="t('member.balance')">{{ formatVND(detail.balance) }}</el-descriptions-item>
+          </el-descriptions>
+
+          <h4 class="detail-h">{{ t('member.addresses') }}</h4>
+          <el-table :data="detail.addresses" size="small" border empty-text="—">
+            <el-table-column prop="contactName" :label="t('member.contactName')" width="100" />
+            <el-table-column prop="phone" :label="t('common.phone')" width="110" />
+            <el-table-column :label="t('member.address')" min-width="160">
+              <template #default="{ row }">
+                {{ row.addressText }}{{ row.detail ? ` · ${row.detail}` : '' }}
+                <el-tag v-if="row.isDefault" size="small" type="success">{{ t('member.defaultAddr') }}</el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <h4 class="detail-h">{{ t('member.recentOrders') }}</h4>
+          <el-table :data="detail.recentOrders" size="small" border empty-text="—">
+            <el-table-column prop="orderNo" :label="t('member.orderNo')" width="120" />
+            <el-table-column :label="t('member.orderType')" width="90">
+              <template #default="{ row }">{{ t(`reports.channel.${row.type}`, row.type) }}</template>
+            </el-table-column>
+            <el-table-column :label="t('member.date')" width="150">
+              <template #default="{ row }">{{ new Date(row.date).toLocaleString() }}</template>
+            </el-table-column>
+            <el-table-column :label="t('finance.amount')" width="120">
+              <template #default="{ row }">{{ formatVND(row.amount) }}</template>
+            </el-table-column>
+          </el-table>
+
+          <h4 class="detail-h">{{ t('member.recentReservations') }}</h4>
+          <el-table :data="detail.recentReservations" size="small" border empty-text="—">
+            <el-table-column :label="t('member.date')" width="150">
+              <template #default="{ row }">{{ new Date(row.date).toLocaleString() }}</template>
+            </el-table-column>
+            <el-table-column prop="status" :label="t('common.status')" width="100" />
+            <el-table-column prop="guestCount" :label="t('member.guests')" width="80" />
+            <el-table-column :label="t('finance.amount')" width="120">
+              <template #default="{ row }">{{ formatVND(row.amount) }}</template>
+            </el-table-column>
+          </el-table>
+        </template>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -340,4 +409,5 @@ async function setLevel(row: Member, levelId: string) {
 .page { padding: 8px 4px 24px; }
 .toolbar h3 { margin: 0 0 8px; }
 .subbar { display: flex; gap: 8px; margin-bottom: 10px; }
+.detail-h { margin: 16px 0 8px; font-size: 14px; }
 </style>
