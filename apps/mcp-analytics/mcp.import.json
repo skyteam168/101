@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "restaurant-analytics": {
+      "url": "https://www.nhahang101.top/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_WITH_MCP_API_KEY"
+      }
+    }
+  }
+}

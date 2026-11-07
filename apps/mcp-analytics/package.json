@@ -1,0 +1,31 @@
+{
+  "name": "@restaurant/mcp-analytics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local MCP server: read-only restaurant analytics tools for AI assistants",
+  "bin": {
+    "restaurant-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "dev:http": "tsx src/http.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "start:http": "node dist/http.js",
+    "mint-token": "tsx src/mint-token.ts",
+    "lint": "eslint src --ext .ts",
+    "test": "tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^5.3.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
