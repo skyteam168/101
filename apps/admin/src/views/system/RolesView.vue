@@ -47,7 +47,8 @@ async function selectRole(id: string) {
   currentRoleId.value = id;
   checkedIds.value = await rolePermissionIdsApi(id);
   await nextTick();
-  treeRef.value?.setCheckedKeys(checkedIds.value);
+  // leafOnly=true：避免把半选父节点当全选，刷新后子节点被全部勾上
+  treeRef.value?.setCheckedKeys(checkedIds.value, true);
 }
 
 function openCreate() {
@@ -83,11 +84,17 @@ async function removeRole(row: RoleRow) {
 
 async function savePerms() {
   if (!currentRoleId.value) return;
+  // 全选节点 + 半选父节点（菜单需入库才能出现在侧栏）
   const keys = [
-    ...(treeRef.value?.getCheckedKeys(false) as string[]),
-    ...(treeRef.value?.getHalfCheckedKeys() as string[]),
-  ];
-  await setRolePermissionsApi(currentRoleId.value, keys.map(String));
+    ...new Set([
+      ...((treeRef.value?.getCheckedKeys(false) as string[]) || []),
+      ...((treeRef.value?.getHalfCheckedKeys() as string[]) || []),
+    ]),
+  ].map(String);
+  await setRolePermissionsApi(currentRoleId.value, keys);
+  checkedIds.value = await rolePermissionIdsApi(currentRoleId.value);
+  await nextTick();
+  treeRef.value?.setCheckedKeys(checkedIds.value, true);
   ElMessage.success(t('common.saved'));
 }
 

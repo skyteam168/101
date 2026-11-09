@@ -45,8 +45,16 @@ export type DeliveryCustomer = {
   createdAt: string;
 };
 
-export const listDeliveryBoardApi = (status?: string) =>
-  apiGet<DeliveryOrder[]>('/delivery/board', status ? { status } : undefined);
+export type DeliveryBoardQuery = {
+  status?: string;
+  keyword?: string;
+  from?: string;
+  to?: string;
+  paymentStatus?: string;
+};
+
+export const listDeliveryBoardApi = (params?: DeliveryBoardQuery) =>
+  apiGet<DeliveryOrder[]>('/delivery/board', params);
 
 /** 待接单外卖数量（菜单角标） */
 export const getPendingDeliveryCountApi = () =>

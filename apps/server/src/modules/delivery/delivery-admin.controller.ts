@@ -21,8 +21,21 @@ export class DeliveryAdminController {
 
   @Get('board')
   @RequirePerm('menu:delivery')
-  board(@CurrentUser() user: AuthUser, @Query('status') status?: string) {
-    return this.orders.adminList(this.storeId(user), status);
+  board(
+    @CurrentUser() user: AuthUser,
+    @Query('status') status?: string,
+    @Query('keyword') keyword?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('paymentStatus') paymentStatus?: string,
+  ) {
+    return this.orders.adminList(this.storeId(user), {
+      status,
+      keyword,
+      from,
+      to,
+      paymentStatus,
+    });
   }
 
   /** 待接单外卖数量（菜单角标） */

@@ -21,6 +21,7 @@ import {
 } from '../../api/delivery';
 import { getAccessToken } from '../../utils/auth-storage';
 import { useUserStore } from '../../stores/user';
+import { formatDateTimeLocal } from '../../utils/datetime';
 
 const { t, locale } = useI18n();
 const router = useRouter();
@@ -32,6 +33,12 @@ const customers = ref<DeliveryCustomer[]>([]);
 const staff = ref<UserRow[]>([]);
 /** 展开菜品明细的订单 id */
 const expanded = reactive<Record<string, boolean>>({});
+const filters = reactive({
+  keyword: '',
+  status: '',
+  paymentStatus: '',
+  range: null as [Date, Date] | null,
+});
 let socket: Socket | null = null;
 
 const columns = [
@@ -118,11 +125,31 @@ function toggleItems(id: string) {
 async function load() {
   loading.value = true;
   try {
-    orders.value = await listDeliveryBoardApi();
+    const params: {
+      status?: string;
+      keyword?: string;
+      from?: string;
+      to?: string;
+      paymentStatus?: string;
+    } = {};
+    if (filters.status) params.status = filters.status;
+    if (filters.keyword.trim()) params.keyword = filters.keyword.trim();
+    if (filters.paymentStatus) params.paymentStatus = filters.paymentStatus;
+    if (filters.range?.[0]) params.from = filters.range[0].toISOString();
+    if (filters.range?.[1]) params.to = filters.range[1].toISOString();
+    orders.value = await listDeliveryBoardApi(params);
     if (tab.value === 'customers') customers.value = await listDeliveryCustomersApi();
   } finally {
     loading.value = false;
   }
+}
+
+function resetFilters() {
+  filters.keyword = '';
+  filters.status = '';
+  filters.paymentStatus = '';
+  filters.range = null;
+  void load();
 }
 
 async function loadCustomers() {
@@ -202,8 +229,55 @@ onUnmounted(() => {
   <div class="page" v-loading="loading">
     <div class="toolbar">
       <h3>{{ t('delivery.title') }}</h3>
-      <el-button @click="load">{{ t('common.search') }}</el-button>
+      <span class="filter-meta">{{ t('delivery.filterResult', { n: orders.length }) }}</span>
     </div>
+    <el-form :inline="true" class="filters" @submit.prevent="load">
+      <el-form-item :label="t('delivery.keyword')">
+        <el-input
+          v-model="filters.keyword"
+          clearable
+          :placeholder="t('delivery.keywordPh')"
+          style="width: 220px"
+          @keyup.enter="load"
+        />
+      </el-form-item>
+      <el-form-item :label="t('common.status')">
+        <el-select v-model="filters.status" clearable :placeholder="t('delivery.allStatus')" style="width: 130px">
+          <el-option :label="t('delivery.status.pending')" value="pending" />
+          <el-option :label="t('delivery.status.accepted')" value="accepted" />
+          <el-option :label="t('delivery.status.cooking')" value="cooking" />
+          <el-option :label="t('delivery.status.delivering')" value="delivering" />
+          <el-option :label="t('delivery.status.completed')" value="completed" />
+          <el-option :label="t('delivery.status.rejected')" value="rejected" />
+          <el-option :label="t('delivery.status.cancelled')" value="cancelled" />
+        </el-select>
+      </el-form-item>
+      <el-form-item :label="t('delivery.paymentStatus')">
+        <el-select
+          v-model="filters.paymentStatus"
+          clearable
+          :placeholder="t('delivery.allPayment')"
+          style="width: 130px"
+        >
+          <el-option :label="t('delivery.pay.unpaid')" value="unpaid" />
+          <el-option :label="t('delivery.pay.partial')" value="partial" />
+          <el-option :label="t('delivery.pay.paid')" value="paid" />
+          <el-option :label="t('delivery.pay.refunded')" value="refunded" />
+        </el-select>
+      </el-form-item>
+      <el-form-item :label="t('delivery.timeRange')">
+        <el-date-picker
+          v-model="filters.range"
+          type="datetimerange"
+          :start-placeholder="t('audit.from')"
+          :end-placeholder="t('audit.to')"
+        />
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" @click="load">{{ t('common.search') }}</el-button>
+        <el-button @click="resetFilters">{{ t('common.reset') }}</el-button>
+      </el-form-item>
+    </el-form>
     <el-tabs v-model="tab" @tab-change="onTab">
       <el-tab-pane :label="t('delivery.board')" name="board">
         <div class="board">
@@ -323,7 +397,9 @@ onUnmounted(() => {
           <el-table-column prop="name" :label="t('users.displayName')" />
           <el-table-column prop="phone" :label="t('users.phone')" />
           <el-table-column prop="orderCount" :label="t('delivery.orderCount')" width="100" />
-          <el-table-column prop="createdAt" :label="t('print.createdAt')" width="180" />
+          <el-table-column :label="t('print.createdAt')" width="180">
+            <template #default="{ row }">{{ formatDateTimeLocal(row.createdAt) }}</template>
+          </el-table-column>
         </el-table>
       </el-tab-pane>
     </el-tabs>
@@ -338,6 +414,14 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 8px;
+}
+.filter-meta {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+.filters {
+  margin-bottom: 8px;
 }
 h3 {
   margin: 0;

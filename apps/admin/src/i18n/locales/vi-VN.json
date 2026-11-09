@@ -219,12 +219,27 @@
     "expandItems": "Mở rộng · {n} món",
     "collapseItems": "Thu gọn",
     "itemCount": "Tổng {n} món",
+    "keyword": "Mã/khách/SĐT/địa chỉ",
+    "keywordPh": "Mã đơn, tên, SĐT, địa chỉ",
+    "allStatus": "Tất cả trạng thái",
+    "paymentStatus": "Thanh toán",
+    "allPayment": "Tất cả TT",
+    "timeRange": "Thời gian đặt",
+    "filterResult": "Tổng {n} đơn",
+    "pay": {
+      "unpaid": "Chưa trả",
+      "partial": "Trả một phần",
+      "paid": "Đã trả",
+      "refunded": "Đã hoàn"
+    },
     "status": {
       "pending": "Chờ nhận",
       "accepted": "Đã nhận",
       "cooking": "Đang nấu",
       "delivering": "Đang giao",
-      "completed": "Xong"
+      "completed": "Xong",
+      "rejected": "Từ chối",
+      "cancelled": "Đã hủy"
     }
   },
   "print": {

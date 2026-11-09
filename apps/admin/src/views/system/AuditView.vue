@@ -9,6 +9,7 @@ import {
   type LoginLogRow,
   type OperationLogRow,
 } from '../../api/audit';
+import { formatDateTimeLocal } from '../../utils/datetime';
 
 const { t } = useI18n();
 const activeTab = ref('login');
@@ -222,7 +223,9 @@ function onTabChange(name: string | number) {
         </el-form>
 
         <el-table v-loading="loginLoading" :data="loginRows" border stripe>
-          <el-table-column prop="createdAt" :label="t('audit.time')" min-width="170" />
+          <el-table-column :label="t('audit.time')" min-width="170">
+            <template #default="{ row }">{{ formatDateTimeLocal(row.createdAt) }}</template>
+          </el-table-column>
           <el-table-column prop="username" :label="t('audit.username')" width="120" />
           <el-table-column :label="t('audit.resultLabel')" width="100">
             <template #default="{ row }">
@@ -296,7 +299,9 @@ function onTabChange(name: string | number) {
         </el-form>
 
         <el-table v-loading="custLoading" :data="custRows" border stripe>
-          <el-table-column prop="createdAt" :label="t('audit.time')" min-width="170" />
+          <el-table-column :label="t('audit.time')" min-width="170">
+            <template #default="{ row }">{{ formatDateTimeLocal(row.createdAt) }}</template>
+          </el-table-column>
           <el-table-column prop="email" :label="t('audit.email')" min-width="180" />
           <el-table-column :label="t('audit.action')" width="130">
             <template #default="{ row }">
@@ -367,7 +372,9 @@ function onTabChange(name: string | number) {
         </el-form>
 
         <el-table v-loading="opLoading" :data="opRows" border stripe>
-          <el-table-column prop="createdAt" :label="t('audit.time')" min-width="170" />
+          <el-table-column :label="t('audit.time')" min-width="170">
+            <template #default="{ row }">{{ formatDateTimeLocal(row.createdAt) }}</template>
+          </el-table-column>
           <el-table-column prop="username" :label="t('audit.username')" width="110" />
           <el-table-column prop="displayName" :label="t('audit.displayName')" width="110" />
           <el-table-column prop="module" :label="t('audit.module')" width="100" />

@@ -922,12 +922,44 @@ export class DeliveryOrderService {
     });
   }
 
-  async adminList(storeId: string, status?: string) {
+  async adminList(
+    storeId: string,
+    query?: {
+      status?: string;
+      keyword?: string;
+      from?: string;
+      to?: string;
+      paymentStatus?: string;
+    },
+  ) {
     const where: Prisma.OrderWhereInput = {
       storeId: BigInt(storeId),
       type: OrderType.delivery,
     };
-    if (status) where.status = status as OrderStatus;
+    if (query?.status) where.status = query.status as OrderStatus;
+    if (query?.paymentStatus && Object.values(PaymentStatus).includes(query.paymentStatus as PaymentStatus)) {
+      where.paymentStatus = query.paymentStatus as PaymentStatus;
+    }
+    if (query?.from || query?.to) {
+      where.createdAt = {};
+      if (query.from) {
+        const d = new Date(query.from);
+        if (!Number.isNaN(d.getTime())) where.createdAt.gte = d;
+      }
+      if (query.to) {
+        const d = new Date(query.to);
+        if (!Number.isNaN(d.getTime())) where.createdAt.lte = d;
+      }
+    }
+    const kw = query?.keyword?.trim();
+    if (kw) {
+      where.OR = [
+        { orderNo: { contains: kw } },
+        { customer: { is: { name: { contains: kw } } } },
+        { customer: { is: { phone: { contains: kw } } } },
+        { customer: { is: { email: { contains: kw } } } },
+      ];
+    }
     const rows = await this.prisma.order.findMany({
       where,
       include: {
@@ -940,7 +972,31 @@ export class DeliveryOrderService {
       orderBy: [{ memberPriority: 'desc' }, { createdAt: 'desc' }],
       take: 200,
     });
-    return rows.map((r) => this.mapOrder(r));
+    // 地址在 JSON 快照里，关键词再做一次内存过滤（含门牌/地址）
+    const mapped = rows.map((r) => this.mapOrder(r));
+    if (!kw) return mapped;
+    const lower = kw.toLowerCase();
+    return mapped.filter((o) => {
+      const addr =
+        o.addressSnapshot && typeof o.addressSnapshot === 'object' && !Array.isArray(o.addressSnapshot)
+          ? (o.addressSnapshot as Record<string, unknown>)
+          : null;
+      const hay = [
+        o.orderNo,
+        o.customer?.name,
+        o.customer?.phone,
+        o.customer?.email,
+        o.courierName,
+        addr?.addressText,
+        addr?.contactName,
+        addr?.phone,
+        addr?.detail,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(lower);
+    });
   }
 
   async listCustomers(storeId: string) {

@@ -304,12 +304,27 @@
     "expandItems": "展开 · 共 {n} 件",
     "collapseItems": "收起",
     "itemCount": "共 {n} 件",
+    "keyword": "单号/顾客/电话/地址",
+    "keywordPh": "单号、姓名、电话、地址",
+    "allStatus": "全部状态",
+    "paymentStatus": "支付状态",
+    "allPayment": "全部支付",
+    "timeRange": "下单时间",
+    "filterResult": "共 {n} 单",
+    "pay": {
+      "unpaid": "未支付",
+      "partial": "部分支付",
+      "paid": "已支付",
+      "refunded": "已退款"
+    },
     "status": {
       "pending": "待接单",
       "accepted": "已接单",
       "cooking": "制作中",
       "delivering": "配送中",
-      "completed": "已完成"
+      "completed": "已完成",
+      "rejected": "已拒单",
+      "cancelled": "已取消"
     }
   },
   "print": {

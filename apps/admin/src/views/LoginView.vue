@@ -16,8 +16,8 @@ const cfToken = ref('');
 const turnstileEnabled = ref(false);
 const turnstileReset = ref(0);
 const form = reactive({
-  username: 'admin',
-  password: 'Admin@123',
+  username: '',
+  password: '',
 });
 
 async function onSubmit() {
@@ -66,7 +66,6 @@ async function onSubmit() {
           {{ t('auth.login') }}
         </el-button>
       </el-form>
-      <p class="hint">{{ t('auth.demoHint') }}</p>
     </el-card>
   </div>
 </template>
@@ -92,10 +91,5 @@ async function onSubmit() {
 .sub {
   color: #909399;
   margin-bottom: 16px;
-}
-.hint {
-  margin-top: 16px;
-  font-size: 12px;
-  color: #909399;
 }
 </style>
