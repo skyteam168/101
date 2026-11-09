@@ -12,6 +12,17 @@ export type HomeNotice = {
   expiresAt: string | null;
 };
 
+export type HomeDishOption = {
+  id: string;
+  groupNameZh: string;
+  groupNameVi: string;
+  optionNameZh: string;
+  optionNameVi: string;
+  extraPrice: number;
+  required: boolean;
+  multi: boolean;
+};
+
 export type HomeNewDish = {
   id: string;
   nameZh: string;
@@ -24,6 +35,7 @@ export type HomeNewDish = {
   isNew: boolean;
   status?: string;
   stock?: number | null;
+  options?: HomeDishOption[];
 };
 
 export type HomeBanner = {

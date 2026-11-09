@@ -248,20 +248,151 @@ function canAddNewDish(d: HomeNewDish) {
   return true;
 }
 
+const optVisible = ref(false);
+const optDish = ref<HomeNewDish | null>(null);
+const optQty = ref(1);
+const optSelected = ref<Record<string, string[]>>({});
+
+function optionGroups(dish: HomeNewDish) {
+  const map = new Map<string, NonNullable<HomeNewDish['options']>>();
+  for (const o of dish.options || []) {
+    const key = `${o.groupNameZh}|${o.groupNameVi}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(o);
+  }
+  return [...map.entries()].map(([key, opts]) => ({
+    key,
+    name: loc.value === 'vi' ? opts[0].groupNameVi : opts[0].groupNameZh,
+    multi: opts[0].multi,
+    required: opts[0].required,
+    opts,
+  }));
+}
+
+function addWithOptions(
+  dish: HomeNewDish,
+  qty: number,
+  optionsSnapshot: unknown[],
+  optionLabel: string,
+  optionIds: string[] = [],
+) {
+  const base = Number(dish.takeawayPrice ?? dish.price);
+  const extra = (optionsSnapshot as { extraPrice?: number }[]).reduce(
+    (s, o) => s + Number(o.extraPrice || 0),
+    0,
+  );
+  cart.add({
+    dishId: String(dish.id),
+    nameZh: dish.nameZh,
+    nameVi: dish.nameVi,
+    price: base + extra,
+    qty,
+    optionLabel: optionLabel || undefined,
+    optionIds: optionIds.length ? optionIds : undefined,
+    optionsSnapshot: optionsSnapshot.length ? optionsSnapshot : undefined,
+  });
+  showToast(t('home.addedCart'));
+}
+
+/** 有规格时打开选择弹窗；无规格直接加购（与外卖点餐页一致） */
 function addNewDish(d: HomeNewDish) {
   if (!canAddNewDish(d)) return;
-  const prev = cart.getQty(d.id);
-  cart.add({
-    dishId: String(d.id),
-    nameZh: d.nameZh,
-    nameVi: d.nameVi,
-    price: Number(d.takeawayPrice ?? d.price),
-  });
-  if (prev === 0) showToast(t('home.addedCart'));
+  const groups = optionGroups(d);
+  if (!groups.length) {
+    cart.add({
+      dishId: String(d.id),
+      nameZh: d.nameZh,
+      nameVi: d.nameVi,
+      price: Number(d.takeawayPrice ?? d.price),
+    });
+    showToast(t('home.addedCart'));
+    return;
+  }
+  optDish.value = d;
+  optQty.value = 1;
+  const initial: Record<string, string[]> = {};
+  for (const g of groups) {
+    if (g.required && !g.multi && g.opts[0]) {
+      initial[g.key] = [String(g.opts[0].id)];
+    } else {
+      initial[g.key] = [];
+    }
+  }
+  optSelected.value = initial;
+  optVisible.value = true;
 }
 
 function removeNewDish(d: HomeNewDish) {
   cart.remove(d.id);
+}
+
+const optExtra = computed(() => {
+  if (!optDish.value) return 0;
+  let sum = 0;
+  for (const g of optionGroups(optDish.value)) {
+    for (const id of optSelected.value[g.key] || []) {
+      const o = g.opts.find((x) => String(x.id) === String(id));
+      if (o) sum += Number(o.extraPrice || 0);
+    }
+  }
+  return sum;
+});
+
+const optUnitPrice = computed(() => {
+  if (!optDish.value) return 0;
+  return Number(optDish.value.takeawayPrice ?? optDish.value.price) + optExtra.value;
+});
+
+function isOptSelected(groupKey: string, optionId: string | number) {
+  const id = String(optionId);
+  return (optSelected.value[groupKey] || []).some((x) => String(x) === id);
+}
+
+function toggleOptChip(groupKey: string, optionId: string | number, multi: boolean) {
+  const id = String(optionId);
+  const prev = (optSelected.value[groupKey] || []).map(String);
+  let next: string[];
+  if (multi) {
+    next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+  } else {
+    next = [id];
+  }
+  optSelected.value = { ...optSelected.value, [groupKey]: next };
+}
+
+function confirmOptions() {
+  if (!optDish.value) return;
+  const snapshot: {
+    groupNameZh: string;
+    groupNameVi: string;
+    optionNameZh: string;
+    optionNameVi: string;
+    extraPrice: number;
+  }[] = [];
+  const labels: string[] = [];
+  const ids: string[] = [];
+  for (const g of optionGroups(optDish.value)) {
+    const selected = optSelected.value[g.key] || [];
+    if (g.required && !selected.length) {
+      showToast(t('shop.selectOption', { name: g.name }));
+      return;
+    }
+    for (const id of selected) {
+      const o = g.opts.find((x) => String(x.id) === String(id));
+      if (!o) continue;
+      snapshot.push({
+        groupNameZh: o.groupNameZh,
+        groupNameVi: o.groupNameVi,
+        optionNameZh: o.optionNameZh,
+        optionNameVi: o.optionNameVi,
+        extraPrice: Number(o.extraPrice),
+      });
+      ids.push(String(o.id));
+      labels.push(loc.value === 'vi' ? o.optionNameVi : o.optionNameZh);
+    }
+  }
+  addWithOptions(optDish.value, optQty.value, snapshot, labels.join(' / '), ids);
+  optVisible.value = false;
 }
 
 function personalKind(content: string) {
@@ -497,6 +628,7 @@ onMounted(async () => {
           </div>
           <div class="dish-meta">
             <div class="dish-name">{{ dishName(d) }}</div>
+            <div v-if="d.options?.length" class="spec-hint">{{ t('shop.hasOptions') }}</div>
             <div class="dish-foot">
               <div class="dish-price">{{ formatVND(d.takeawayPrice || d.price) }}</div>
               <div class="dish-actions">
@@ -527,6 +659,53 @@ onMounted(async () => {
         </div>
       </div>
     </section>
+
+    <van-popup v-model:show="optVisible" position="bottom" round teleport="body" :style="{ maxHeight: '85%' }">
+      <div v-if="optDish" class="opt">
+        <div class="opt-head">
+          <img v-if="optDish.image" :src="optDish.image" class="opt-img" alt="" />
+          <div class="opt-head-text">
+            <h3>{{ dishName(optDish) }}</h3>
+            <div class="opt-price">{{ formatVND(optUnitPrice) }}</div>
+            <div
+              v-if="
+                (loc === 'vi' ? optDish.descVi : optDish.descZh) &&
+                (loc === 'vi' ? optDish.descVi : optDish.descZh) !== dishName(optDish)
+              "
+              class="opt-desc"
+            >
+              {{ loc === 'vi' ? optDish.descVi : optDish.descZh }}
+            </div>
+          </div>
+        </div>
+        <div v-for="g in optionGroups(optDish)" :key="g.key" class="og">
+          <div class="og-t">
+            {{ g.name }}
+            <span v-if="g.required" class="req">*</span>
+            <span v-if="g.multi" class="og-hint">{{ t('shop.multiSelect') }}</span>
+          </div>
+          <div class="og-chips" role="group" :aria-label="g.name">
+            <button
+              v-for="o in g.opts"
+              :key="o.id"
+              type="button"
+              class="chip"
+              :class="{ active: isOptSelected(g.key, o.id) }"
+              @click.stop="toggleOptChip(g.key, o.id, !!g.multi)"
+            >
+              <span class="chip-name">{{ loc === 'vi' ? o.optionNameVi : o.optionNameZh }}</span>
+              <span v-if="o.extraPrice" class="chip-extra">+{{ formatVND(o.extraPrice) }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="opt-foot">
+          <van-stepper v-model="optQty" :min="1" />
+          <van-button type="danger" round class="opt-add" @click="confirmOptions">
+            {{ t('shop.addToCart') }} · {{ formatVND(optUnitPrice * optQty) }}
+          </van-button>
+        </div>
+      </div>
+    </van-popup>
 
     <button type="button" class="member-banner" @click="openJoin">
       <span class="member-crown" aria-hidden="true">
@@ -1102,6 +1281,12 @@ onMounted(async () => {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.spec-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #ff6a00;
+  font-weight: 600;
+}
 .dish-foot {
   margin-top: 8px;
   display: flex;
@@ -1499,5 +1684,119 @@ onMounted(async () => {
 }
 .empty p {
   margin: 0;
+}
+.opt {
+  padding: 16px 16px 24px;
+}
+.opt-head {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.opt-img {
+  width: 88px;
+  height: 88px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.opt-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.opt-head-text h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+.opt-price {
+  color: #ff6a00;
+  font-weight: 700;
+  font-size: 16px;
+}
+.opt-desc {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #969799;
+  line-height: 1.4;
+}
+.og {
+  margin-bottom: 18px;
+  padding: 12px;
+  background: #f7f8fa;
+  border-radius: 12px;
+}
+.og-t {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  font-size: 14px;
+  color: #323233;
+}
+.og-hint {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: #969799;
+}
+.req {
+  color: #ee0a24;
+  margin-left: 2px;
+}
+.og-chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 6px;
+  border: 1.5px solid #ebedf0;
+  border-radius: 10px;
+  background: #fff;
+  color: #323233;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  box-sizing: border-box;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.chip.active {
+  border-color: #ff6a00 !important;
+  background: #fff5eb !important;
+  color: #ff6a00 !important;
+  box-shadow: 0 0 0 1px #ff6a00;
+}
+.chip-name {
+  text-align: center;
+}
+.chip-extra {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ff6a00;
+  white-space: nowrap;
+}
+.chip:not(.active) .chip-extra {
+  color: #ff8f3d;
+}
+.opt-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 4px;
+}
+.opt-add {
+  flex: 1;
 }
 </style>
