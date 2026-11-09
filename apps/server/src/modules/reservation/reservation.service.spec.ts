@@ -1,4 +1,4 @@
-import { ReservationStatus, TableStatus } from '@prisma/client';
+import { ReservationStatus, SessionStatus, TableStatus } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
 import { ReservationService } from './reservation.service';
 
@@ -61,7 +61,14 @@ function makeMembers() {
 }
 
 /** 构造预定 mock 行 */
-function makeReservationRow(overrides: Partial<{ status: ReservationStatus; items: unknown[] }> = {}) {
+function makeReservationRow(
+  overrides: Partial<{
+    status: ReservationStatus;
+    items: unknown[];
+    seatedSessionId: bigint | null;
+    seatedSession: { id: bigint; status: SessionStatus } | null;
+  }> = {},
+) {
   return {
     id: 1n,
     storeId: 1n,
@@ -79,7 +86,8 @@ function makeReservationRow(overrides: Partial<{ status: ReservationStatus; item
     deposit: 0n,
     remark: null,
     createdBy: 1n,
-    seatedSessionId: null,
+    seatedSessionId: overrides.seatedSessionId ?? null,
+    seatedSession: overrides.seatedSession ?? null,
     items: overrides.items ?? [],
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -299,6 +307,46 @@ describe('ReservationService.listKitchenPreorders', () => {
     const list = await makeService(prisma).listKitchenPreorders('1');
     expect(list).toHaveLength(1);
     expect(list[0].preorderCount).toBe(1);
+  });
+});
+
+describe('ReservationService.delete', () => {
+  it('用餐中的入座预定不可删除', async () => {
+    const prisma = makePrisma();
+    prisma.reservation.findFirst.mockResolvedValue(
+      makeReservationRow({
+        status: ReservationStatus.seated,
+        seatedSessionId: 9n,
+        seatedSession: { id: 9n, status: SessionStatus.open },
+      }),
+    );
+    await expect(makeService(prisma).delete('1', '1')).rejects.toThrow(BusinessError);
+    expect(prisma.reservation.delete).not.toHaveBeenCalled();
+  });
+
+  it('入座但会话已结束时可删除', async () => {
+    const prisma = makePrisma();
+    prisma.reservation.findFirst.mockResolvedValue(
+      makeReservationRow({
+        status: ReservationStatus.seated,
+        seatedSessionId: 9n,
+        seatedSession: { id: 9n, status: SessionStatus.closed },
+      }),
+    );
+    prisma.reservation.delete.mockResolvedValue({});
+    prisma.reservation.count.mockResolvedValue(0);
+    await expect(makeService(prisma).delete('1', '1')).resolves.toEqual({ success: true });
+    expect(prisma.reservation.delete).toHaveBeenCalled();
+  });
+
+  it('入座但无会话记录时可删除（历史测试数据）', async () => {
+    const prisma = makePrisma();
+    prisma.reservation.findFirst.mockResolvedValue(
+      makeReservationRow({ status: ReservationStatus.seated, seatedSessionId: null }),
+    );
+    prisma.reservation.delete.mockResolvedValue({});
+    prisma.reservation.count.mockResolvedValue(0);
+    await expect(makeService(prisma).delete('1', '1')).resolves.toEqual({ success: true });
   });
 });
 

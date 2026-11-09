@@ -231,7 +231,7 @@ async function doSeat() {
 async function remove(row: Reservation) {
   await ElMessageBox.confirm(t('common.confirmDelete'), { type: 'warning' });
   await deleteReservationApi(row.id);
-  ElMessage.success(t('common.saved'));
+  ElMessage.success(t('common.deleted'));
   await refresh();
 }
 

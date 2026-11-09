@@ -1269,7 +1269,7 @@
     "RESERVATION_NOT_FOUND": "Không tìm thấy đặt bàn",
     "RESERVATION_ITEM_NAME_REQUIRED": "Thiếu tên món đặt trước",
     "RESERVATION_CANNOT_UPDATE": "Không thể sửa đặt bàn ở trạng thái hiện tại",
-    "RESERVATION_SEATED_CANNOT_DELETE": "Đã vào bàn, không thể xóa",
+    "RESERVATION_SEATED_CANNOT_DELETE": "Đang dùng bữa, không thể xóa; hãy thanh toán/dọn bàn trước",
     "RESERVATION_NOT_PENDING": "Chỉ đặt bàn chờ xác nhận mới xác nhận được",
     "RESERVATION_CANNOT_CANCEL": "Không thể hủy ở trạng thái hiện tại",
     "RESERVATION_CANNOT_NO_SHOW": "Không thể đánh dấu không đến",

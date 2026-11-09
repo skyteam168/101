@@ -338,9 +338,14 @@ export class ReservationService {
     const rid = BigInt(reservationId);
     const existing = await this.prisma.reservation.findFirst({
       where: { id: rid, storeId: BigInt(storeId) },
+      include: { seatedSession: { select: { id: true, status: true } } },
     });
     if (!existing) throw new BusinessError('RESERVATION_NOT_FOUND');
-    if (existing.status === ReservationStatus.seated) {
+    // 仅拦截「仍在用餐中」的入座预定；会话已结束/无会话的历史测试数据允许清理
+    if (
+      existing.status === ReservationStatus.seated &&
+      existing.seatedSession?.status === SessionStatus.open
+    ) {
       throw new BusinessError('RESERVATION_SEATED_CANNOT_DELETE');
     }
     await this.prisma.reservation.delete({ where: { id: rid } });

@@ -84,7 +84,7 @@ export class ReservationController {
     return this.reservationService.update(this.storeId(user), id, dto);
   }
 
-  /** 删除预定（seated 状态不可删） */
+  /** 删除预定（入座且桌台会话仍 open 时不可删） */
   @Delete(':id')
   @RequirePerm('reservation:edit')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {

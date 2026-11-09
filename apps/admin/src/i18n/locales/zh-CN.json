@@ -1343,7 +1343,7 @@
     "RESERVATION_NOT_FOUND": "预定记录不存在",
     "RESERVATION_ITEM_NAME_REQUIRED": "预点菜缺少菜名",
     "RESERVATION_CANNOT_UPDATE": "当前状态不可修改预定",
-    "RESERVATION_SEATED_CANNOT_DELETE": "已入座预定不可删除",
+    "RESERVATION_SEATED_CANNOT_DELETE": "用餐中的预定不可删除，请先结账清台",
     "RESERVATION_NOT_PENDING": "仅待确认预定可确认",
     "RESERVATION_CANNOT_CANCEL": "当前状态不可取消",
     "RESERVATION_CANNOT_NO_SHOW": "当前状态不可标记爽约",
