@@ -22,9 +22,12 @@ export type PrintTemplate =
   | 'test';
 
 export interface PrinterInfo {
+  id?: string;
+  name?: string;
   ip: string;
   port: number;
   paperWidth: 58 | 80;
+  connectionType?: 'network' | 'browser_usb' | 'agent_usb' | 'cloud';
 }
 
 export interface OrderItem {

@@ -445,7 +445,7 @@ export class PrintJobService {
   async flushAgentQueue(agentId: string) {
     const jobs = await this.prisma.printJob.findMany({
       where: {
-        printer: { agentId: BigInt(agentId) },
+        printer: { agentId: BigInt(agentId), isActive: true },
         status: { in: [PrintJobStatus.queued, PrintJobStatus.sent] },
       },
       orderBy: { createdAt: 'asc' },
@@ -480,6 +480,9 @@ export class PrintJobService {
       include: { printer: true, batch: true },
     });
     if (!job) return;
+
+    // 同一 agentId 多开时：收银机 done 后，其它机器 failed 不得覆盖成功态
+    if (job.status === PrintJobStatus.done) return;
 
     if (status === 'done') {
       await this.prisma.printJob.update({
@@ -554,6 +557,27 @@ export class PrintJobService {
       });
       if (!p) throw new BusinessError('PRINTER_NOT_FOUND');
       targetPrinterId = p.id;
+    } else if (!job.printer.isActive) {
+      // 旧任务可能绑在已停用的 127.0.0.1 网口机上：重打改走当前可用机
+      const fallback =
+        (await this.prisma.printer.findFirst({
+          where: {
+            storeId: BigInt(storeId),
+            isActive: true,
+            acceptAllTickets: true,
+          },
+          orderBy: { id: 'asc' },
+        })) ||
+        (await this.prisma.printer.findFirst({
+          where: {
+            storeId: BigInt(storeId),
+            isActive: true,
+            role: job.printer.role,
+          },
+          orderBy: { id: 'asc' },
+        }));
+      if (!fallback) throw new BusinessError('PRINTER_NOT_FOUND');
+      targetPrinterId = fallback.id;
     }
     const created = await this.prisma.printJob.create({
       data: {

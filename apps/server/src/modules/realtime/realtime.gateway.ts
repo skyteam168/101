@@ -159,6 +159,24 @@ export class RealtimeGateway
     };
     client.data.auth = auth;
     await client.join(`agent:${agentId}`);
+    // 同一 agentId 只保留最新连接，避免开发机/收银机双开抢任务互相 ACK 失败
+    const prev = this.agentSockets.get(agentId);
+    if (prev?.size) {
+      for (const oldId of [...prev]) {
+        if (oldId === client.id) continue;
+        const oldSock =
+          this.server?.sockets?.sockets?.get?.(oldId) ??
+          (this.server as { socket?: (id: string) => { disconnect: (close?: boolean) => void } | undefined } | undefined)?.socket?.(
+            oldId,
+          );
+        try {
+          oldSock?.disconnect(true);
+        } catch {
+          /* ignore */
+        }
+        prev.delete(oldId);
+      }
+    }
     let set = this.agentSockets.get(agentId);
     if (!set) {
       set = new Set();

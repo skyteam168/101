@@ -17,3 +17,8 @@ scripts/_*.txt
 scripts/_*.env
 scripts/**/remote_*.py
 scripts/**/deploy_*.py
+
+apps/print-agent/config.json
+print-agent-portable/
+餐厅打印代理-拷到收银电脑.zip
+*.zip
