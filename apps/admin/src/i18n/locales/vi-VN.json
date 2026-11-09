@@ -428,7 +428,8 @@
   "roles": {
     "nameZh": "Tên (ZH)",
     "nameVi": "Tên (VI)",
-    "permissions": "Cây quyền"
+    "permissions": "Cây quyền",
+    "superAdminLocked": "Siêu quản trị có toàn quyền, không sửa tại đây"
   },
   "audit": {
     "title": "Nhật ký kiểm toán",

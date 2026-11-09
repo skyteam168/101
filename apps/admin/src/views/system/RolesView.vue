@@ -17,10 +17,11 @@ import {
 
 const { t, locale } = useI18n();
 const loading = ref(false);
+const saving = ref(false);
 const roles = ref<RoleRow[]>([]);
 const tree = ref<PermNode[]>([]);
 const currentRoleId = ref<string>('');
-const checkedIds = ref<string[]>([]);
+const currentRole = ref<RoleRow | null>(null);
 const treeRef = ref<InstanceType<typeof ElTree>>();
 const dialogVisible = ref(false);
 const editingId = ref<string | null>(null);
@@ -30,13 +31,35 @@ function label(node: PermNode) {
   return localeField(node as unknown as Record<string, unknown>, 'name', locale.value === 'vi-VN' ? 'vi' : 'zh');
 }
 
+/** 收集节点祖先 id，保证侧栏菜单父级也会入库 */
+function collectAncestorIds(nodes: PermNode[], selected: Set<string>, parentIds: string[] = []): string[] {
+  const extra: string[] = [];
+  for (const n of nodes) {
+    const path = [...parentIds, n.id];
+    if (selected.has(n.id)) {
+      for (const pid of parentIds) {
+        if (!selected.has(pid)) extra.push(pid);
+      }
+    }
+    if (n.children?.length) {
+      extra.push(...collectAncestorIds(n.children, selected, path));
+    }
+  }
+  return extra;
+}
+
 async function load() {
   loading.value = true;
   try {
     roles.value = await listRolesApi();
     tree.value = await permissionTreeApi();
-    if (!currentRoleId.value && roles.value.length) {
-      await selectRole(roles.value[0].id);
+    const keep = currentRoleId.value;
+    if (keep && roles.value.some((r) => r.id === keep)) {
+      await selectRole(keep);
+    } else if (roles.value.length) {
+      // 默认选第一个非超管角色，避免误以为超管可改
+      const first = roles.value.find((r) => r.code !== 'super_admin') || roles.value[0];
+      await selectRole(first.id);
     }
   } finally {
     loading.value = false;
@@ -45,10 +68,11 @@ async function load() {
 
 async function selectRole(id: string) {
   currentRoleId.value = id;
-  checkedIds.value = await rolePermissionIdsApi(id);
+  currentRole.value = roles.value.find((r) => r.id === id) || null;
+  const ids = await rolePermissionIdsApi(id);
   await nextTick();
-  // leafOnly=true：避免把半选父节点当全选，刷新后子节点被全部勾上
-  treeRef.value?.setCheckedKeys(checkedIds.value, true);
+  // check-strictly：父子独立，按库里存的 id 精确勾选，不会串改
+  treeRef.value?.setCheckedKeys(ids, false);
 }
 
 function openCreate() {
@@ -78,24 +102,35 @@ async function removeRole(row: RoleRow) {
   await ElMessageBox.confirm(t('common.confirmDelete'), { type: 'warning' });
   await deleteRoleApi(row.id);
   ElMessage.success(t('common.saved'));
-  if (currentRoleId.value === row.id) currentRoleId.value = '';
+  if (currentRoleId.value === row.id) {
+    currentRoleId.value = '';
+    currentRole.value = null;
+  }
   await load();
 }
 
 async function savePerms() {
   if (!currentRoleId.value) return;
-  // 全选节点 + 半选父节点（菜单需入库才能出现在侧栏）
-  const keys = [
-    ...new Set([
-      ...((treeRef.value?.getCheckedKeys(false) as string[]) || []),
-      ...((treeRef.value?.getHalfCheckedKeys() as string[]) || []),
-    ]),
-  ].map(String);
-  await setRolePermissionsApi(currentRoleId.value, keys);
-  checkedIds.value = await rolePermissionIdsApi(currentRoleId.value);
-  await nextTick();
-  treeRef.value?.setCheckedKeys(checkedIds.value, true);
-  ElMessage.success(t('common.saved'));
+  if (currentRole.value?.code === 'super_admin') {
+    ElMessage.warning(t('roles.superAdminLocked'));
+    return;
+  }
+  saving.value = true;
+  try {
+    const checked = new Set(
+      ((treeRef.value?.getCheckedKeys(false) as Array<string | number>) || []).map(String),
+    );
+    for (const id of collectAncestorIds(tree.value, checked)) {
+      checked.add(id);
+    }
+    const keys = [...checked];
+    await setRolePermissionsApi(currentRoleId.value, keys);
+    // 保存后立刻从服务端回读并重绘，确认落库
+    await selectRole(currentRoleId.value);
+    ElMessage.success(t('common.saved'));
+  } finally {
+    saving.value = false;
+  }
 }
 
 onMounted(load);
@@ -111,7 +146,13 @@ onMounted(load);
             {{ t('common.create') }}
           </el-button>
         </div>
-        <el-table :data="roles" highlight-current-row @current-change="(r: RoleRow) => r && selectRole(r.id)">
+        <el-table
+          :data="roles"
+          highlight-current-row
+          :current-row-key="currentRoleId"
+          row-key="id"
+          @current-change="(r: RoleRow | null) => r && selectRole(r.id)"
+        >
           <el-table-column prop="code" label="Code" width="140" />
           <el-table-column prop="nameZh" :label="t('roles.nameZh')" />
           <el-table-column :label="t('common.actions')" width="140">
@@ -136,8 +177,23 @@ onMounted(load);
     <el-col :span="14">
       <el-card>
         <div class="toolbar">
-          <h3>{{ t('roles.permissions') }}</h3>
-          <el-button v-perm="'system:role'" type="primary" :disabled="!currentRoleId" @click="savePerms">
+          <div>
+            <h3>{{ t('roles.permissions') }}</h3>
+            <p v-if="currentRole" class="role-tip">
+              {{ currentRole.nameZh }}
+              <code>{{ currentRole.code }}</code>
+              <span v-if="currentRole.code === 'super_admin'" class="warn">
+                · {{ t('roles.superAdminLocked') }}
+              </span>
+            </p>
+          </div>
+          <el-button
+            v-perm="'system:role'"
+            type="primary"
+            :disabled="!currentRoleId || currentRole?.code === 'super_admin'"
+            :loading="saving"
+            @click="savePerms"
+          >
             {{ t('common.save') }}
           </el-button>
         </div>
@@ -146,6 +202,7 @@ onMounted(load);
           :data="tree"
           node-key="id"
           show-checkbox
+          check-strictly
           default-expand-all
           :props="{ label: 'nameZh', children: 'children' }"
         >
@@ -180,8 +237,24 @@ onMounted(load);
 .toolbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   margin-bottom: 12px;
+  gap: 12px;
+}
+.toolbar h3 {
+  margin: 0;
+}
+.role-tip {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #909399;
+}
+.role-tip code {
+  margin-left: 6px;
+  color: #606266;
+}
+.role-tip .warn {
+  color: #e6a23c;
 }
 .code {
   color: #909399;

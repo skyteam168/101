@@ -428,7 +428,8 @@
   "roles": {
     "nameZh": "中文名",
     "nameVi": "越南文名",
-    "permissions": "权限树"
+    "permissions": "权限树",
+    "superAdminLocked": "超级管理员拥有全部权限，不可在此修改"
   },
   "audit": {
     "title": "审计日志",
