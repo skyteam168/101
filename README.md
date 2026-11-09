@@ -44,7 +44,7 @@ pnpm dev
 
 **阶段 6 语音播报**：登录后台后点击「开启语音提醒」解锁音频；顶栏可静音。新堂食 / 加菜 / 外卖（未接单每 30 秒重复）/ 呼叫服务员 / 请求结账 / 取消 / 打印失败会 ding + TTS（无对应语音则播 `public/audio` 预录），并弹出右下角通知。播报语言与各类开关在「系统 → 门店设置」。
 
-**阶段 7 打印**：后台「打印」管理档口 / 打印机 / 代理 / 任务；订单事件自动生成前台总单与按档口厨房分单（可开「一菜一切」）。网口热敏走 print-agent（TCP 9100）；**收银推荐 Xprinter 58mm USB**：配「本机 USB」+ 纸宽 58 + 顶栏「打印台」（Chrome/Edge Web Serial），SOP 见 `docs/XPRINTER_USB_SOP.md`。平板只下单、收银电脑出纸。Seed 代理 `id=1` 密钥 `dev-agent-secret`；示例 USB 机 `id=4`（Xprinter 58）默认停用。门店代理：
+**阶段 7 打印**：后台「打印」管理档口 / 打印机 / 代理 / 任务；订单事件自动生成前台总单与按档口厨房分单（可开「一菜一切」）。网口热敏走 print-agent（TCP 9100）；**收银推荐 Xprinter 58mm USB 静默**：连接方式「USB 静默（代理）」+ Windows 打印机队列名（如 `XP-58`）+ 绑定代理，纸宽 58、承接全部；收银电脑常驻 print-agent，无需虚拟 COM / 顶栏打印台。SOP 见 `docs/XPRINTER_USB_SOP.md`。平板只下单、收银电脑出纸。Seed 代理 `id=1` 密钥 `dev-agent-secret`；示例 USB 机 `id=4`。门店代理：
 
 ```bash
 # 复制配置后启动（状态页 http://localhost:17890）

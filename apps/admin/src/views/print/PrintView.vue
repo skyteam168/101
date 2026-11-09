@@ -51,7 +51,7 @@ const printerForm = reactive({
   port: 9100,
   paperWidth: 80 as 58 | 80,
   role: 'front' as 'front' | 'kitchen',
-  connectionType: 'network' as 'network' | 'browser_usb' | 'cloud',
+  connectionType: 'network' as 'network' | 'browser_usb' | 'agent_usb' | 'cloud',
   acceptAllTickets: false,
   stationId: '' as string,
   agentId: '' as string,
@@ -129,11 +129,17 @@ function openPrinter(row?: Printer) {
 }
 
 /** 本机 USB（Xprinter 收银）默认 58mm + 承接全部 */
-function onConnectionTypeChange(type: 'network' | 'browser_usb' | 'cloud') {
-  if (type === 'browser_usb' && !printerForm.id) {
+function onConnectionTypeChange(type: 'network' | 'browser_usb' | 'agent_usb' | 'cloud') {
+  if ((type === 'agent_usb' || type === 'browser_usb') && !printerForm.id) {
     printerForm.paperWidth = 58;
     printerForm.acceptAllTickets = true;
     if (!printerForm.name) printerForm.name = 'Xprinter 58 USB';
+    if (type === 'agent_usb' && (!printerForm.ip || printerForm.ip === '127.0.0.1')) {
+      printerForm.ip = 'XP-58';
+    }
+    if (type === 'agent_usb' && !printerForm.agentId && agents.value[0]) {
+      printerForm.agentId = agents.value[0].id;
+    }
   }
 }
 
@@ -278,14 +284,16 @@ onMounted(loadAll);
         <el-button type="primary" size="small" class="mb" @click="openPrinter()">{{ t('common.create') }}</el-button>
         <el-table :data="printers" size="small" stripe>
           <el-table-column prop="name" :label="t('print.name')" />
-          <el-table-column :label="t('print.connectionType')" width="110">
+          <el-table-column :label="t('print.connectionType')" width="130">
             <template #default="{ row }">
               {{
-                row.connectionType === 'browser_usb'
-                  ? t('print.connectionBrowserUsb')
-                  : row.connectionType === 'cloud'
-                    ? t('print.connectionCloud')
-                    : t('print.connectionNetwork')
+                row.connectionType === 'agent_usb'
+                  ? t('print.connectionAgentUsb')
+                  : row.connectionType === 'browser_usb'
+                    ? t('print.connectionBrowserUsb')
+                    : row.connectionType === 'cloud'
+                      ? t('print.connectionCloud')
+                      : t('print.connectionNetwork')
               }}
             </template>
           </el-table-column>
@@ -293,7 +301,11 @@ onMounted(loadAll);
             <template #default="{ row }">{{ row.connectionType === 'browser_usb' ? '-' : row.ip }}</template>
           </el-table-column>
           <el-table-column prop="port" :label="t('print.port')" width="70">
-            <template #default="{ row }">{{ row.connectionType === 'cloud' ? '-' : row.port }}</template>
+            <template #default="{ row }">
+              {{
+                row.connectionType === 'cloud' || row.connectionType === 'agent_usb' ? '-' : row.port
+              }}
+            </template>
           </el-table-column>
           <el-table-column prop="paperWidth" :label="t('print.paperWidth')" width="80" />
           <el-table-column prop="role" :label="t('print.role')" width="80" />
@@ -365,12 +377,19 @@ onMounted(loadAll);
         <el-form-item :label="t('print.connectionType')">
           <el-radio-group v-model="printerForm.connectionType" @change="onConnectionTypeChange">
             <el-radio label="network">{{ t('print.connectionNetwork') }}</el-radio>
+            <el-radio label="agent_usb">{{ t('print.connectionAgentUsb') }}</el-radio>
             <el-radio label="browser_usb">{{ t('print.connectionBrowserUsb') }}</el-radio>
             <el-radio label="cloud">{{ t('print.connectionCloud') }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item v-if="printerForm.connectionType === 'network'" label="IP">
           <el-input v-model="printerForm.ip" />
+        </el-form-item>
+        <el-form-item
+          v-if="printerForm.connectionType === 'agent_usb'"
+          :label="t('print.windowsPrinterName')"
+        >
+          <el-input v-model="printerForm.ip" :placeholder="t('print.windowsPrinterNameHint')" />
         </el-form-item>
         <el-form-item v-if="printerForm.connectionType === 'cloud'" :label="t('print.webhookUrl')">
           <el-input v-model="printerForm.ip" :placeholder="t('print.webhookUrlHint')" />
@@ -402,11 +421,17 @@ onMounted(loadAll);
             <el-option v-for="s in stations" :key="s.id" :label="s.nameZh" :value="s.id" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="printerForm.connectionType === 'network'" :label="t('print.agent')">
+        <el-form-item
+          v-if="printerForm.connectionType === 'network' || printerForm.connectionType === 'agent_usb'"
+          :label="t('print.agent')"
+        >
           <el-select v-model="printerForm.agentId" clearable style="width: 100%">
             <el-option v-for="a in agents" :key="a.id" :label="a.name" :value="a.id" />
           </el-select>
         </el-form-item>
+        <p v-if="printerForm.connectionType === 'agent_usb'" class="field-hint">
+          {{ t('print.agentUsbHint') }}
+        </p>
         <p v-if="printerForm.connectionType === 'cloud'" class="field-hint">{{ t('print.cloudHint') }}</p>
         <el-form-item :label="t('print.active')"><el-switch v-model="printerForm.isActive" /></el-form-item>
       </el-form>

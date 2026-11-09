@@ -3,6 +3,8 @@ import { Events } from '@restaurant/shared';
 import { AgentConfig } from './config';
 import { PrintJobMessage } from './render';
 
+export type WatchPrinter = { id?: string; queueName: string };
+
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 export interface SocketState {
@@ -22,6 +24,7 @@ export interface PrintAckPayload {
 
 /** 打印任务处理回调 */
 export type PrintJobHandler = (msg: PrintJobMessage) => Promise<void>;
+export type WatchPrinterHandler = (printers: WatchPrinter[]) => void;
 
 let _socket: Socket | null = null;
 let _state: SocketState = {
@@ -40,7 +43,11 @@ export function getSocketState(): SocketState {
  * 使用 auth { typ:'agent', agentId, secret } 向服务端鉴权。
  * 自动重连；最大重试间隔 30 秒。
  */
-export function createSocketClient(config: AgentConfig, onPrintJob: PrintJobHandler): Socket {
+export function createSocketClient(
+  config: AgentConfig,
+  onPrintJob: PrintJobHandler,
+  onWatchPrinters?: WatchPrinterHandler,
+): Socket {
   if (_socket) {
     _socket.disconnect();
     _socket = null;
@@ -64,6 +71,12 @@ export function createSocketClient(config: AgentConfig, onPrintJob: PrintJobHand
   socket.on('connect', () => {
     console.log(`[socket] 已连接 ${config.serverUrl}  id=${socket.id}`);
     _state = { status: 'connected', since: new Date(), reconnectAttempts: 0 };
+  });
+
+  socket.on('print.agent.watch', (payload: { printers?: WatchPrinter[] }) => {
+    const list = Array.isArray(payload?.printers) ? payload.printers : [];
+    console.log(`[socket] 监控打印机 ${list.map((p) => p.queueName).join(', ') || '(无)'}`);
+    onWatchPrinters?.(list);
   });
 
   socket.on('disconnect', (reason) => {
@@ -114,4 +127,13 @@ export function emitAck(socket: Socket, payload: PrintAckPayload): void {
   } else {
     console.warn(`[socket] 无法发送 ack（未连接），jobId=${payload.jobId}`);
   }
+}
+
+/** 上报本机 Windows 打印机真实状态 */
+export function emitAgentHeartbeat(
+  socket: Socket,
+  printers: Array<{ queueName: string; ok: boolean; detail: string }>,
+): void {
+  if (!socket.connected) return;
+  socket.emit(Events.PRINT_AGENT_HEARTBEAT, { printers });
 }

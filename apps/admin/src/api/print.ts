@@ -16,13 +16,17 @@ export type Printer = {
   port: number;
   paperWidth: number;
   role: 'front' | 'kitchen';
-  connectionType?: 'network' | 'browser_usb' | 'cloud';
+  connectionType?: 'network' | 'browser_usb' | 'agent_usb' | 'cloud';
   acceptAllTickets?: boolean;
   stationId: string | null;
   agentId: string | null;
   isActive: boolean;
   station?: Station | null;
   agent?: { id: string; name: string; status: string } | null;
+  /** Windows 队列真实通电/脱机（代理心跳）；null=尚无上报 */
+  deviceOnline?: boolean | null;
+  deviceDetail?: string | null;
+  deviceCheckedAt?: string | null;
 };
 export type PrintJob = {
   id: string;

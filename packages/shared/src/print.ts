@@ -73,14 +73,14 @@ export type PrintTicketPayload = {
   };
 };
 
-export type PrinterConnectionType = 'network' | 'browser_usb' | 'cloud';
+export type PrinterConnectionType = 'network' | 'browser_usb' | 'agent_usb' | 'cloud';
 
 export type PrintJobMessage = {
   jobId: string;
   printer: {
     id?: string;
     name?: string;
-    /** 网口必填；browser_usb 可为空 */
+    /** 网口=IP；agent_usb=Windows 打印机队列名；cloud=Webhook；browser_usb 可空 */
     ip?: string;
     port?: number;
     paperWidth: 58 | 80;

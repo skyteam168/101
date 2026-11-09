@@ -1024,6 +1024,7 @@ async function main() {
     },
   });
 
+  // 网口演示机默认停用，避免与 USB 静默机抢单；测网口时再手动启用
   await prisma.printer.upsert({
     where: { id: 1 },
     update: {
@@ -1034,7 +1035,7 @@ async function main() {
       role: 'front',
       agentId: agent.id,
       storeId: store.id,
-      isActive: true,
+      isActive: false,
     },
     create: {
       id: 1,
@@ -1045,7 +1046,7 @@ async function main() {
       paperWidth: 80,
       role: 'front',
       agentId: agent.id,
-      isActive: true,
+      isActive: false,
     },
   });
   await prisma.printer.upsert({
@@ -1059,7 +1060,7 @@ async function main() {
       stationId: hot.id,
       agentId: agent.id,
       storeId: store.id,
-      isActive: true,
+      isActive: false,
     },
     create: {
       id: 2,
@@ -1071,7 +1072,7 @@ async function main() {
       role: 'kitchen',
       stationId: hot.id,
       agentId: agent.id,
-      isActive: true,
+      isActive: false,
     },
   });
   await prisma.printer.upsert({
@@ -1085,7 +1086,7 @@ async function main() {
       stationId: drink.id,
       agentId: agent.id,
       storeId: store.id,
-      isActive: true,
+      isActive: false,
     },
     create: {
       id: 3,
@@ -1097,38 +1098,39 @@ async function main() {
       role: 'kitchen',
       stationId: drink.id,
       agentId: agent.id,
-      isActive: true,
+      isActive: false,
     },
   });
 
-  // 小店推荐：收银电脑 Xprinter 58mm USB（默认停用，避免与网口演示机抢单）
+  // 小店推荐：收银电脑 Xprinter 58mm USB → print-agent Windows RAW 静默（默认启用）
   await prisma.printer.upsert({
     where: { id: 4 },
     update: {
       name: 'Xprinter 58 USB',
-      ip: '',
+      // Windows「打印机与扫描仪」队列名，须与系统完全一致（本机曾用 XP-58 (副本 1)）
+      ip: 'XP-58',
       port: 9100,
       paperWidth: 58,
       role: 'front',
-      connectionType: 'browser_usb',
+      connectionType: 'agent_usb',
       acceptAllTickets: true,
-      agentId: null,
+      agentId: agent.id,
       stationId: null,
       storeId: store.id,
-      isActive: false,
+      isActive: true,
     },
     create: {
       id: 4,
       storeId: store.id,
       name: 'Xprinter 58 USB',
-      ip: '',
+      ip: 'XP-58',
       port: 9100,
       paperWidth: 58,
       role: 'front',
-      connectionType: 'browser_usb',
+      connectionType: 'agent_usb',
       acceptAllTickets: true,
-      agentId: null,
-      isActive: false,
+      agentId: agent.id,
+      isActive: true,
     },
   });
 

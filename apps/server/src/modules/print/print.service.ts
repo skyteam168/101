@@ -13,6 +13,7 @@ import {
   UpdatePrinterDto,
   UpdateStationDto,
 } from './dto/print.dto';
+import { printerDeviceStatusStore } from './printer-device-status.store';
 
 @Injectable()
 export class PrintService {
@@ -30,6 +31,13 @@ export class PrintService {
   private mapPrinter(
     p: Prisma.PrinterGetPayload<{ include: { station: true; agent: true } }>,
   ) {
+    const agentId = p.agentId?.toString() ?? null;
+    const queueName = p.ip || p.name;
+    const device =
+      p.connectionType === 'agent_usb'
+        ? printerDeviceStatusStore.getByQueueName(agentId, queueName)
+        : null;
+    const deviceFresh = printerDeviceStatusStore.isFresh(device);
     return {
       id: p.id.toString(),
       storeId: p.storeId.toString(),
@@ -41,7 +49,7 @@ export class PrintService {
       connectionType: p.connectionType,
       acceptAllTickets: p.acceptAllTickets,
       stationId: p.stationId?.toString() ?? null,
-      agentId: p.agentId?.toString() ?? null,
+      agentId,
       isActive: p.isActive,
       station: p.station ? this.mapStation(p.station) : null,
       agent: p.agent
@@ -52,6 +60,10 @@ export class PrintService {
             lastSeenAt: p.agent.lastSeenAt,
           }
         : null,
+      /** Windows 队列真实就绪（代理心跳）；null=尚无上报 */
+      deviceOnline: deviceFresh ? device!.ok : null,
+      deviceDetail: deviceFresh ? device!.detail : null,
+      deviceCheckedAt: deviceFresh ? new Date(device!.at).toISOString() : null,
     };
   }
 
@@ -132,9 +144,16 @@ export class PrintService {
   async createPrinter(storeId: string, dto: CreatePrinterDto) {
     const connectionType = dto.connectionType ?? 'network';
     const isBrowser = connectionType === 'browser_usb';
+    const isAgentUsb = connectionType === 'agent_usb';
     const isCloud = connectionType === 'cloud';
     if (!isBrowser && !dto.ip?.trim()) {
-      throw new BusinessError(isCloud ? 'PRINTER_WEBHOOK_REQUIRED' : 'PRINTER_IP_REQUIRED');
+      throw new BusinessError(
+        isCloud
+          ? 'PRINTER_WEBHOOK_REQUIRED'
+          : isAgentUsb
+            ? 'PRINTER_WINDOWS_NAME_REQUIRED'
+            : 'PRINTER_IP_REQUIRED',
+      );
     }
     if (isCloud) {
       assertSafeExternalHttpUrl(dto.ip!.trim());
@@ -168,10 +187,17 @@ export class PrintService {
     if (!existing) throw new BusinessError('PRINTER_NOT_FOUND');
     const nextType = dto.connectionType ?? existing.connectionType;
     const isBrowser = nextType === 'browser_usb';
+    const isAgentUsb = nextType === 'agent_usb';
     const isCloud = nextType === 'cloud';
     const nextIp = dto.ip !== undefined ? dto.ip.trim() : existing.ip;
     if (!isBrowser && !nextIp) {
-      throw new BusinessError(isCloud ? 'PRINTER_WEBHOOK_REQUIRED' : 'PRINTER_IP_REQUIRED');
+      throw new BusinessError(
+        isCloud
+          ? 'PRINTER_WEBHOOK_REQUIRED'
+          : isAgentUsb
+            ? 'PRINTER_WINDOWS_NAME_REQUIRED'
+            : 'PRINTER_IP_REQUIRED',
+      );
     }
     if (isCloud) {
       assertSafeExternalHttpUrl(nextIp);

@@ -249,4 +249,190 @@ describe('PrintJobService', () => {
     expect(kinds).toContain(PrintJobKind.order_kitchen);
     createSpy.mockRestore();
   });
+
+  it('printBatch add round prints only 1 kitchen ticket on accept-all printer', async () => {
+    prisma.store.findUnique.mockResolvedValue({
+      id: 1n,
+      nameZh: '店',
+      nameVi: 'Shop',
+      address: null,
+      phone: null,
+      printSplitItem: false,
+    });
+    prisma.printer.findMany.mockResolvedValue([
+      {
+        id: 40n,
+        paperWidth: 58,
+        role: PrinterRole.front,
+        agentId: 1n,
+        stationId: null,
+        station: null,
+        connectionType: 'agent_usb',
+        acceptAllTickets: true,
+        storeId: 1n,
+      },
+    ]);
+    prisma.dish.findMany.mockResolvedValue([
+      { id: 100n, category: { kitchenStationId: 1n } },
+      { id: 101n, category: { kitchenStationId: 2n } },
+      { id: 102n, category: { kitchenStationId: 1n } },
+    ]);
+    prisma.printJob.create.mockImplementation(async ({ data }: { data: { kind: PrintJobKind; payload: { template: string; data: { titleZh?: string; items: unknown[] } } } }) => ({
+      id: BigInt(Math.floor(Math.random() * 1000) + 1),
+      ...data,
+    }));
+    const createSpy = jest.spyOn(service, 'dispatchJob').mockResolvedValue(undefined);
+
+    await service.printBatch(
+      '1',
+      {
+        id: '9',
+        orderNo: 'D1',
+        type: 'dine_in',
+        tableCode: 'A01',
+        remark: null,
+        subtotal: 3000,
+        discount: 0,
+        serviceCharge: 0,
+        deliveryFee: 0,
+        total: 3000,
+        paidAmount: 0,
+        batches: [
+          {
+            id: '5',
+            roundNo: 2,
+            items: [
+              {
+                id: 'i1',
+                dishId: '100',
+                nameZh: '宫保鸡丁',
+                nameVi: 'Gà',
+                qty: 1,
+                unitPrice: 1000,
+                amount: 1000,
+                status: 'pending',
+              },
+              {
+                id: 'i2',
+                dishId: '101',
+                nameZh: '可乐',
+                nameVi: 'Coca',
+                qty: 1,
+                unitPrice: 1000,
+                amount: 1000,
+                status: 'pending',
+              },
+              {
+                id: 'i3',
+                dishId: '102',
+                nameZh: '麻婆豆腐',
+                nameVi: 'Đậu',
+                qty: 1,
+                unitPrice: 1000,
+                amount: 1000,
+                status: 'pending',
+              },
+            ],
+          },
+        ],
+      },
+      '5',
+    );
+
+    const creates = prisma.printJob.create.mock.calls.map(
+      (c: [{ data: { kind: PrintJobKind; payload: { template: string; data: { titleZh?: string; items: unknown[] } } } }]) => c[0].data,
+    );
+    expect(creates).toHaveLength(1);
+    expect(creates[0].kind).toBe(PrintJobKind.order_kitchen);
+    expect(creates[0].payload.template).toBe('kitchen');
+    expect(creates[0].payload.data.titleZh).toBe('【后厨】加菜');
+    expect(creates[0].payload.data.items).toHaveLength(3);
+    createSpy.mockRestore();
+  });
+
+  it('printBatch merges multi-station items onto one printer as a single kitchen ticket', async () => {
+    prisma.store.findUnique.mockResolvedValue({
+      id: 1n,
+      nameZh: '店',
+      nameVi: 'Shop',
+      address: null,
+      phone: null,
+      printSplitItem: false,
+    });
+    prisma.printer.findMany.mockResolvedValue([
+      {
+        id: 40n,
+        paperWidth: 58,
+        role: PrinterRole.front,
+        agentId: 1n,
+        stationId: null,
+        station: null,
+        connectionType: 'agent_usb',
+        acceptAllTickets: true,
+        storeId: 1n,
+      },
+    ]);
+    prisma.dish.findMany.mockResolvedValue([
+      { id: 100n, category: { kitchenStationId: 1n } },
+      { id: 101n, category: { kitchenStationId: 2n } },
+    ]);
+    prisma.printJob.create.mockImplementation(async ({ data }: { data: { kind: PrintJobKind; payload: { data: { items: unknown[] } } } }) => ({
+      id: BigInt(Math.floor(Math.random() * 1000) + 1),
+      ...data,
+    }));
+    const createSpy = jest.spyOn(service, 'dispatchJob').mockResolvedValue(undefined);
+
+    await service.printBatch(
+      '1',
+      {
+        id: '9',
+        orderNo: 'D1',
+        type: 'dine_in',
+        tableCode: 'A01',
+        remark: null,
+        subtotal: 2000,
+        discount: 0,
+        serviceCharge: 0,
+        deliveryFee: 0,
+        total: 2000,
+        paidAmount: 0,
+        batches: [
+          {
+            id: '5',
+            roundNo: 1,
+            items: [
+              {
+                id: 'i1',
+                dishId: '100',
+                nameZh: '宫保鸡丁',
+                nameVi: 'Gà',
+                qty: 1,
+                unitPrice: 1000,
+                amount: 1000,
+                status: 'pending',
+              },
+              {
+                id: 'i2',
+                dishId: '101',
+                nameZh: '可乐',
+                nameVi: 'Coca',
+                qty: 1,
+                unitPrice: 1000,
+                amount: 1000,
+                status: 'pending',
+              },
+            ],
+          },
+        ],
+      },
+      '5',
+    );
+
+    const kitchenCreates = prisma.printJob.create.mock.calls.filter(
+      (c: [{ data: { kind: PrintJobKind } }]) => c[0].data.kind === PrintJobKind.order_kitchen,
+    );
+    expect(kitchenCreates).toHaveLength(1);
+    expect(kitchenCreates[0][0].data.payload.data.items).toHaveLength(2);
+    createSpy.mockRestore();
+  });
 });

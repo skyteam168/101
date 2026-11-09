@@ -228,7 +228,8 @@ export class PrintJobService {
       case PrintJobKind.shift:
         return 'shift';
       case PrintJobKind.order_kitchen:
-        return roundNo && roundNo > 1 ? 'add' : 'kitchen';
+        // 后厨始终用 kitchen 模板；加菜只改标题，避免与前台加菜单打成一模一样
+        return 'kitchen';
       case PrintJobKind.order_front:
       default:
         return roundNo && roundNo > 1 ? 'add' : 'front';
@@ -255,9 +256,12 @@ export class PrintJobService {
     refund?: RefundPrintInfo;
   }): PrintTicketPayload {
     const template = this.kindToTemplate(opts.kind, opts.roundNo);
+    const isKitchenAdd = template === 'kitchen' && !!opts.roundNo && opts.roundNo > 1;
     const titleMap: Record<string, { zh: string; vi: string }> = {
       front: { zh: '【堂食】前台总单', vi: '【Tại chỗ】Phiếu tổng' },
-      kitchen: { zh: '【后厨】厨房单', vi: '【Bếp】Phiếu bếp' },
+      kitchen: isKitchenAdd
+        ? { zh: '【后厨】加菜', vi: '【Bếp】THÊM MÓN' }
+        : { zh: '【后厨】厨房单', vi: '【Bếp】Phiếu bếp' },
       add: { zh: '【堂食】加菜', vi: '【Tại chỗ】THÊM MÓN' },
       void: { zh: '【后厨】退菜', vi: '【Bếp】HỦY MÓN' },
       cancel: { zh: '【取消】取消单', vi: '【Hủy】Hủy đơn' },
@@ -306,8 +310,16 @@ export class PrintJobService {
             ? new Date().toISOString()
             : undefined,
         refundedAmount: opts.order?.refundedAmount,
-        footerZh: isReceipt ? '欢迎下次光临' : isRefund ? '退款凭证请妥善保管' : undefined,
-        footerVi: isReceipt ? 'Hẹn gặp lại' : isRefund ? 'Vui lòng giữ phiếu hoàn tiền' : undefined,
+        footerZh: isRefund
+          ? '退款凭证请妥善保管'
+          : template === 'receipt' || template === 'front' || template === 'delivery'
+            ? '欢迎下次光临'
+            : undefined,
+        footerVi: isRefund
+          ? 'Vui lòng giữ phiếu hoàn tiền'
+          : template === 'receipt' || template === 'front' || template === 'delivery'
+            ? 'Hẹn gặp lại'
+            : undefined,
         stationNameZh: opts.stationNameZh,
         stationNameVi: opts.stationNameVi,
         shift: opts.shift,
@@ -404,6 +416,8 @@ export class PrintJobService {
 
     if (!job.printer.agentId) return;
 
+    const agentConn =
+      job.printer.connectionType === PrinterConnectionType.agent_usb ? 'agent_usb' : 'network';
     const msg: PrintJobMessage & { agentId: string } = {
       jobId: job.id.toString(),
       agentId: job.printer.agentId.toString(),
@@ -413,7 +427,7 @@ export class PrintJobService {
         ip: job.printer.ip,
         port: job.printer.port,
         paperWidth,
-        connectionType: 'network',
+        connectionType: agentConn,
       },
       payload,
     };
@@ -574,7 +588,8 @@ export class PrintJobService {
 
     const isAdd = batch.roundNo > 1;
     const frontKind = isAdd ? PrintJobKind.add : PrintJobKind.order_front;
-    const kitchenKind = isAdd ? PrintJobKind.add : PrintJobKind.order_kitchen;
+    // 后厨加菜仍走 order_kitchen，避免与前台加菜单同 kind/同版式连打多张「一样的」
+    const kitchenKind = PrintJobKind.order_kitchen;
 
     // 外卖走 delivery 模板
     if (order.type === 'delivery' || order.type === 'takeaway') {
@@ -599,8 +614,39 @@ export class PrintJobService {
       return;
     }
 
+    const stationMap = await this.dishStationMap(activeItems.map((i) => i.dishId));
+    const byStation = new Map<string, typeof activeItems>();
+    for (const item of activeItems) {
+      const sid = stationMap.get(item.dishId) || '_default';
+      if (!byStation.has(sid)) byStation.set(sid, []);
+      byStation.get(sid)!.push(item);
+    }
+
+    // 同一台打印机上的多档口菜合并成一张完整厨房单（避免热菜一张、饮品一张的「残单」）
+    // 多台档口专属机仍各打各的。
+    const kitchenPrinters = this.printersForRole(printers, PrinterRole.kitchen);
+    const mergedByPrinter = new Map<
+      string,
+      { printer: (typeof kitchenPrinters)[number]; items: typeof activeItems }
+    >();
+    for (const [stationId, items] of byStation) {
+      const targets = this.resolveKitchenTargets(kitchenPrinters, stationId);
+      for (const printer of targets) {
+        const key = printer.id.toString();
+        const row = mergedByPrinter.get(key);
+        if (row) {
+          row.items.push(...items);
+        } else {
+          mergedByPrinter.set(key, { printer, items: [...items] });
+        }
+      }
+    }
+
+    const kitchenPrinterIds = new Set(mergedByPrinter.keys());
     const frontPrinters = this.printersForRole(printers, PrinterRole.front);
     for (const printer of frontPrinters) {
+      // 加菜：同机已打后厨加菜单时不再打前台加菜，避免连出两张
+      if (isAdd && kitchenPrinterIds.has(printer.id.toString())) continue;
       const payload = this.buildPayload({
         kind: frontKind,
         paperWidth: this.paperWidth(printer.paperWidth),
@@ -618,59 +664,48 @@ export class PrintJobService {
       });
     }
 
-    const stationMap = await this.dishStationMap(activeItems.map((i) => i.dishId));
-    const byStation = new Map<string, typeof activeItems>();
-    for (const item of activeItems) {
-      const sid = stationMap.get(item.dishId) || '_default';
-      if (!byStation.has(sid)) byStation.set(sid, []);
-      byStation.get(sid)!.push(item);
-    }
-
-    const kitchenPrinters = this.printersForRole(printers, PrinterRole.kitchen);
-    for (const [stationId, items] of byStation) {
-      const targets = this.resolveKitchenTargets(kitchenPrinters, stationId);
-      for (const printer of targets) {
-        if (store.printSplitItem) {
-          for (const item of items) {
-            for (let q = 0; q < item.qty; q++) {
-              const payload = this.buildPayload({
-                kind: kitchenKind,
-                paperWidth: this.paperWidth(printer.paperWidth),
-                store,
-                order,
-                items: [{ ...item, qty: 1 }],
-                roundNo: batch.roundNo,
-                stationNameZh: printer.station?.nameZh,
-                stationNameVi: printer.station?.nameVi,
-              });
-              await this.createAndPush({
-                printer,
-                kind: kitchenKind,
-                payload,
-                orderId: order.id,
-                batchId: batch.id,
-              });
-            }
+    // 厨房单 / 加菜单各打 1 份完整联；一菜一切时仍按份拆
+    for (const { printer, items } of mergedByPrinter.values()) {
+      if (store.printSplitItem) {
+        for (const item of items) {
+          for (let q = 0; q < item.qty; q++) {
+            const payload = this.buildPayload({
+              kind: kitchenKind,
+              paperWidth: this.paperWidth(printer.paperWidth),
+              store,
+              order,
+              items: [{ ...item, qty: 1 }],
+              roundNo: batch.roundNo,
+              stationNameZh: printer.station?.nameZh,
+              stationNameVi: printer.station?.nameVi,
+            });
+            await this.createAndPush({
+              printer,
+              kind: kitchenKind,
+              payload,
+              orderId: order.id,
+              batchId: batch.id,
+            });
           }
-        } else {
-          const payload = this.buildPayload({
-            kind: kitchenKind,
-            paperWidth: this.paperWidth(printer.paperWidth),
-            store,
-            order,
-            items,
-            roundNo: batch.roundNo,
-            stationNameZh: printer.station?.nameZh,
-            stationNameVi: printer.station?.nameVi,
-          });
-          await this.createAndPush({
-            printer,
-            kind: kitchenKind,
-            payload,
-            orderId: order.id,
-            batchId: batch.id,
-          });
         }
+      } else {
+        const payload = this.buildPayload({
+          kind: kitchenKind,
+          paperWidth: this.paperWidth(printer.paperWidth),
+          store,
+          order,
+          items,
+          roundNo: batch.roundNo,
+          stationNameZh: printer.station?.nameZh,
+          stationNameVi: printer.station?.nameVi,
+        });
+        await this.createAndPush({
+          printer,
+          kind: kitchenKind,
+          payload,
+          orderId: order.id,
+          batchId: batch.id,
+        });
       }
     }
   }

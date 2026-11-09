@@ -116,12 +116,25 @@ export interface DeliveryData {
 }
 
 export interface ShiftData {
+  storeNameZh?: string;
+  storeNameVi?: string;
+  /** 兼容旧字段 */
   storeName?: string;
-  date: string;
-  cashier: string;
-  totalOrders: number;
-  totalAmount: number;
-  breakdown: Array<{ method: string; amount: number }>;
+  titleZh?: string;
+  titleVi?: string;
+  shift?: {
+    cashierName?: string;
+    from?: string;
+    to?: string;
+    orderCount?: number;
+    totalSales?: number;
+  };
+  /** 旧版扁平字段（兜底） */
+  date?: string;
+  cashier?: string;
+  totalOrders?: number;
+  totalAmount?: number;
+  breakdown?: Array<{ method: string; amount: number }>;
   openCash?: number;
   closeCash?: number;
 }
@@ -162,14 +175,12 @@ export function registerFonts(): void {
   fontsRegistered = true;
 
   const ASSETS_DIR = path.resolve(__dirname, '../assets/fonts');
+  // 只用静态 Regular；加粗用 canvas bold（勿用 VF 字重 + 高阈值，易整页发黑）
   const candidates: Array<{ file: string; family: string }> = [
-    // 优先使用本地 Noto 字体（覆盖中文 + 越南文 + 拉丁）
     { file: path.join(ASSETS_DIR, 'NotoSansSC-Regular.otf'), family: FONT_FAMILY },
     { file: path.join(ASSETS_DIR, 'NotoSans-Regular.ttf'), family: FONT_FAMILY },
-    // Windows 系统字体回退
     { file: 'C:\\Windows\\Fonts\\msyh.ttc', family: FONT_FAMILY },
     { file: 'C:\\Windows\\Fonts\\arial.ttf', family: FONT_FAMILY },
-    // Linux 系统字体回退
     { file: '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc', family: FONT_FAMILY },
     { file: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', family: FONT_FAMILY },
   ];
@@ -181,7 +192,7 @@ export function registerFonts(): void {
         GlobalFonts.registerFromPath(c.file, c.family);
         console.log(`[render] 注册字体: ${path.basename(c.file)}`);
         registered++;
-        if (registered >= 2) break; // 注册足够多的字体后停止
+        if (registered >= 2) break;
       } catch (e) {
         console.warn(`[render] 字体注册失败 ${c.file}:`, e);
       }
@@ -230,129 +241,140 @@ class TicketRenderer {
     this.canvas = createCanvas(this.width, 4000);
     this.ctx = this.canvas.getContext('2d') as SKRSContext2D;
 
-    // 白底
+    // 白底；top baseline 避免标题/正文互相压盖（旧黑底横幅曾切掉桌号）
     this.ctx.fillStyle = '#ffffff';
     this.ctx.fillRect(0, 0, this.width, 4000);
     this.ctx.fillStyle = '#000000';
+    this.ctx.textBaseline = 'top';
 
     this.y = this.pad;
 
-    // 字号随纸宽缩放
-    const scale = paperWidth === 80 ? 1.5 : 1;
-    this.sz = {
-      huge: Math.round(72 * scale),    // 桌台号
-      large: Math.round(44 * scale),   // 区块标题
-      medium: Math.round(32 * scale),  // 副标题
-      normal: Math.round(26 * scale),  // 正文
-      small: Math.round(20 * scale),   // 辅助文字
-    };
+    // 约 1.2 倍字号（相对图二基准）
+    this.sz =
+      paperWidth === 58
+        ? {
+            huge: 29,
+            large: 26,
+            medium: 22,
+            normal: 20,
+            small: 18,
+          }
+        : {
+            huge: 36,
+            large: 31,
+            medium: 26,
+            normal: 24,
+            small: 19,
+          };
   }
 
   private font(size: number, bold = false): string {
-    return `${bold ? 'bold ' : ''}${size}px "${FONT_FAMILY}", sans-serif`;
+    return `${bold ? 'bold ' : ''}${size}px "${FONT_FAMILY}", "Microsoft YaHei", sans-serif`;
+  }
+
+  private lineStep(size: number, title = false): number {
+    return title ? size + 10 : size + 9;
+  }
+
+  /** 纯黑填充；正文再水平叠印 1px，热敏更实且不易糊成黑块 */
+  private paintText(text: string, x: number, y: number, maxWidth?: number, thicken = false): void {
+    this.ctx.fillStyle = '#000000';
+    if (maxWidth != null) {
+      this.ctx.fillText(text, x, y, maxWidth);
+      if (thicken) this.ctx.fillText(text, x + 1, y, maxWidth);
+    } else {
+      this.ctx.fillText(text, x, y);
+      if (thicken) this.ctx.fillText(text, x + 1, y);
+    }
   }
 
   /** 水平居中文字 */
   centerText(text: string, size: number, bold = false): void {
     this.ctx.font = this.font(size, bold);
     const w = this.ctx.measureText(text).width;
-    this.ctx.fillStyle = '#000000';
-    this.ctx.fillText(text, Math.max(0, (this.width - w) / 2), this.y);
-    this.y += size * 1.35;
+    this.paintText(text, Math.max(this.pad, (this.width - w) / 2), this.y, this.innerW, !bold);
+    this.y += this.lineStep(size, bold);
   }
 
   /** 左对齐文字（带 padding） */
   leftText(text: string, size: number, bold = false, x?: number): void {
     this.ctx.font = this.font(size, bold);
-    this.ctx.fillStyle = '#000000';
-    this.ctx.fillText(text, x ?? this.pad, this.y, this.innerW);
-    this.y += size * 1.35;
+    this.paintText(text, x ?? this.pad, this.y, this.innerW, !bold);
+    this.y += this.lineStep(size, bold);
   }
 
   /** 两端对齐：左文字 + 右文字 */
   rowText(left: string, right: string, size: number, bold = false): void {
     this.ctx.font = this.font(size, bold);
-    this.ctx.fillStyle = '#000000';
-    this.ctx.fillText(left, this.pad, this.y, this.innerW * 0.65);
+    this.paintText(left, this.pad, this.y, this.innerW * 0.62, !bold);
     const rw = this.ctx.measureText(right).width;
-    this.ctx.fillText(right, this.width - this.pad - rw, this.y);
-    this.y += size * 1.35;
+    this.paintText(right, this.width - this.pad - rw, this.y, undefined, !bold);
+    this.y += this.lineStep(size, bold);
   }
 
-  /** 反色（黑底白字）横幅 */
+  /** @deprecated 图二样式不再使用黑底横幅；保留以免旧调用报错 */
   invertedBanner(text: string, size: number): void {
-    const bannerH = size * 1.8;
-    this.ctx.fillStyle = '#000000';
-    this.ctx.fillRect(0, this.y, this.width, bannerH);
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.font = this.font(size, true);
-    const tw = this.ctx.measureText(text).width;
-    this.ctx.fillText(text, Math.max(0, (this.width - tw) / 2), this.y + (bannerH - size) / 2 + size * 0.85);
-    this.ctx.fillStyle = '#000000';
-    this.y += bannerH + 4;
+    this.centerText(text, size, true);
   }
 
   /** 实线分隔符 */
   separator(): void {
-    this.ctx.fillStyle = '#000000';
-    this.ctx.fillRect(this.pad, this.y, this.innerW, 2);
-    this.y += 8;
+    this.dashedSeparator();
   }
 
-  /** 虚线分隔符（用 - 字符） */
+  /** 虚线分隔符（与浏览器打印台一致） */
   dashedSeparator(): void {
-    const dashStr = '- '.repeat(Math.floor(this.innerW / (this.sz.small * 0.6)));
+    const dashStr = '-'.repeat(Math.max(16, Math.floor(this.innerW / 7)));
     this.ctx.font = this.font(this.sz.small);
-    this.ctx.fillStyle = '#000000';
-    this.ctx.fillText(dashStr, this.pad, this.y, this.innerW);
-    this.y += this.sz.small * 1.35;
+    this.paintText(dashStr, this.pad, this.y, this.innerW, true);
+    this.y += this.sz.small + 4;
   }
 
   /** 空行 */
   gap(px?: number): void {
-    this.y += px ?? 16;
+    this.y += px ?? 10;
   }
 
   /**
-   * 渲染菜品列表（厨房 / 加菜 / 退菜）
-   * 每道菜显示：数量 × 中文名 / 越南文名
+   * 厨房/加菜等：菜名中越同行，下一行数量（可选金额）
+   * 对齐图二：`回锅肉 / Thịt...` + `  x1    95.000 ₫`
    */
-  renderKitchenItems(items: Array<{ nameZh: string; nameVi: string; qty: number; options?: string; note?: string; reason?: string }>): void {
+  renderKitchenItems(
+    items: Array<{
+      nameZh?: string;
+      nameVi?: string;
+      qty: number;
+      amount?: number;
+      unitPrice?: number;
+      options?: string;
+      note?: string;
+      remark?: string;
+      reason?: string;
+    }>,
+    withPrice = false,
+  ): void {
     for (const item of items) {
-      // 数量 + 中文名 用大字体
-      this.leftText(`× ${item.qty}  ${item.nameZh}`, this.sz.medium, true);
-      // 越南文名用小字体
-      if (item.nameVi && item.nameVi !== item.nameZh) {
-        this.leftText(`      ${item.nameVi}`, this.sz.small, false, this.pad + 8);
-      }
-      if (item.options) {
-        this.leftText(`  [${item.options}]`, this.sz.small);
-      }
-      if (item.note) {
-        this.leftText(`  备注: ${item.note}`, this.sz.small);
-      }
-      if ((item as { reason?: string }).reason) {
-        this.leftText(`  原因: ${(item as { reason?: string }).reason}`, this.sz.small);
-      }
-      this.gap(4);
+      const name = biLabel(item.nameZh, item.nameVi);
+      this.leftText(name || '-', this.sz.medium, false);
+      const qty = `  x${item.qty}`;
+      const price =
+        withPrice && (item.amount != null || item.unitPrice != null)
+          ? `    ${fmtVND(item.amount ?? item.unitPrice ?? 0)}`
+          : '';
+      this.leftText(`${qty}${price}`, this.sz.normal, false);
+      if (item.options) this.leftText(`  [${item.options}]`, this.sz.small, false);
+      const note = item.note || item.remark;
+      if (note) this.leftText(`  * ${note}`, this.sz.small, false);
+      if (item.reason) this.leftText(`  * ${item.reason}`, this.sz.small, false);
+      this.gap(2);
     }
   }
 
-  /**
-   * 渲染收据菜品列表（中越双语：中文主行 + 越南文副行，客人两侧都能看懂）
-   */
-  renderReceiptItems(items: ReceiptItem[]): void {
-    for (const item of items) {
-      const zh = item.nameZh || '';
-      const vi = item.nameVi || '';
-      const primary = zh || vi;
-      this.rowText(`${primary} ×${item.qty}`, fmtVND(item.amount), this.sz.normal);
-      if (vi && zh && vi !== zh) {
-        this.leftText(vi, this.sz.small);
-      } else if (!zh && vi) {
-        /* primary 已是越南文 */
-      }
-    }
+  /** 收据菜品列表（同图二） */
+  renderReceiptItems(
+    items: Array<{ nameZh?: string; nameVi?: string; qty: number; amount?: number; unitPrice?: number }>,
+  ): void {
+    this.renderKitchenItems(items, true);
   }
 
   /** 获取裁剪后的 1-bit 位图 */
@@ -382,21 +404,22 @@ class TicketRenderer {
       }
     }
 
-    // 裁剪高度 = lastRow + 底部留白 32px，且对齐到 8 的倍数
-    const cropH = Math.ceil((lastRow + 40) / 8) * 8;
+    // 在原有底部基础上再加约 1.5cm 撕纸留白（203dpi：15mm≈120px；合计≈168px）
+    const tearMarginPx = 168;
+    const cropH = Math.ceil(Math.max(lastRow + tearMarginPx, this.y) / 8) * 8;
     const finalH = Math.min(cropH, fullHeight);
 
-    // 转换为 1-bit 位图
+    // 标准中值阈值；过高会把抗锯齿灰边糊成整页黑块
     const bytesPerRow = Math.ceil(width / 8);
     const bitmap = Buffer.alloc(bytesPerRow * finalH, 0x00);
+    const INK_LUMA = 128;
 
     for (let y = 0; y < finalH; y++) {
       for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 4;
         const r = data[i], g = data[i + 1], b = data[i + 2];
         const lum = (r * 299 + g * 587 + b * 114) / 1000;
-        if (lum < 128) {
-          // 黑色像素 → bit = 1
+        if (lum < INK_LUMA) {
           const byteIdx = y * bytesPerRow + Math.floor(x / 8);
           const bitIdx = 7 - (x % 8); // MSB first
           bitmap[byteIdx] |= 1 << bitIdx;
@@ -410,80 +433,207 @@ class TicketRenderer {
 
 // ─────────────────────────── 各模板渲染函数 ───────────────────────────
 
-function renderKitchen(r: TicketRenderer, data: KitchenData): void {
-  if (data.storeName) r.centerText(data.storeName, r.sz.normal);
-  r.invertedBanner('厨房打印  BẾP', r.sz.large);
-  r.gap(8);
-  r.centerText(data.tableCode, r.sz.huge, true);
-  r.separator();
-  r.rowText(`单号: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
-  if (data.waiter) r.leftText(`服务员: ${data.waiter}`, r.sz.small);
-  r.separator();
-  r.renderKitchenItems(data.items);
-  if (data.remark) {
-    r.separator();
-    r.leftText(`备注 / Ghi chú: ${data.remark}`, r.sz.small);
+/** 中越双语拼一行（与 admin ticket-escpos 一致） */
+function biLabel(zh?: string | null, vi?: string | null): string {
+  const z = (zh || '').trim();
+  const v = (vi || '').trim();
+  if (z && v && z !== v) return `${z} / ${v}`;
+  return z || v || '';
+}
+
+function L(zh: string, vi: string) {
+  return biLabel(zh, vi);
+}
+
+type TicketPayloadData = {
+  storeName?: string;
+  storeNameZh?: string;
+  storeNameVi?: string;
+  address?: string | null;
+  phone?: string | null;
+  titleZh?: string;
+  titleVi?: string;
+  orderNo?: string;
+  tableCode?: string;
+  guestCount?: number | null;
+  waiter?: string;
+  cashier?: string;
+  remark?: string;
+  createdAt?: string;
+  paidAt?: string;
+  refundedAt?: string;
+  roundNo?: number;
+  stationNameZh?: string;
+  stationNameVi?: string;
+  items?: Array<{
+    nameZh?: string;
+    nameVi?: string;
+    qty: number;
+    amount?: number;
+    unitPrice?: number;
+    options?: string;
+    note?: string;
+    remark?: string;
+    reason?: string;
+  }>;
+  subtotal?: number;
+  discount?: number;
+  serviceCharge?: number;
+  deliveryFee?: number;
+  total?: number;
+  paidAmount?: number;
+  change?: number;
+  paymentMethod?: string;
+  payments?: { method: string; amount: number }[];
+  refundAmount?: number;
+  refundMethod?: string;
+  refundReason?: string;
+  refundedAmount?: number;
+  footerZh?: string;
+  footerVi?: string;
+  customer?: string;
+  operator?: string;
+  reason?: string;
+  shift?: ShiftData['shift'];
+  date?: string;
+  cashierFlat?: string;
+  totalOrders?: number;
+  totalAmount?: number;
+  breakdown?: Array<{ method: string; amount: number }>;
+  openCash?: number;
+  closeCash?: number;
+};
+
+/**
+ * 统一按图二 / 浏览器打印台样式渲染：无黑底横幅，虚线分隔，标题略加粗。
+ */
+function renderPayloadStyle(
+  r: TicketRenderer,
+  data: TicketPayloadData,
+  opts: {
+    fallbackTitleZh: string;
+    fallbackTitleVi?: string;
+    withPrice?: boolean;
+    showTotals?: boolean;
+    extraMeta?: () => void;
+    afterItems?: () => void;
+  },
+): void {
+  const store = biLabel(data.storeNameZh, data.storeNameVi) || data.storeName || '';
+  if (store) r.leftText(store, r.sz.small, false);
+  if (data.address) r.leftText(String(data.address), r.sz.small);
+  if (data.phone) r.leftText(String(data.phone), r.sz.small);
+
+  const title =
+    biLabel(data.titleZh, data.titleVi) ||
+    biLabel(opts.fallbackTitleZh, opts.fallbackTitleVi || '');
+  r.leftText(title, r.sz.large, true);
+  r.dashedSeparator();
+
+  if (data.tableCode) {
+    const guests =
+      data.guestCount != null && data.guestCount > 0
+        ? `  ${data.guestCount} ${L('位', 'khách')}`
+        : '';
+    r.leftText(`${L('桌台', 'Bàn')}: ${data.tableCode}${guests}`, r.sz.normal);
   }
-  r.gap(24);
+  if (data.orderNo) r.leftText(`${L('单号', 'Mã đơn')}: ${data.orderNo}`, r.sz.normal);
+  if (data.roundNo) r.leftText(`${L('轮次', 'Lượt')}: ${data.roundNo}`, r.sz.normal);
+  if (data.createdAt) r.leftText(`${L('下单', 'Đặt')}: ${fmtDateTime(data.createdAt)}`, r.sz.normal);
+  if (data.paidAt) r.leftText(`${L('结账', 'Thanh toán')}: ${fmtDateTime(data.paidAt)}`, r.sz.normal);
+  if (data.refundedAt) {
+    r.leftText(`${L('退款', 'Hoàn tiền')}: ${fmtDateTime(data.refundedAt)}`, r.sz.normal);
+  }
+  if (data.cashier) r.leftText(`${L('收银', 'Thu ngân')}: ${data.cashier}`, r.sz.normal);
+  if (data.waiter) r.leftText(`${L('服务员', 'NV')}: ${data.waiter}`, r.sz.normal);
+  if (data.operator) r.leftText(`${L('操作人', 'NV')}: ${data.operator}`, r.sz.normal);
+  if (data.remark) r.leftText(`${L('备注', 'Ghi chú')}: ${data.remark}`, r.sz.normal);
+  if (data.reason) r.leftText(`${L('原因', 'Lý do')}: ${data.reason}`, r.sz.normal);
+  if (data.stationNameZh || data.stationNameVi) {
+    r.leftText(`${L('档口', 'Quầy')}: ${biLabel(data.stationNameZh, data.stationNameVi)}`, r.sz.normal);
+  }
+  opts.extraMeta?.();
+
+  r.dashedSeparator();
+  r.renderKitchenItems(data.items || [], !!opts.withPrice);
+
+  if (opts.showTotals) {
+    r.dashedSeparator();
+    if (data.subtotal != null) r.rowText(`${L('小计', 'Tạm tính')}:`, fmtVND(data.subtotal), r.sz.normal);
+    if (data.discount) r.rowText(`${L('优惠', 'Giảm giá')}:`, `-${fmtVND(data.discount)}`, r.sz.normal);
+    if (data.serviceCharge) {
+      r.rowText(`${L('服务费', 'Phí phục vụ')}:`, fmtVND(data.serviceCharge), r.sz.normal);
+    }
+    if (data.deliveryFee) {
+      r.rowText(`${L('配送费', 'Phí giao')}:`, fmtVND(data.deliveryFee), r.sz.normal);
+    }
+    if (data.total != null) r.rowText(`${L('合计', 'TỔNG')}:`, fmtVND(data.total), r.sz.medium, true);
+    if (data.paidAmount != null) {
+      r.rowText(`${L('实收', 'Thực thu')}:`, fmtVND(data.paidAmount), r.sz.normal);
+    }
+    if (data.payments?.length) {
+      for (const p of data.payments) {
+        r.rowText(`${p.method}:`, fmtVND(p.amount), r.sz.normal);
+      }
+    } else if (data.paymentMethod) {
+      r.leftText(`${L('支付', 'TT')}: ${data.paymentMethod}`, r.sz.normal);
+    }
+    if (data.change && data.change > 0) {
+      r.rowText(`${L('找零', 'Tiền thừa')}:`, fmtVND(data.change), r.sz.normal);
+    }
+  }
+
+  opts.afterItems?.();
+
+  r.dashedSeparator();
+  // 前台/结账/外卖等顾客向小票：缺省欢迎语（与结账单一致）
+  const footer =
+    biLabel(data.footerZh, data.footerVi) ||
+    (opts.showTotals ? biLabel('欢迎下次光临', 'Hẹn gặp lại') : '');
+  if (footer) r.leftText(footer, r.sz.small, false);
+  // 欢迎语下方再留约 1.5cm+，方便撕纸
+  r.gap(168);
+}
+
+function renderKitchen(r: TicketRenderer, data: KitchenData): void {
+  renderPayloadStyle(r, data as unknown as TicketPayloadData, {
+    fallbackTitleZh: '【后厨】厨房单',
+    fallbackTitleVi: '【Bếp】Phiếu bếp',
+    withPrice: false,
+  });
 }
 
 function renderFront(r: TicketRenderer, data: KitchenData): void {
-  if (data.storeName) r.centerText(data.storeName, r.sz.normal);
-  r.invertedBanner('前台打印  PHỤC VỤ', r.sz.large);
-  r.gap(8);
-  r.centerText(data.tableCode, r.sz.huge, true);
-  r.separator();
-  r.rowText(`单号: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
-  if (data.waiter) r.leftText(`服务员: ${data.waiter}`, r.sz.small);
-  r.separator();
-  r.renderKitchenItems(data.items);
-  if (data.remark) {
-    r.separator();
-    r.leftText(`备注 / Ghi chú: ${data.remark}`, r.sz.small);
-  }
-  r.gap(24);
+  renderPayloadStyle(r, data as unknown as TicketPayloadData, {
+    fallbackTitleZh: '【堂食】前台总单',
+    fallbackTitleVi: '【Tại chỗ】Phiếu tổng',
+    withPrice: true,
+    showTotals: true,
+  });
 }
 
 function renderAdd(r: TicketRenderer, data: AddData): void {
-  if (data.storeName) r.centerText(data.storeName, r.sz.normal);
-  r.invertedBanner(`加菜 / THÊM MÓN  第${data.roundNo}轮 / Lần ${data.roundNo}`, r.sz.large);
-  r.gap(8);
-  r.centerText(data.tableCode, r.sz.huge, true);
-  r.separator();
-  r.rowText(`单号: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
-  if (data.waiter) r.leftText(`服务员: ${data.waiter}`, r.sz.small);
-  r.separator();
-  r.renderKitchenItems(data.items);
-  if (data.remark) {
-    r.separator();
-    r.leftText(`备注 / Ghi chú: ${data.remark}`, r.sz.small);
-  }
-  r.gap(24);
+  renderPayloadStyle(r, data as unknown as TicketPayloadData, {
+    fallbackTitleZh: '【堂食】加菜',
+    fallbackTitleVi: '【Tại chỗ】THÊM MÓN',
+    withPrice: true,
+  });
 }
 
 function renderVoid(r: TicketRenderer, data: VoidData): void {
-  if (data.storeName) r.centerText(data.storeName, r.sz.normal);
-  r.invertedBanner('退菜 / HỦY MÓN', r.sz.large);
-  r.gap(8);
-  r.centerText(data.tableCode, r.sz.huge, true);
-  r.separator();
-  r.rowText(`单号: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
-  r.leftText(`操作人: ${data.operator}`, r.sz.small);
-  r.separator();
-  r.renderKitchenItems(data.items);
-  r.gap(24);
+  renderPayloadStyle(r, data as unknown as TicketPayloadData, {
+    fallbackTitleZh: '【后厨】退菜',
+    fallbackTitleVi: '【Bếp】HỦY MÓN',
+    withPrice: false,
+  });
 }
 
 function renderCancel(r: TicketRenderer, data: CancelData): void {
-  if (data.storeName) r.centerText(data.storeName, r.sz.normal);
-  r.invertedBanner('取消订单 / HỦY ĐƠN', r.sz.large);
-  r.gap(8);
-  if (data.tableCode) r.centerText(data.tableCode, r.sz.huge, true);
-  r.separator();
-  r.rowText(`单号: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
-  r.leftText(`操作人: ${data.operator}`, r.sz.small);
-  r.leftText(`原因: ${data.reason}`, r.sz.normal);
-  r.gap(24);
+  renderPayloadStyle(r, data as unknown as TicketPayloadData, {
+    fallbackTitleZh: '【取消】取消单',
+    fallbackTitleVi: '【Hủy】Hủy đơn',
+    withPrice: false,
+  });
 }
 
 function renderRefund(
@@ -498,123 +648,112 @@ function renderRefund(
     titleVi?: string;
   },
 ): void {
-  const storeName = data.storeName || data.storeNameZh || data.storeNameVi;
-  if (storeName) r.centerText(storeName, r.sz.medium, true);
-  if (data.address) r.centerText(data.address, r.sz.small);
-  if (data.phone) r.centerText(data.phone, r.sz.small);
-  r.invertedBanner('退款 / HOÀN TIỀN', r.sz.large);
-  r.separator();
-  if (data.tableCode) {
-    const guests =
-      data.guestCount != null && data.guestCount > 0 ? `${data.guestCount} 位/khách` : '';
-    r.rowText(`桌台/Bàn: ${data.tableCode}`, guests, r.sz.small);
-  }
-  r.leftText(`单号/Mã đơn: ${data.orderNo}`, r.sz.small);
-  if (data.createdAt) r.leftText(`下单/Đặt: ${fmtDateTime(data.createdAt)}`, r.sz.small);
-  if (data.refundedAt) r.leftText(`退款/Hoàn tiền: ${fmtDateTime(data.refundedAt)}`, r.sz.small);
-  r.separator();
-  if (data.refundAmount != null) {
-    r.rowText('退款金额/Số hoàn:', fmtVND(data.refundAmount), r.sz.medium, true);
-  }
-  if (data.refundMethod) r.rowText('退回方式/Cách hoàn:', data.refundMethod, r.sz.normal);
-  if (data.refundReason) r.leftText(`原因/Lý do: ${data.refundReason}`, r.sz.normal);
-  r.separator();
-  if (data.total != null) r.rowText('原账单/Hóa đơn gốc:', fmtVND(data.total), r.sz.normal);
-  if (data.refundedAmount != null) r.rowText('累计已退/Đã hoàn:', fmtVND(data.refundedAmount), r.sz.normal);
-  if (data.paidAmount != null) r.rowText('剩余已付/Còn lại:', fmtVND(data.paidAmount), r.sz.normal);
-  r.gap(16);
-  const footer =
-    data.footerZh || data.footerVi
-      ? [data.footerZh, data.footerVi].filter(Boolean).join('  ')
-      : '退款凭证请妥善保管';
-  r.centerText(footer, r.sz.normal);
-  r.gap(24);
+  renderPayloadStyle(r, data as unknown as TicketPayloadData, {
+    fallbackTitleZh: '【退款】退款小票',
+    fallbackTitleVi: '【Hoàn】Phiếu hoàn tiền',
+    withPrice: false,
+    afterItems: () => {
+      r.dashedSeparator();
+      if (data.refundAmount != null) {
+        r.rowText(`${L('退款金额', 'Số hoàn')}:`, fmtVND(data.refundAmount), r.sz.medium, true);
+      }
+      if (data.refundMethod) r.leftText(`${L('退回方式', 'Cách hoàn')}: ${data.refundMethod}`, r.sz.normal);
+      if (data.refundReason) r.leftText(`${L('原因', 'Lý do')}: ${data.refundReason}`, r.sz.normal);
+      if (data.total != null) r.rowText(`${L('原账单', 'Hóa đơn gốc')}:`, fmtVND(data.total), r.sz.normal);
+      if (data.refundedAmount != null) {
+        r.rowText(`${L('累计已退', 'Đã hoàn')}:`, fmtVND(data.refundedAmount), r.sz.normal);
+      }
+      if (data.paidAmount != null) {
+        r.rowText(`${L('剩余已付', 'Còn lại')}:`, fmtVND(data.paidAmount), r.sz.normal);
+      }
+    },
+  });
 }
 
 function renderReceipt(r: TicketRenderer, data: ReceiptData): void {
-  const storeName = data.storeName || data.storeNameZh || data.storeNameVi;
-  if (storeName) r.centerText(storeName, r.sz.medium, true);
-  if (data.address) r.centerText(data.address, r.sz.small);
-  if (data.phone) r.centerText(data.phone, r.sz.small);
-  r.centerText('收据 / HÓA ĐƠN', r.sz.large, true);
-  r.separator();
-  if (data.tableCode) {
-    const guests =
-      data.guestCount != null && data.guestCount > 0 ? `${data.guestCount} 位/khách` : '';
-    r.rowText(`桌台/Bàn: ${data.tableCode}`, guests, r.sz.small);
-  }
-  r.leftText(`单号/Mã đơn: ${data.orderNo}`, r.sz.small);
-  r.leftText(`下单/Đặt: ${fmtDateTime(data.createdAt)}`, r.sz.small);
-  if (data.paidAt) r.leftText(`结账/Thanh toán: ${fmtDateTime(data.paidAt)}`, r.sz.small);
-  if (data.cashier) r.leftText(`收银/Thu ngân: ${data.cashier}`, r.sz.small);
-  if (data.remark) r.leftText(`备注/Ghi chú: ${data.remark}`, r.sz.small);
-  r.separator();
-  r.renderReceiptItems(data.items);
-  r.separator();
-  r.rowText('小计/Tạm tính:', fmtVND(data.subtotal), r.sz.normal);
-  if (data.discount > 0) r.rowText('优惠/Giảm giá:', `-${fmtVND(data.discount)}`, r.sz.normal);
-  if (data.serviceCharge > 0) r.rowText('服务费/Phí phục vụ:', fmtVND(data.serviceCharge), r.sz.normal);
-  if (data.deliveryFee && data.deliveryFee > 0) r.rowText('配送费/Phí giao:', fmtVND(data.deliveryFee), r.sz.normal);
-  r.separator();
-  r.rowText('合计/TỔNG:', fmtVND(data.total), r.sz.medium, true);
-  r.rowText('实收/Thực thu:', fmtVND(data.paidAmount ?? data.total), r.sz.normal);
-  r.separator();
-  if (data.payments?.length) {
-    for (const p of data.payments) {
-      r.rowText(`支付/Thanh toán ${p.method}:`, fmtVND(p.amount), r.sz.normal);
-    }
-  } else {
-    r.rowText(`支付/Thanh toán ${data.paymentMethod || ''}:`, fmtVND(data.paidAmount), r.sz.normal);
-  }
-  if (data.change > 0) r.rowText('找零/Tiền thừa:', fmtVND(data.change), r.sz.normal);
-  r.gap(16);
-  const footer =
-    data.footerZh || data.footerVi
-      ? [data.footerZh, data.footerVi].filter(Boolean).join('  ')
-      : '谢谢惠顾  Cảm ơn quý khách!';
-  r.centerText(footer, r.sz.normal);
-  r.gap(24);
+  renderPayloadStyle(r, data as unknown as TicketPayloadData, {
+    fallbackTitleZh: '【结账】结账小票',
+    fallbackTitleVi: '【TT】Hóa đơn',
+    withPrice: true,
+    showTotals: true,
+  });
 }
 
 function renderDelivery(r: TicketRenderer, data: DeliveryData): void {
-  if (data.storeName) r.centerText(data.storeName, r.sz.medium, true);
-  r.invertedBanner('外卖 / GIAO HÀNG', r.sz.large);
-  r.separator();
-  r.rowText(`单号/Mã đơn: ${data.orderNo}`, fmtDateTime(data.createdAt), r.sz.small);
-  r.leftText(`客户/KH: ${data.customer}  ${data.phone}`, r.sz.normal);
-  r.leftText(`地址/Địa chỉ: ${data.address}`, r.sz.normal);
-  if (data.remark) r.leftText(`备注/Ghi chú: ${data.remark}`, r.sz.small);
-  r.separator();
-  r.renderReceiptItems(data.items);
-  r.separator();
-  r.rowText('小计/Tạm tính:', fmtVND(data.subtotal), r.sz.normal);
-  r.rowText('配送费/Phí giao:', fmtVND(data.deliveryFee), r.sz.normal);
-  r.rowText('合计/TỔNG:', fmtVND(data.total), r.sz.medium, true);
-  r.gap(24);
+  renderPayloadStyle(
+    r,
+    {
+      ...(data as unknown as TicketPayloadData),
+      remark: data.remark,
+    },
+    {
+      fallbackTitleZh: '【外卖】外卖单',
+      fallbackTitleVi: '【Giao】Đơn giao hàng',
+      withPrice: true,
+      showTotals: true,
+      extraMeta: () => {
+        if (data.customer || data.phone) {
+          r.leftText(`${L('客户', 'KH')}: ${data.customer || ''} ${data.phone || ''}`.trim(), r.sz.normal);
+        }
+        if (data.address) r.leftText(`${L('地址', 'Địa chỉ')}: ${data.address}`, r.sz.normal);
+      },
+    },
+  );
 }
 
 function renderShift(r: TicketRenderer, data: ShiftData): void {
-  if (data.storeName) r.centerText(data.storeName, r.sz.medium, true);
-  r.centerText('交班报表 / TỔNG KẾT CA', r.sz.large, true);
-  r.separator();
-  r.rowText('日期:', data.date, r.sz.normal);
-  r.rowText('收银员:', data.cashier, r.sz.normal);
-  if (data.openCash !== undefined) r.rowText('开始现金:', fmtVND(data.openCash), r.sz.normal);
-  r.separator();
-  r.leftText('支付明细:', r.sz.normal, true);
-  for (const b of data.breakdown) {
-    r.rowText(`  ${b.method}:`, fmtVND(b.amount), r.sz.normal);
-  }
-  r.separator();
-  r.rowText('总订单数:', String(data.totalOrders), r.sz.normal);
-  r.rowText('总营业额:', fmtVND(data.totalAmount), r.sz.medium, true);
-  if (data.closeCash !== undefined) r.rowText('结束现金:', fmtVND(data.closeCash), r.sz.normal);
-  r.gap(24);
+  renderPayloadStyle(
+    r,
+    {
+      storeNameZh: data.storeNameZh,
+      storeNameVi: data.storeNameVi,
+      storeName: data.storeName,
+      titleZh: data.titleZh,
+      titleVi: data.titleVi,
+      cashier: data.shift?.cashierName || data.cashier,
+      footerZh: undefined,
+      footerVi: undefined,
+      items: [],
+    },
+    {
+      fallbackTitleZh: '【交班】交班单',
+      fallbackTitleVi: '【Ca】Bàn giao ca',
+      afterItems: () => {
+        const shift = data.shift;
+        if (shift?.from || shift?.to) {
+          r.leftText(`${shift?.from || ''} ~ ${shift?.to || ''}`, r.sz.normal);
+        } else if (data.date) {
+          r.leftText(`${L('日期', 'Ngày')}: ${data.date}`, r.sz.normal);
+        }
+        if (data.openCash !== undefined) {
+          r.rowText(`${L('开始现金', 'Tiền đầu')}:`, fmtVND(data.openCash), r.sz.normal);
+        }
+        const breakdown = Array.isArray(data.breakdown) ? data.breakdown : [];
+        for (const b of breakdown) {
+          r.rowText(`  ${b.method}:`, fmtVND(b.amount), r.sz.normal);
+        }
+        r.dashedSeparator();
+        r.rowText(
+          `${L('单数', 'Số đơn')}:`,
+          String(shift?.orderCount ?? data.totalOrders ?? 0),
+          r.sz.normal,
+        );
+        r.rowText(
+          `${L('营业额', 'Doanh thu')}:`,
+          fmtVND(shift?.totalSales ?? data.totalAmount ?? 0),
+          r.sz.medium,
+          true,
+        );
+        if (data.closeCash !== undefined) {
+          r.rowText(`${L('结束现金', 'Tiền cuối')}:`, fmtVND(data.closeCash), r.sz.normal);
+        }
+      },
+    },
+  );
 }
 
 function renderTest(r: TicketRenderer, data: TestData, agentIdFallback: string): void {
-  r.centerText('===== 测试打印 =====', r.sz.normal, true);
-  r.centerText('PRINT TEST', r.sz.large, true);
+  r.leftText('===== 测试打印 / PRINT TEST =====', r.sz.large, true);
   r.separator();
   r.rowText('代理 ID:', data.agentId || agentIdFallback, r.sz.normal);
   r.rowText('时间:', fmtDateTime(new Date().toISOString()), r.sz.small);

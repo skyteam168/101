@@ -68,6 +68,9 @@ const {
   serialReady: printStationUsb,
   stationClaimed: printStationClaimed,
   statusText: printStationStatus,
+  statusDetail: printStationStatusDetail,
+  printerStatusKind,
+  agentUsbConfigured,
   baudRate: printStationBaud,
   setEnabled: setPrintStationEnabled,
   setBaudRate: setPrintStationBaud,
@@ -272,8 +275,9 @@ onUnmounted(() => {
           <span class="user-name">{{ userStore.profile?.displayName }}</span>
         </div>
         <div class="right">
-          <div class="print-station" :title="printStationStatus">
+          <div class="print-station" :title="printStationStatusDetail">
             <el-switch
+              v-if="!agentUsbConfigured"
               :model-value="printStationOn"
               size="small"
               inline-prompt
@@ -282,7 +286,7 @@ onUnmounted(() => {
               @change="onPrintStationToggle"
             />
             <el-select
-              v-if="printStationOn"
+              v-if="!agentUsbConfigured && printStationOn"
               :model-value="printStationBaud"
               size="small"
               class="print-baud"
@@ -293,7 +297,7 @@ onUnmounted(() => {
               <el-option :label="t('print.baud115200')" :value="115200" />
             </el-select>
             <el-button
-              v-if="printStationOn"
+              v-if="!agentUsbConfigured && printStationOn"
               text
               size="small"
               :loading="printStationConnecting"
@@ -303,11 +307,13 @@ onUnmounted(() => {
                 printStationUsb ? t('print.stationReconnectUsb') : t('print.stationConnectUsb')
               }}
             </el-button>
+            <span class="print-status-text">{{ printStationStatus }}</span>
             <span
               class="print-dot"
               :class="{
-                on: printStationClaimed && printStationUsb,
-                warn: printStationOn && !printStationUsb,
+                on: printerStatusKind === 'ok',
+                warn: printerStatusKind === 'warn',
+                err: printerStatusKind === 'off',
               }"
             />
           </div>
@@ -525,17 +531,30 @@ onUnmounted(() => {
 .print-baud {
   width: 100px;
 }
+.print-status-text {
+  font-size: 12px;
+  color: #606266;
+  max-width: 148px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .print-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #c0c4cc;
+  flex-shrink: 0;
 }
 .print-dot.on {
   background: #67c23a;
+  box-shadow: 0 0 0 2px rgba(103, 194, 58, 0.25);
 }
 .print-dot.warn {
   background: #e6a23c;
+}
+.print-dot.err {
+  background: #f56c6c;
 }
 .toggle {
   cursor: pointer;

@@ -19,6 +19,7 @@ import * as bcrypt from 'bcryptjs';
 import Redis from 'ioredis';
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../../prisma/prisma.service';
+import { printerDeviceStatusStore } from '../print/printer-device-status.store';
 
 type SocketAuth = {
   typ: 'staff' | 'guest' | 'customer' | 'agent';
@@ -170,6 +171,21 @@ export class RealtimeGateway
     });
     this.logger.log(`print agent ${agentId} online`);
     this.events.emit('print.agent.online', { agentId, storeId: agent.storeId.toString() });
+    // 下发需监控的 Windows 队列名，供代理探测真实通断电状态
+    const watch = await this.prisma.printer.findMany({
+      where: {
+        agentId: agent.id,
+        isActive: true,
+        connectionType: 'agent_usb',
+      },
+      select: { id: true, name: true, ip: true },
+    });
+    client.emit('print.agent.watch', {
+      printers: watch.map((p) => ({
+        id: p.id.toString(),
+        queueName: (p.ip || p.name || '').trim(),
+      })),
+    });
   }
 
   handleDisconnect(client: Socket) {
@@ -191,6 +207,7 @@ export class RealtimeGateway
       set.delete(client.id);
       if (set.size === 0) {
         this.agentSockets.delete(auth.agentId);
+        printerDeviceStatusStore.clearAgent(auth.agentId);
         void this.prisma.printAgent
           .update({
             where: { id: BigInt(auth.agentId) },
@@ -208,6 +225,34 @@ export class RealtimeGateway
 
   emitToAgent(agentId: string, event: string, payload: unknown) {
     this.server.to(`agent:${agentId}`).emit(event, payload);
+  }
+
+  @SubscribeMessage(Events.PRINT_AGENT_HEARTBEAT)
+  onAgentHeartbeat(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    body: {
+      printers?: Array<{ queueName?: string; ok?: boolean; detail?: string }>;
+    },
+  ) {
+    const auth = client.data.auth as SocketAuth | undefined;
+    if (auth?.typ !== 'agent' || !auth.agentId) return { ok: false };
+    const list = Array.isArray(body?.printers) ? body.printers : [];
+    printerDeviceStatusStore.upsert(
+      auth.agentId,
+      list.map((p) => ({
+        queueName: String(p.queueName || ''),
+        ok: !!p.ok,
+        detail: p.detail ? String(p.detail) : undefined,
+      })),
+    );
+    void this.prisma.printAgent
+      .update({
+        where: { id: BigInt(auth.agentId) },
+        data: { lastSeenAt: new Date(), status: PrintAgentStatus.online },
+      })
+      .catch(() => undefined);
+    return { ok: true };
   }
 
   @SubscribeMessage(Events.PRINT_ACK)

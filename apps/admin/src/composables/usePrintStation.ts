@@ -26,10 +26,15 @@ const stationClaimed = ref(false);
 const lastError = ref('');
 const baudRate = ref<SerialBaudRate>(loadSerialBaudRate());
 const browserPrinters = ref<Printer[]>([]);
+/** USB 静默代理（agent_usb）真实在线状态 */
+const agentUsbConfigured = ref(false);
+const agentUsbOnline = ref(false);
+const agentUsbLabel = ref('');
 const portRef = shallowRef<SerialPort | null>(null);
 let socket: Socket | null = null;
 let printing = false;
 const queue: PrintJobMessage[] = [];
+let agentPollTimer: ReturnType<typeof setInterval> | null = null;
 
 function t(key: string) {
   return String(i18n.global.t(key));
@@ -43,6 +48,60 @@ async function refreshBrowserPrinters() {
     );
   } catch {
     browserPrinters.value = [];
+  }
+}
+
+async function refreshAgentUsbStatus() {
+  if (!getAccessToken()) {
+    agentUsbConfigured.value = false;
+    agentUsbOnline.value = false;
+    agentUsbLabel.value = '';
+    return;
+  }
+  try {
+    const list = await listPrintersApi();
+    const agentUsb = list.filter((p) => p.isActive && p.connectionType === 'agent_usb');
+    agentUsbConfigured.value = agentUsb.length > 0;
+    // 优先看 Windows 队列真实通电状态；无心跳时再退回「仅代理进程在线」
+    const deviceReady = agentUsb.filter((p) => p.deviceOnline === true);
+    const deviceKnownOffline = agentUsb.some((p) => p.deviceOnline === false);
+    const agentProcessOnline = agentUsb.some((p) => p.agent?.status === 'online');
+    if (deviceReady.length > 0) {
+      agentUsbOnline.value = true;
+    } else if (deviceKnownOffline || agentUsb.some((p) => p.deviceOnline != null)) {
+      agentUsbOnline.value = false;
+    } else {
+      // 尚无设备心跳：不谎称正常
+      agentUsbOnline.value = false;
+    }
+    const sample = deviceReady[0] || agentUsb.find((p) => p.deviceOnline === false) || agentUsb[0];
+    const detail = sample?.deviceDetail
+      ? sample.deviceDetail
+      : agentProcessOnline
+        ? '等待打印机状态'
+        : '代理离线';
+    agentUsbLabel.value = sample
+      ? `${sample.name}${sample.ip ? ` · ${sample.ip}` : ''} · ${detail}`
+      : detail;
+  } catch {
+    agentUsbConfigured.value = false;
+    agentUsbOnline.value = false;
+    agentUsbLabel.value = '';
+  }
+}
+
+function startAgentPoll() {
+  if (agentPollTimer) return;
+  void refreshAgentUsbStatus();
+  agentPollTimer = setInterval(() => {
+    void refreshAgentUsbStatus();
+  }, 5000);
+}
+
+function stopAgentPoll() {
+  if (agentPollTimer) {
+    clearInterval(agentPollTimer);
+    agentPollTimer = null;
   }
 }
 
@@ -118,12 +177,37 @@ async function releaseStation() {
 
 export function usePrintStation() {
   const supported = computed(() => isWebSerialSupported());
+  /** 综合状态：优先反映 agent_usb 代理是否在线（真实出纸链路） */
+  const printerReady = computed(() => {
+    if (agentUsbConfigured.value) return agentUsbOnline.value;
+    return enabled.value && serialReady.value && stationClaimed.value;
+  });
+  const printerStatusKind = computed<'ok' | 'warn' | 'off'>(() => {
+    if (agentUsbConfigured.value) {
+      return agentUsbOnline.value ? 'ok' : 'off';
+    }
+    if (!enabled.value) return 'off';
+    if (!serialReady.value) return 'warn';
+    if (stationClaimed.value) return 'ok';
+    return 'warn';
+  });
   const statusText = computed(() => {
+    if (agentUsbConfigured.value) {
+      return agentUsbOnline.value
+        ? t('print.agentUsbOnline')
+        : t('print.agentUsbOffline');
+    }
     if (!enabled.value) return t('print.stationOff');
     if (!supported.value) return t('print.stationUnsupported');
     if (!serialReady.value) return t('print.stationNeedUsb');
     if (stationClaimed.value) return t('print.stationOnline');
     return t('print.stationConnecting');
+  });
+  const statusDetail = computed(() => {
+    if (agentUsbConfigured.value && agentUsbLabel.value) {
+      return `${statusText.value} · ${agentUsbLabel.value}`;
+    }
+    return statusText.value;
   });
 
   async function setBaudRate(next: SerialBaudRate) {
@@ -193,6 +277,7 @@ export function usePrintStation() {
   }
 
   async function startIfNeeded() {
+    startAgentPoll();
     if (!enabled.value || !getAccessToken()) return;
     if (!serialReady.value) {
       try {
@@ -212,6 +297,7 @@ export function usePrintStation() {
   }
 
   async function stop() {
+    stopAgentPoll();
     await releaseStation();
     socket?.disconnect();
     socket = null;
@@ -224,6 +310,8 @@ export function usePrintStation() {
     /* 全局单例不在组件卸载时关口，避免多处引用误关 */
   });
 
+  startAgentPoll();
+
   return {
     enabled,
     connecting,
@@ -231,6 +319,12 @@ export function usePrintStation() {
     stationClaimed,
     supported,
     statusText,
+    statusDetail,
+    printerReady,
+    printerStatusKind,
+    agentUsbConfigured,
+    agentUsbOnline,
+    agentUsbLabel,
     lastError,
     baudRate,
     browserPrinters,
@@ -240,6 +334,7 @@ export function usePrintStation() {
     startIfNeeded,
     stop,
     refreshBrowserPrinters,
+    refreshAgentUsbStatus,
   };
 }
 

@@ -115,8 +115,12 @@ function renderHtml(config: AgentConfig, socketState: SocketState): string {
   <!-- 测试打印 -->
   <div class="card">
     <h2>测试打印</h2>
-    <p style="font-size:13px;color:#666;margin-bottom:12px">输入打印机 IP 和端口，发送测试打印单。</p>
-    <input id="testIp" placeholder="打印机 IP，如 192.168.1.100" style="width:220px">
+    <p style="font-size:13px;color:#666;margin-bottom:12px">网口填 IP；USB 静默选「本机 USB」并填 Windows 打印机队列名（如 XP-58）。</p>
+    <select id="testMode" onchange="onTestMode()">
+      <option value="network">网口 TCP</option>
+      <option value="agent_usb">本机 USB（Windows RAW）</option>
+    </select>
+    <input id="testIp" placeholder="打印机 IP 或队列名" style="width:220px">
     <input id="testPort" placeholder="端口" value="9100" style="width:80px">
     <select id="testWidth">
       <option value="58">58mm (384px)</option>
@@ -146,13 +150,27 @@ function renderHtml(config: AgentConfig, socketState: SocketState): string {
   </div>
 
   <script>
+    function onTestMode() {
+      const mode = document.getElementById('testMode').value;
+      const portEl = document.getElementById('testPort');
+      const ipEl = document.getElementById('testIp');
+      if (mode === 'agent_usb') {
+        portEl.style.display = 'none';
+        ipEl.placeholder = 'Windows 打印机名，如 XP-58';
+        if (!ipEl.value) ipEl.value = 'XP-58';
+      } else {
+        portEl.style.display = '';
+        ipEl.placeholder = '打印机 IP，如 192.168.1.100';
+      }
+    }
     async function doTestPrint() {
+      const connectionType = document.getElementById('testMode').value;
       const ip = document.getElementById('testIp').value.trim();
       const port = parseInt(document.getElementById('testPort').value) || 9100;
       const paperWidth = parseInt(document.getElementById('testWidth').value);
       const btn = event.target;
       const resultEl = document.getElementById('testResult');
-      if (!ip) { alert('请输入打印机 IP'); return; }
+      if (!ip) { alert(connectionType === 'agent_usb' ? '请输入 Windows 打印机队列名' : '请输入打印机 IP'); return; }
       btn.disabled = true;
       btn.textContent = '发送中…';
       resultEl.style.display = 'none';
@@ -160,7 +178,7 @@ function renderHtml(config: AgentConfig, socketState: SocketState): string {
         const res = await fetch('/api/test-print', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ip, port, paperWidth })
+          body: JSON.stringify({ ip, port, paperWidth, connectionType })
         });
         const json = await res.json();
         resultEl.className = json.ok ? 'ok' : 'err';
@@ -182,7 +200,12 @@ function renderHtml(config: AgentConfig, socketState: SocketState): string {
 
 // ─────────────────────────── HTTP 服务 ───────────────────────────
 
-export type TestPrintFn = (ip: string, port: number, paperWidth: 58 | 80) => Promise<void>;
+export type TestPrintFn = (
+  ip: string,
+  port: number,
+  paperWidth: 58 | 80,
+  connectionType?: 'network' | 'agent_usb',
+) => Promise<void>;
 
 /**
  * 启动本地 HTTP 状态服务器。
@@ -225,7 +248,12 @@ export function startStatusServer(
       let body = '';
       req.on('data', (chunk) => (body += chunk.toString()));
       req.on('end', async () => {
-        let payload: { ip?: string; port?: number; paperWidth?: number };
+        let payload: {
+          ip?: string;
+          port?: number;
+          paperWidth?: number;
+          connectionType?: 'network' | 'agent_usb';
+        };
         try {
           payload = JSON.parse(body);
         } catch {
@@ -234,15 +262,20 @@ export function startStatusServer(
           return;
         }
 
-        const { ip, port = 9100, paperWidth = 58 } = payload;
+        const { ip, port = 9100, paperWidth = 58, connectionType = 'network' } = payload;
         if (!ip) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: '缺少 ip 参数' }));
+          res.end(
+            JSON.stringify({
+              ok: false,
+              error: connectionType === 'agent_usb' ? '缺少 Windows 打印机名' : '缺少 ip 参数',
+            }),
+          );
           return;
         }
 
         try {
-          await testPrintFn(ip, port, paperWidth as 58 | 80);
+          await testPrintFn(ip, port, paperWidth as 58 | 80, connectionType);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
         } catch (err) {

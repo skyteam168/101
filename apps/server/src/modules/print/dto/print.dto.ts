@@ -46,7 +46,9 @@ export class CreatePrinterDto {
   @MaxLength(128)
   name!: string;
 
-  @ApiPropertyOptional({ description: '网口 IP；cloud 为 Webhook URL；browser_usb 可省略' })
+  @ApiPropertyOptional({
+    description: '网口 IP；cloud 为 Webhook URL；agent_usb 为 Windows 打印机队列名；browser_usb 可省略',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(512)
@@ -69,10 +71,13 @@ export class CreatePrinterDto {
   @IsIn(['front', 'kitchen'])
   role!: 'front' | 'kitchen';
 
-  @ApiPropertyOptional({ enum: ['network', 'browser_usb', 'cloud'], default: 'network' })
+  @ApiPropertyOptional({
+    enum: ['network', 'browser_usb', 'agent_usb', 'cloud'],
+    default: 'network',
+  })
   @IsOptional()
-  @IsIn(['network', 'browser_usb', 'cloud'])
-  connectionType?: 'network' | 'browser_usb' | 'cloud';
+  @IsIn(['network', 'browser_usb', 'agent_usb', 'cloud'])
+  connectionType?: 'network' | 'browser_usb' | 'agent_usb' | 'cloud';
 
   @ApiPropertyOptional({ description: '单机承接全部票据（堂食/外卖/后厨）' })
   @IsOptional()
@@ -129,10 +134,10 @@ export class UpdatePrinterDto {
   @IsIn(['front', 'kitchen'])
   role?: 'front' | 'kitchen';
 
-  @ApiPropertyOptional({ enum: ['network', 'browser_usb', 'cloud'] })
+  @ApiPropertyOptional({ enum: ['network', 'browser_usb', 'agent_usb', 'cloud'] })
   @IsOptional()
-  @IsIn(['network', 'browser_usb', 'cloud'])
-  connectionType?: 'network' | 'browser_usb' | 'cloud';
+  @IsIn(['network', 'browser_usb', 'agent_usb', 'cloud'])
+  connectionType?: 'network' | 'browser_usb' | 'agent_usb' | 'cloud';
 
   @ApiPropertyOptional()
   @IsOptional()

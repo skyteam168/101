@@ -33,6 +33,8 @@ export const Events = {
   PRINT_FAILED: 'print.failed',
   PRINT_DONE: 'print.done',
   PRINT_ACK: 'print.ack',
+  /** 打印代理上报本机 Windows 打印机真实就绪状态 */
+  PRINT_AGENT_HEARTBEAT: 'print.agent.heartbeat',
   /** 员工页声明本机为打印台 */
   PRINT_STATION_CLAIM: 'print.station.claim',
   PRINT_STATION_RELEASE: 'print.station.release',
