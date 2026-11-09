@@ -239,6 +239,8 @@ export class RbacService {
 
     const beforeIds = await this.getRolePermissionIds(roleId);
     const ids = permissionIds.map((id) => BigInt(id));
+    // 先清缓存，避免事务窗口内仍读到旧权限码
+    await this.clearPermCacheForRole(role.id);
     await this.prisma.$transaction(async (tx) => {
       await tx.rolePermission.deleteMany({ where: { roleId: role.id } });
       if (ids.length) {

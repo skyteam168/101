@@ -171,6 +171,8 @@ async function onLogout() {
   opsAlert.stop();
   await stopPrintStation();
   await userStore.logout();
+  const { resetDynamicRoutes } = await import('../router');
+  resetDynamicRoutes();
   router.replace('/login');
 }
 
