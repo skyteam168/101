@@ -571,6 +571,7 @@
     "addAttendance": "Ghi vào/ra ca",
     "attendanceRequired": "Chọn NV và giờ vào",
     "deleteAttendanceConfirm": "Xóa bản ghi chấm công?",
+    "deleteEmployeeConfirm": "Xóa nhân viên 「{name}」? Chấm công liên quan cũng bị xóa; ảnh chốt tháng giữ nguyên.",
     "workDate": "Ngày",
     "clockIn": "Vào",
     "clockOut": "Ra",

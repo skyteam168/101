@@ -7,6 +7,7 @@ import {
   createAttendanceApi,
   createEmployeeApi,
   deleteAttendanceApi,
+  deleteEmployeeApi,
   getPayrollApi,
   listAttendanceApi,
   listEmployeesApi,
@@ -108,21 +109,35 @@ async function saveEmp() {
     ElMessage.warning(t('hr.nameRequired'));
     return;
   }
-  const payload = {
+  const base = {
     nameZh: empForm.nameZh.trim(),
     nameVi: empForm.nameVi.trim(),
     phone: empForm.phone || undefined,
     employmentType: empForm.employmentType,
-    status: empForm.status,
     baseSalary: parseThousands(empForm.baseSalaryText),
     hiredAt: empForm.hiredAt,
-    resignedAt: empForm.status === 'resigned' ? empForm.resignedAt || empForm.hiredAt : '',
     remark: empForm.remark || undefined,
   };
-  if (empForm.id) await updateEmployeeApi(empForm.id, payload);
-  else await createEmployeeApi(payload);
+  if (empForm.id) {
+    await updateEmployeeApi(empForm.id, {
+      ...base,
+      status: empForm.status,
+      resignedAt: empForm.status === 'resigned' ? empForm.resignedAt || empForm.hiredAt : '',
+    });
+  } else {
+    await createEmployeeApi(base);
+  }
   ElMessage.success(t('common.saved'));
   empDialog.value = false;
+  await loadEmployees();
+}
+
+async function removeEmp(row: Employee) {
+  await ElMessageBox.confirm(t('hr.deleteEmployeeConfirm', { name: nameOf(row) }), t('common.confirm'), {
+    type: 'warning',
+  });
+  await deleteEmployeeApi(row.id);
+  ElMessage.success(t('common.deleted'));
   await loadEmployees();
 }
 
@@ -223,9 +238,10 @@ function statusLabel(st: string) {
         </el-table-column>
         <el-table-column prop="hiredAt" :label="t('hr.hiredAt')" width="120" />
         <el-table-column prop="resignedAt" :label="t('hr.resignedAt')" width="120" />
-        <el-table-column :label="t('common.actions')" width="100" fixed="right">
+        <el-table-column :label="t('common.actions')" width="140" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" v-perm="'hr:edit'" @click="openEmp(row)">{{ t('common.edit') }}</el-button>
+            <el-button link type="danger" v-perm="'hr:edit'" @click="removeEmp(row)">{{ t('common.delete') }}</el-button>
           </template>
         </el-table-column>
       </el-table>

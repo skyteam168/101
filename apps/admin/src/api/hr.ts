@@ -68,6 +68,9 @@ export const createEmployeeApi = (data: Partial<Employee> & { nameZh: string; na
 export const updateEmployeeApi = (id: string, data: Partial<Employee>) =>
   apiPatch<Employee>(`/hr/employees/${id}`, data);
 
+export const deleteEmployeeApi = (id: string) =>
+  apiDelete<{ ok: boolean }>(`/hr/employees/${id}`);
+
 export const listAttendanceApi = (params?: { month?: string; employeeId?: string }) =>
   apiGet<Attendance[]>('/hr/attendance', params);
 

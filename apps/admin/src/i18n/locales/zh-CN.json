@@ -571,6 +571,7 @@
     "addAttendance": "录入上下班",
     "attendanceRequired": "请选择员工并填写上班时间",
     "deleteAttendanceConfirm": "确认删除该考勤记录？",
+    "deleteEmployeeConfirm": "确认删除员工「{name}」？其考勤记录将一并删除，已月结快照不受影响。",
     "workDate": "日期",
     "clockIn": "上班",
     "clockOut": "下班",

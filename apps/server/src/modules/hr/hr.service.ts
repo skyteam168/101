@@ -224,6 +224,28 @@ export class HrService {
     return mapped;
   }
 
+  async deleteEmployee(storeId: string, id: string, operatorId?: string) {
+    const existing = await this.prisma.employee.findFirst({
+      where: { id: BigInt(id), storeId: BigInt(storeId) },
+      include: { user: { select: { id: true, username: true, displayName: true } } },
+    });
+    if (!existing) throw new BusinessError('EMPLOYEE_NOT_FOUND');
+
+    // 考勤外键 ON DELETE CASCADE，事务内删除员工即可一并清掉关联考勤
+    await this.prisma.employee.delete({ where: { id: BigInt(id) } });
+
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'hr',
+      action: 'employee.delete',
+      targetType: 'employee',
+      targetId: id,
+      before: this.mapEmployee(existing),
+    });
+    return { ok: true };
+  }
+
   async listAttendance(storeId: string, query: AttendanceQueryDto) {
     const where: Prisma.EmployeeAttendanceWhereInput = { storeId: BigInt(storeId) };
     if (query.employeeId) where.employeeId = BigInt(query.employeeId);

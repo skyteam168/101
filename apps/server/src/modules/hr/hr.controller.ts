@@ -48,6 +48,12 @@ export class HrController {
     return this.hr.updateEmployee(this.storeId(user), id, dto, user.id);
   }
 
+  @Delete('employees/:id')
+  @RequirePerm('hr:edit')
+  deleteEmployee(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.hr.deleteEmployee(this.storeId(user), id, user.id);
+  }
+
   @Get('attendance')
   @RequirePerm('menu:hr')
   listAttendance(@CurrentUser() user: AuthUser, @Query() query: AttendanceQueryDto) {
