@@ -11,7 +11,8 @@ export type UserRow = {
   roles: { id: string; code: string; nameZh: string; nameVi: string }[];
 };
 
-export const listUsersApi = () => apiGet<UserRow[]>('/users');
+export const listUsersApi = (opts?: { skipErrorToast?: boolean; skipLoading?: boolean }) =>
+  apiGet<UserRow[]>('/users', undefined, opts);
 export const createUserApi = (data: Record<string, unknown>) => apiPost<UserRow>('/users', data);
 export const updateUserApi = (id: string, data: Record<string, unknown>) =>
   apiPatch<UserRow>(`/users/${id}`, data);

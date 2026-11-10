@@ -58,7 +58,10 @@ export const listDeliveryBoardApi = (params?: DeliveryBoardQuery) =>
 
 /** 待接单外卖数量（菜单角标） */
 export const getPendingDeliveryCountApi = () =>
-  apiGet<{ count: number }>('/delivery/pending-count');
+  apiGet<{ count: number }>('/delivery/pending-count', undefined, {
+    skipLoading: true,
+    skipErrorToast: true,
+  });
 
 export const listDeliveryCustomersApi = () => apiGet<DeliveryCustomer[]>('/delivery/customers');
 

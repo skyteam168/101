@@ -158,7 +158,7 @@ async function loadCustomers() {
 
 async function loadStaff() {
   try {
-    const res = await listUsersApi();
+    const res = await listUsersApi({ skipErrorToast: true, skipLoading: true });
     staff.value = Array.isArray(res) ? res : (res as { list?: UserRow[] }).list || [];
   } catch {
     staff.value = [];
@@ -215,8 +215,8 @@ function connectSocket() {
 }
 
 onMounted(() => {
+  // 不在挂载时拉员工列表：listUsers 需 menu:system:user，店长仅有外卖菜单时会误弹「没有权限」
   load();
-  loadStaff();
   connectSocket();
 });
 onUnmounted(() => {

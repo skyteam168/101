@@ -47,7 +47,11 @@ async function onSubmit() {
       <p class="sub">{{ t('auth.loginSubtitle') }}</p>
       <el-form label-position="top" @submit.prevent="onSubmit">
         <el-form-item :label="t('auth.username')">
-          <el-input v-model="form.username" autocomplete="username" />
+          <el-input
+            v-model="form.username"
+            autocomplete="username"
+            :placeholder="t('auth.usernamePlaceholder')"
+          />
         </el-form-item>
         <el-form-item :label="t('auth.password')">
           <el-input
@@ -55,6 +59,7 @@ async function onSubmit() {
             type="password"
             show-password
             autocomplete="current-password"
+            :placeholder="t('auth.passwordPlaceholder')"
           />
         </el-form-item>
         <TurnstileWidget

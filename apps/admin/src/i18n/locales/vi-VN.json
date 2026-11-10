@@ -7,6 +7,8 @@
     "logout": "Đăng xuất",
     "username": "Tên đăng nhập",
     "password": "Mật khẩu",
+    "usernamePlaceholder": "Nhập tên đăng nhập",
+    "passwordPlaceholder": "Nhập mật khẩu",
     "loginSubtitle": "Nhập tài khoản để vào hệ thống",
     "demoHint": "Demo: admin / Admin{'@'}123 · cashier / Cashier{'@'}123",
     "turnstileRequired": "Vui lòng hoàn thành xác minh",

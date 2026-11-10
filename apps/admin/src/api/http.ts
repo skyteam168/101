@@ -17,6 +17,8 @@ type ApiBody<T = unknown> = {
 
 type RequestConfig = InternalAxiosRequestConfig & {
   skipLoading?: boolean;
+  /** 预期可能失败（如无权限角标轮询），不弹全局错误 toast */
+  skipErrorToast?: boolean;
 };
 
 const http = axios.create({
@@ -92,10 +94,13 @@ http.interceptors.response.use(
     endLoading(res.config as RequestConfig);
     const body = res.data as ApiBody;
     if (body && typeof body === 'object' && 'code' in body && body.code !== 0) {
-      const key = `errors.${body.code}`;
-      const translated = i18n.global.t(key);
-      const msg = translated === key ? body.message || String(body.code) : String(translated);
-      ElMessage.error(msg);
+      const cfg = res.config as RequestConfig;
+      if (!cfg.skipErrorToast) {
+        const key = `errors.${body.code}`;
+        const translated = i18n.global.t(key);
+        const msg = translated === key ? body.message || String(body.code) : String(translated);
+        ElMessage.error(msg);
+      }
       return Promise.reject(body);
     }
     return res;
@@ -105,6 +110,7 @@ http.interceptors.response.use(
     const status = error.response?.status;
     const code = error.response?.data?.code;
     const original = error.config as RequestConfig & { _retry?: boolean };
+    const silent = !!original?.skipErrorToast;
 
     if (status === 401 && original && !original._retry && !original.url?.includes('/auth/login')) {
       original._retry = true;
@@ -123,26 +129,32 @@ http.interceptors.response.use(
       }
     }
 
-    const errCode = code || (status === 403 ? 'FORBIDDEN' : status === 401 ? 'UNAUTHORIZED' : 'HTTP_ERROR');
-    const key = `errors.${errCode}`;
-    const translated = i18n.global.t(key);
-    const serverMsg = error.response?.data?.message;
-    // HTTP_ERROR / 校验失败：优先展示后端具体原因，避免只看到「请求失败」
-    if (
-      (errCode === 'HTTP_ERROR' || errCode === 'INTERNAL_ERROR') &&
-      typeof serverMsg === 'string' &&
-      serverMsg.trim()
-    ) {
-      ElMessage.error(serverMsg);
-    } else {
-      ElMessage.error(translated === key ? serverMsg || error.message : String(translated));
+    if (!silent) {
+      const errCode = code || (status === 403 ? 'FORBIDDEN' : status === 401 ? 'UNAUTHORIZED' : 'HTTP_ERROR');
+      const key = `errors.${errCode}`;
+      const translated = i18n.global.t(key);
+      const serverMsg = error.response?.data?.message;
+      // HTTP_ERROR / 校验失败：优先展示后端具体原因，避免只看到「请求失败」
+      if (
+        (errCode === 'HTTP_ERROR' || errCode === 'INTERNAL_ERROR') &&
+        typeof serverMsg === 'string' &&
+        serverMsg.trim()
+      ) {
+        ElMessage.error(serverMsg);
+      } else {
+        ElMessage.error(translated === key ? serverMsg || error.message : String(translated));
+      }
     }
     return Promise.reject(error);
   },
 );
 
-export async function apiGet<T>(url: string, params?: object): Promise<T> {
-  const { data } = await http.get<ApiBody<T>>(url, { params });
+export async function apiGet<T>(
+  url: string,
+  params?: object,
+  config?: { skipLoading?: boolean; skipErrorToast?: boolean },
+): Promise<T> {
+  const { data } = await http.get<ApiBody<T>>(url, { params, ...config });
   return data.data;
 }
 

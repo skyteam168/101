@@ -165,4 +165,7 @@ export const confirmBatchApi = (batchId: string) =>
 
 /** 扫码待确认轮次数量（菜单角标） */
 export const getPendingConfirmCountApi = () =>
-  apiGet<{ count: number }>('/orders/pending-confirm-count');
+  apiGet<{ count: number }>('/orders/pending-confirm-count', undefined, {
+    skipLoading: true,
+    skipErrorToast: true,
+  });

@@ -7,6 +7,8 @@
     "logout": "退出",
     "username": "用户名",
     "password": "密码",
+    "usernamePlaceholder": "请输入用户名",
+    "passwordPlaceholder": "请输入密码",
     "loginSubtitle": "请输入账号密码登录后台",
     "demoHint": "演示：admin / Admin{'@'}123 · cashier / Cashier{'@'}123",
     "turnstileRequired": "请先完成人机验证",

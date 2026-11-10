@@ -96,6 +96,8 @@ async function doClearTable(table: FloorTable, skipConfirm = false) {
   if (!skipConfirm) {
     await ElMessageBox.confirm(t('tables.clearConfirm', { code: table.code }), t('common.confirm'), {
       type: 'warning',
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
     });
   }
   await clearTableApi(table.id);

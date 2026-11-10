@@ -43,7 +43,11 @@ export const listChatConversationsApi = () =>
   apiGet<ChatConversation[]>('/chat/conversations');
 
 /** 顾客消息未读总数（菜单角标） */
-export const getChatUnreadCountApi = () => apiGet<{ count: number }>('/chat/unread-count');
+export const getChatUnreadCountApi = () =>
+  apiGet<{ count: number }>('/chat/unread-count', undefined, {
+    skipLoading: true,
+    skipErrorToast: true,
+  });
 
 export const listChatMessagesApi = (
   id: string,

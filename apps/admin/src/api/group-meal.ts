@@ -24,7 +24,10 @@ export function listGroupMealInquiriesApi(params?: { status?: string }) {
 
 /** 待处理团购询单数量（菜单角标） */
 export const getPendingGroupMealCountApi = () =>
-  apiGet<{ count: number }>('/group-meal/inquiries/pending-count');
+  apiGet<{ count: number }>('/group-meal/inquiries/pending-count', undefined, {
+    skipLoading: true,
+    skipErrorToast: true,
+  });
 
 
 export function updateGroupMealInquiryApi(

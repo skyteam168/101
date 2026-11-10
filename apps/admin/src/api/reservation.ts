@@ -57,7 +57,10 @@ export const listReservationsApi = async (params?: {
 
 /** 待确认预定数量（菜单角标） */
 export const getPendingReservationCountApi = () =>
-  apiGet<{ count: number }>('/reservations/pending-count');
+  apiGet<{ count: number }>('/reservations/pending-count', undefined, {
+    skipLoading: true,
+    skipErrorToast: true,
+  });
 
 /** 厨房预点备料 */
 export const listKitchenPreordersApi = () =>
