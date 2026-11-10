@@ -7,7 +7,7 @@ import { useI18n } from 'vue-i18n';
 import { elementLocale } from './i18n';
 
 const { locale } = useI18n();
-const appContext = getCurrentInstance()?.appContext;
+const app = getCurrentInstance()?.appContext.app;
 
 watch(
   locale,
@@ -15,7 +15,7 @@ watch(
     const next = val === 'vi-VN' ? vi : zhCn;
     elementLocale.value = next;
     // MessageBox / Message 等命令式组件不在 ConfigProvider 子树内，需同步全局 locale
-    provideGlobalConfig({ locale: next }, appContext, true);
+    provideGlobalConfig({ locale: next }, app, true);
   },
   { immediate: true },
 );
