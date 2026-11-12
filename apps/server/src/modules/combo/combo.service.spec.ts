@@ -23,21 +23,35 @@ function makePrisma() {
     },
     orderItem: {
       count: jest.fn(),
+      updateMany: jest.fn(),
     },
-    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn({
-      combo: {
-        create: jest.fn(),
-        update: jest.fn(),
-        findUniqueOrThrow: jest.fn(),
-      },
-      comboGroup: {
-        deleteMany: jest.fn(),
-        create: jest.fn(),
-      },
-      comboGroupItem: {
-        create: jest.fn(),
-      },
-    })),
+    groupMealInquiry: {
+      updateMany: jest.fn(),
+    },
+    audit: { log: jest.fn() },
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        combo: {
+          create: jest.fn(),
+          update: jest.fn(),
+          delete: jest.fn(),
+          findUniqueOrThrow: jest.fn(),
+        },
+        comboGroup: {
+          deleteMany: jest.fn(),
+          create: jest.fn(),
+        },
+        comboGroupItem: {
+          create: jest.fn(),
+        },
+        orderItem: {
+          updateMany: jest.fn(),
+        },
+        groupMealInquiry: {
+          updateMany: jest.fn(),
+        },
+      }),
+    ),
   };
 }
 
@@ -137,7 +151,7 @@ describe('ComboService.findById', () => {
 });
 
 describe('ComboService.delete', () => {
-  it('套餐有订单引用时拒绝删除（COMBO_IN_USE）', async () => {
+  it('套餐被进行中订单引用时拒绝删除（COMBO_IN_USE）', async () => {
     const prisma = makePrisma();
     prisma.combo.findFirst.mockResolvedValue(makeComboRow());
     prisma.orderItem.count.mockResolvedValue(3);
@@ -154,15 +168,17 @@ describe('ComboService.delete', () => {
     await expect(service.delete('1', '1')).rejects.toThrow(BusinessError);
   });
 
-  it('正常删除返回 { success: true }', async () => {
+  it('仅历史引用时可断开 FK 后删除', async () => {
     const prisma = makePrisma();
     prisma.combo.findFirst.mockResolvedValue(makeComboRow());
     prisma.orderItem.count.mockResolvedValue(0);
-    prisma.combo.delete.mockResolvedValue({});
+    const audit = { log: jest.fn() };
 
-    const service = new ComboService(prisma as never, { log: jest.fn() } as never);
-    const result = await service.delete('1', '1');
+    const service = new ComboService(prisma as never, audit as never);
+    const result = await service.delete('1', '1', '9');
     expect(result.success).toBe(true);
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(audit.log).toHaveBeenCalled();
   });
 });
 

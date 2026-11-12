@@ -150,4 +150,20 @@ export class GroupMealService {
     });
     return mapped;
   }
+
+  async delete(storeId: string, id: string) {
+    const existing = await this.prisma.groupMealInquiry.findFirst({
+      where: { id: BigInt(id), storeId: BigInt(storeId) },
+    });
+    if (!existing) throw new BusinessError('GROUP_MEAL_INQUIRY_NOT_FOUND');
+    await this.prisma.groupMealInquiry.delete({ where: { id: existing.id } });
+    const pendingCount = await this.countPending(storeId);
+    this.events.emit(Events.GROUP_MEAL_INQUIRY_CREATED, {
+      storeId,
+      inquiry: { id },
+      pendingCount,
+      deleted: true,
+    });
+    return { success: true };
+  }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { OrderStatus } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -106,5 +106,11 @@ export class DeliveryAdminController {
   @RequirePerm('delivery:accept')
   assign(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: AssignCourierDto) {
     return this.orders.assignCourier(this.storeId(user), id, dto.courierId, user.id);
+  }
+
+  @Delete('orders/:id')
+  @RequirePerm('delivery:delete')
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.orders.adminDelete(this.storeId(user), id, user.id);
   }
 }

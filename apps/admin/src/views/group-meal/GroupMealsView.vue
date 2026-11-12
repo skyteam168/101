@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { formatVND, localeField } from '@restaurant/shared';
 import {
+  deleteGroupMealInquiryApi,
   listGroupMealInquiriesApi,
   updateGroupMealInquiryApi,
   type GroupMealInquiry,
@@ -29,6 +30,17 @@ async function refresh() {
 async function setStatus(row: GroupMealInquiry, next: string) {
   await updateGroupMealInquiryApi(row.id, { status: next });
   ElMessage.success(t('common.saved'));
+  await refresh();
+}
+
+async function remove(row: GroupMealInquiry) {
+  await ElMessageBox.confirm(t('groupMeal.deleteConfirm', { name: row.contactName }), t('common.confirm'), {
+    type: 'warning',
+    confirmButtonText: t('common.confirm'),
+    cancelButtonText: t('common.cancel'),
+  });
+  await deleteGroupMealInquiryApi(row.id);
+  ElMessage.success(t('common.deleted'));
   await refresh();
 }
 
@@ -73,7 +85,7 @@ onMounted(refresh);
       <el-table-column prop="status" :label="t('common.status')" width="110">
         <template #default="{ row }">{{ t(`groupMeal.status.${row.status}`) }}</template>
       </el-table-column>
-      <el-table-column :label="t('common.actions')" width="200" fixed="right">
+      <el-table-column :label="t('common.actions')" width="240" fixed="right">
         <template #default="{ row }">
           <el-button
             v-if="row.status === 'pending'"
@@ -92,6 +104,9 @@ onMounted(refresh);
             @click="setStatus(row, 'rejected')"
           >
             {{ t('groupMeal.reject') }}
+          </el-button>
+          <el-button v-perm="'group_meal:delete'" link type="danger" @click="remove(row)">
+            {{ t('common.delete') }}
           </el-button>
         </template>
       </el-table-column>

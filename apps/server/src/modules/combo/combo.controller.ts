@@ -59,10 +59,10 @@ export class ComboController {
     return this.comboService.update(this.storeId(user), id, dto, user.id);
   }
 
-  /** 删除套餐（有订单引用则拒绝） */
+  /** 删除套餐（进行中订单引用则拒绝；历史订单断开 comboId） */
   @Delete(':id')
   @RequirePerm('combo:edit')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.comboService.delete(this.storeId(user), id);
+    return this.comboService.delete(this.storeId(user), id, user.id);
   }
 }

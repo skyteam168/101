@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePerm } from '../../common/decorators/require-perm.decorator';
@@ -40,5 +40,11 @@ export class GroupMealController {
     @Body() dto: UpdateGroupMealInquiryDto,
   ) {
     return this.service.update(this.storeId(user), id, dto);
+  }
+
+  @Delete(':id')
+  @RequirePerm('group_meal:delete')
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.delete(this.storeId(user), id);
   }
 }

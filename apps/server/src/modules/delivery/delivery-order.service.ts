@@ -1017,4 +1017,37 @@ export class DeliveryOrderService {
       createdAt: c.createdAt,
     }));
   }
+
+  /** 删除已结束的外卖单（测试数据清理）；进行中请先取消/拒单 */
+  async adminDelete(storeId: string, orderId: string, userId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id: BigInt(orderId), storeId: BigInt(storeId), type: OrderType.delivery },
+      select: { id: true, orderNo: true, status: true, total: true },
+    });
+    if (!order) throw new BusinessError('ORDER_NOT_FOUND');
+    const deletable: OrderStatus[] = [
+      OrderStatus.completed,
+      OrderStatus.cancelled,
+      OrderStatus.rejected,
+    ];
+    if (!deletable.includes(order.status)) {
+      throw new BusinessError('DELIVERY_ORDER_NOT_DELETABLE');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.printJob.deleteMany({ where: { orderId: order.id } });
+      await tx.order.delete({ where: { id: order.id } });
+    });
+
+    await this.audit.log({
+      userId,
+      storeId,
+      module: 'delivery',
+      action: 'delivery.delete',
+      targetType: 'order',
+      targetId: orderId,
+      before: { orderNo: order.orderNo, status: order.status, total: Number(order.total) },
+    });
+    return { success: true };
+  }
 }

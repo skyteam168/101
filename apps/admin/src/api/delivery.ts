@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './http';
+import { apiDelete, apiGet, apiPost } from './http';
 
 export type DeliveryOrder = {
   id: string;
@@ -75,3 +75,4 @@ export const cancelDeliveryApi = (id: string, reason?: string) =>
   apiPost(`/delivery/orders/${id}/cancel`, { reason });
 export const assignCourierApi = (id: string, courierId: string) =>
   apiPost(`/delivery/orders/${id}/assign`, { courierId });
+export const deleteDeliveryApi = (id: string) => apiDelete(`/delivery/orders/${id}`);

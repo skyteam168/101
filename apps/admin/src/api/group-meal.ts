@@ -1,4 +1,4 @@
-import { apiGet, apiPatch } from './http';
+import { apiDelete, apiGet, apiPatch } from './http';
 
 export type GroupMealInquiry = {
   id: string;
@@ -35,4 +35,8 @@ export function updateGroupMealInquiryApi(
   data: { status?: string; adminRemark?: string },
 ) {
   return apiPatch<GroupMealInquiry>(`/group-meal/inquiries/${id}`, data);
+}
+
+export function deleteGroupMealInquiryApi(id: string) {
+  return apiDelete<{ success: boolean }>(`/group-meal/inquiries/${id}`);
 }

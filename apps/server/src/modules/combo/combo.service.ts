@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ComboStatus, Prisma } from '@prisma/client';
+import { ComboStatus, OrderStatus, Prisma } from '@prisma/client';
 import { BusinessError } from '../../common/errors/business.error';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -253,18 +253,47 @@ export class ComboService {
     return mapped;
   }
 
-  async delete(storeId: string, comboId: string) {
+  async delete(storeId: string, comboId: string, operatorId?: string) {
     const cid = BigInt(comboId);
     const existing = await this.prisma.combo.findFirst({
       where: { id: cid, storeId: BigInt(storeId) },
     });
     if (!existing) throw new BusinessError('COMBO_NOT_FOUND');
 
-    // 检查是否有已使用此套餐的订单项
-    const used = await this.prisma.orderItem.count({ where: { comboId: cid } });
-    if (used > 0) throw new BusinessError('COMBO_IN_USE');
+    // 进行中订单仍引用则拒绝；历史明细已快照名称，可断开 FK 后删除
+    const activeUsed = await this.prisma.orderItem.count({
+      where: {
+        comboId: cid,
+        order: {
+          status: {
+            in: [
+              OrderStatus.open,
+              OrderStatus.pending,
+              OrderStatus.accepted,
+              OrderStatus.cooking,
+              OrderStatus.delivering,
+            ],
+          },
+        },
+      },
+    });
+    if (activeUsed > 0) throw new BusinessError('COMBO_IN_USE');
 
-    await this.prisma.combo.delete({ where: { id: cid } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.orderItem.updateMany({ where: { comboId: cid }, data: { comboId: null } });
+      await tx.groupMealInquiry.updateMany({ where: { comboId: cid }, data: { comboId: null } });
+      await tx.combo.delete({ where: { id: cid } });
+    });
+
+    await this.audit.log({
+      userId: operatorId,
+      storeId,
+      module: 'menu',
+      action: 'combo.delete',
+      targetType: 'combo',
+      targetId: comboId,
+      before: { nameZh: existing.nameZh, nameVi: existing.nameVi },
+    });
     return { success: true };
   }
 

@@ -295,6 +295,13 @@ const PERMISSION_TREE: PermDef[] = [
         sort: 10,
       },
       {
+        code: 'delivery:delete',
+        nameZh: '删除外卖单',
+        nameVi: 'Xóa đơn giao',
+        type: PermissionType.button,
+        sort: 10,
+      },
+      {
         code: 'print:reprint',
         nameZh: '重打小票',
         nameVi: 'In lại',
@@ -400,6 +407,13 @@ const PERMISSION_TREE: PermDef[] = [
         sort: 22,
       },
       {
+        code: 'group_meal:delete',
+        nameZh: '删除团餐询单',
+        nameVi: 'Xóa đặt suất nhóm',
+        type: PermissionType.button,
+        sort: 22,
+      },
+      {
         code: 'chat:reply',
         nameZh: '回复顾客消息',
         nameVi: 'Trả lời tin nhắn',
@@ -461,6 +475,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'order:checkout',
     'order:refund',
     'delivery:accept',
+    'delivery:delete',
     'print:reprint',
     'asset:scrap',
     'asset:sell',
@@ -475,6 +490,7 @@ const ROLE_PERMS: Record<string, string[] | '*'> = {
     'reservation:edit',
     'group_meal:view',
     'group_meal:edit',
+    'group_meal:delete',
   ],
   cashier: [
     'menu:dish',

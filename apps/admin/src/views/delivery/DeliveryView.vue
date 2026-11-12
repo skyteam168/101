@@ -12,6 +12,7 @@ import {
   cancelDeliveryApi,
   completeDeliveryApi,
   cookingDeliveryApi,
+  deleteDeliveryApi,
   deliveringDeliveryApi,
   listDeliveryBoardApi,
   listDeliveryCustomersApi,
@@ -47,6 +48,8 @@ const columns = [
   { status: 'cooking', key: 'cooking' },
   { status: 'delivering', key: 'delivering' },
   { status: 'completed', key: 'completed' },
+  { status: 'cancelled', key: 'cancelled' },
+  { status: 'rejected', key: 'rejected' },
 ] as const;
 
 const byStatus = computed(() => {
@@ -190,6 +193,20 @@ async function act(order: DeliveryOrder, action: string) {
       );
       const courierId = value.includes(':') ? value.split(':')[0] : value;
       await assignCourierApi(order.id, courierId.trim());
+    } else if (action === 'delete') {
+      await ElMessageBox.confirm(
+        t('delivery.deleteConfirm', { no: shortNo(order.orderNo) }),
+        t('common.confirm'),
+        {
+          type: 'warning',
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+        },
+      );
+      await deleteDeliveryApi(order.id);
+      ElMessage.success(t('common.deleted'));
+      await load();
+      return;
     }
     ElMessage.success(t('common.saved'));
     await load();
@@ -340,38 +357,40 @@ onUnmounted(() => {
                 {{ t('delivery.itemCount', { n: itemQtyTotal(o) }) }}
               </div>
               <div class="muted" v-if="o.courierName">{{ t('delivery.courier') }}: {{ o.courierName }}</div>
-              <div class="actions" v-perm="'delivery:accept'">
-                <el-button v-if="o.status === 'pending'" size="small" type="primary" @click="act(o, 'accept')">
-                  {{ t('delivery.accept') }}
-                </el-button>
-                <el-button v-if="o.status === 'pending'" size="small" type="danger" @click="act(o, 'reject')">
-                  {{ t('delivery.reject') }}
-                </el-button>
-                <el-button v-if="o.status === 'accepted'" size="small" @click="act(o, 'cooking')">
-                  {{ t('delivery.cooking') }}
-                </el-button>
-                <el-button v-if="o.status === 'cooking'" size="small" @click="act(o, 'delivering')">
-                  {{ t('delivery.delivering') }}
-                </el-button>
-                <el-button v-if="o.status === 'delivering'" size="small" type="success" @click="act(o, 'complete')">
-                  {{ t('delivery.complete') }}
-                </el-button>
-                <el-button
-                  v-if="['accepted', 'cooking', 'delivering'].includes(o.status)"
-                  size="small"
-                  @click="act(o, 'assign')"
-                >
-                  {{ t('delivery.assign') }}
-                </el-button>
-                <el-button
-                  v-if="['accepted', 'cooking', 'delivering'].includes(o.status)"
-                  size="small"
-                  type="danger"
-                  plain
-                  @click="act(o, 'cancel')"
-                >
-                  {{ t('common.cancel') }}
-                </el-button>
+              <div class="actions">
+                <template v-if="userStore.hasPerm('delivery:accept')">
+                  <el-button v-if="o.status === 'pending'" size="small" type="primary" @click="act(o, 'accept')">
+                    {{ t('delivery.accept') }}
+                  </el-button>
+                  <el-button v-if="o.status === 'pending'" size="small" type="danger" @click="act(o, 'reject')">
+                    {{ t('delivery.reject') }}
+                  </el-button>
+                  <el-button v-if="o.status === 'accepted'" size="small" @click="act(o, 'cooking')">
+                    {{ t('delivery.cooking') }}
+                  </el-button>
+                  <el-button v-if="o.status === 'cooking'" size="small" @click="act(o, 'delivering')">
+                    {{ t('delivery.delivering') }}
+                  </el-button>
+                  <el-button v-if="o.status === 'delivering'" size="small" type="success" @click="act(o, 'complete')">
+                    {{ t('delivery.complete') }}
+                  </el-button>
+                  <el-button
+                    v-if="['accepted', 'cooking', 'delivering'].includes(o.status)"
+                    size="small"
+                    @click="act(o, 'assign')"
+                  >
+                    {{ t('delivery.assign') }}
+                  </el-button>
+                  <el-button
+                    v-if="['accepted', 'cooking', 'delivering'].includes(o.status)"
+                    size="small"
+                    type="danger"
+                    plain
+                    @click="act(o, 'cancel')"
+                  >
+                    {{ t('common.cancel') }}
+                  </el-button>
+                </template>
                 <el-button
                   v-if="
                     o.status === 'completed' &&
@@ -385,6 +404,17 @@ onUnmounted(() => {
                   @click="router.push(`/orders/${o.id}`)"
                 >
                   {{ t('order.refund') }}
+                </el-button>
+                <el-button
+                  v-if="
+                    ['completed', 'cancelled', 'rejected'].includes(o.status) &&
+                    userStore.hasPerm('delivery:delete')
+                  "
+                  size="small"
+                  type="danger"
+                  @click="act(o, 'delete')"
+                >
+                  {{ t('common.delete') }}
                 </el-button>
               </div>
             </div>
@@ -428,7 +458,7 @@ h3 {
 }
 .board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  grid-template-columns: repeat(7, minmax(220px, 1fr));
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 8px;
